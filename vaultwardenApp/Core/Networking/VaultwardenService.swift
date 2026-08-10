@@ -5,6 +5,12 @@ import Foundation
 nonisolated protocol VaultwardenService: Sendable {
     func discover(serverURL: URL) async throws -> ServerConfiguration
     func login(serverURL: URL, email: String, masterPassword: String) async throws -> AuthenticatedSession
+    func pendingLoginRequests(session: AuthenticatedSession) async throws -> [PendingLoginRequest]
+    func respondToLoginRequest(
+        _ request: PendingLoginRequest,
+        approved: Bool,
+        session: AuthenticatedSession
+    ) async throws
     func sync(session: AuthenticatedSession) async throws -> EncryptedVaultSnapshot
     func loadCachedVault(session: AuthenticatedSession) async throws -> EncryptedVaultSnapshot
     func refreshEncryptedCache(session: AuthenticatedSession) async throws
@@ -37,7 +43,12 @@ nonisolated protocol VaultwardenService: Sendable {
     ) async throws -> PreparedVaultMutation
     func prepareSendPasswordRemoval(item: SendItem, session: AuthenticatedSession) -> PreparedVaultMutation
     func prepareSendDelete(id: UUID, session: AuthenticatedSession) -> PreparedVaultMutation
-    func createFileSend(item: SendItem, password: String?, fileURL: URL, session: AuthenticatedSession) async throws
+    func createFileSend(
+        item: SendItem,
+        password: String?,
+        fileURL: URL,
+        session: AuthenticatedSession
+    ) async throws -> UUID
     func downloadAndDecryptSendFile(
         item: SendItem,
         remote: RemoteSendState,
@@ -85,6 +96,15 @@ struct AuthenticatedSession: Sendable {
     let tokenReference: String
 }
 
+struct PendingLoginRequest: Identifiable, Equatable, Sendable {
+    let id: String
+    let publicKey: String
+    let deviceType: String
+    let ipAddress: String
+    let creationDate: Date
+    let origin: String?
+}
+
 struct EncryptedVaultSnapshot: Sendable {
     let revision: Date
     let encryptedPayload: Data
@@ -103,6 +123,7 @@ enum VaultwardenServiceError: LocalizedError {
     case invalidTokenResponse(field: String)
     case invalidFileSendResponse
     case missingSendFile
+    case sendFileTooLarge
     case unsupportedFileUpload
     case archiveNotSupported
 
@@ -120,6 +141,7 @@ enum VaultwardenServiceError: LocalizedError {
             "The token response is missing or has an invalid '\(field)' field."
         case .invalidFileSendResponse: "Vaultwarden returned an invalid file Send response."
         case .missingSendFile: "The selected Send file is no longer available."
+        case .sendFileTooLarge: "Send files must be 100 MB or smaller."
         case .unsupportedFileUpload: "This server returned an unsupported file upload target."
         case .archiveNotSupported:
             "This Vaultwarden server does not support archiving items. Update the server, then try again."
@@ -216,6 +238,70 @@ struct DefaultVaultwardenService: VaultwardenService {
         try sessionStore.saveVaultKey(userKey, reference: reference)
         await keyMemory.store(userKey, reference: reference)
         return AuthenticatedSession(accountID: normalizedEmail, serverURL: baseURL, tokenReference: reference)
+    }
+
+    func pendingLoginRequests(session: AuthenticatedSession) async throws -> [PendingLoginRequest] {
+        let (data, _) = try await authenticatedResponse(
+            session: session,
+            method: "GET",
+            path: "api/auth-requests/pending"
+        )
+        guard let response = try? BitwardenJSONDecoder.make().decode(PendingLoginRequestListDTO.self, from: data) else {
+            throw VaultwardenServiceError.invalidResponse
+        }
+        return try response.data.map { request in
+            guard UUID(uuidString: request.id) != nil,
+                  !request.publicKey.isEmpty,
+                  let creationDate = Self.parseServerDate(request.creationDate) else {
+                throw VaultwardenServiceError.invalidResponse
+            }
+            return PendingLoginRequest(
+                id: request.id,
+                publicKey: request.publicKey,
+                deviceType: request.requestDeviceType,
+                ipAddress: request.requestIpAddress,
+                creationDate: creationDate,
+                origin: request.origin
+            )
+        }.sorted { $0.creationDate > $1.creationDate }
+    }
+
+    func respondToLoginRequest(
+        _ request: PendingLoginRequest,
+        approved: Bool,
+        session: AuthenticatedSession
+    ) async throws {
+        let encryptedUserKey: String
+        if approved {
+            let credentials = try sessionStore.load(reference: session.tokenReference)
+            guard let userKey = await keyMemory.load(reference: session.tokenReference) else {
+                throw VaultwardenServiceError.vaultLocked
+            }
+            let client = try await BitwardenCipherWriter.initializedClient(
+                email: session.accountID,
+                userKey: userKey,
+                credentials: credentials,
+                organizationKeys: [:]
+            )
+            encryptedUserKey = try client.auth().approveAuthRequest(publicKey: request.publicKey)
+        } else {
+            encryptedUserKey = ""
+        }
+
+        let body = try JSONEncoder().encode(
+            LoginRequestResponseDTO(
+                deviceIdentifier: deviceIdentifier,
+                key: encryptedUserKey,
+                masterPasswordHash: nil,
+                requestApproved: approved
+            )
+        )
+        _ = try await authenticatedResponse(
+            session: session,
+            method: "PUT",
+            path: "api/auth-requests/\(request.id)",
+            body: body
+        )
     }
 
     private func wrappedAccountKeys(from token: IdentityTokenResponseDTO) -> WrappedAccountKeys? {
@@ -535,6 +621,7 @@ struct DefaultVaultwardenService: VaultwardenService {
             throw VaultwardenServiceError.vaultLocked
         }
         let encrypted: BitwardenSdk.Send
+        let passwordOverride: String?
         if let existing {
             encrypted = try await BitwardenCipherWriter.encryptUpdatedSend(
                 item: item,
@@ -544,16 +631,31 @@ struct DefaultVaultwardenService: VaultwardenService {
                 userKey: userKey,
                 credentials: credentials
             )
+            if case let .set(newPassword) = passwordUpdate {
+                passwordOverride = try Self.sendAccessPassword(
+                    newPassword,
+                    sendKeyBase64URL: existing.view.key
+                )
+            } else {
+                passwordOverride = nil
+            }
         } else {
-            encrypted = try await BitwardenCipherWriter.encryptTextSend(
+            let prepared = try await BitwardenCipherWriter.encryptTextSendPrepared(
                 item: item,
                 password: password,
                 email: session.accountID,
                 userKey: userKey,
                 credentials: credentials
             )
+            encrypted = prepared.send
+            passwordOverride = try Self.sendAccessPassword(
+                password,
+                sendKeyBase64URL: try prepared.client.sends().decrypt(send: prepared.send).key
+            )
         }
-        let body = try bitwardenEncoder.encode(SendWriteRequestDTO(encrypted))
+        let body = try bitwardenEncoder.encode(
+            SendWriteRequestDTO(encrypted, passwordOverride: passwordOverride)
+        )
         let remoteID = existing?.view.id
         return PreparedVaultMutation(
             accountReference: session.tokenReference,
@@ -597,12 +699,24 @@ struct DefaultVaultwardenService: VaultwardenService {
         password: String?,
         fileURL: URL,
         session: AuthenticatedSession
-    ) async throws {
+    ) async throws -> UUID {
+        let accessedSecurityScope = fileURL.startAccessingSecurityScopedResource()
+        defer { if accessedSecurityScope { fileURL.stopAccessingSecurityScopedResource() } }
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
             throw VaultwardenServiceError.missingSendFile
         }
-        let accessedSecurityScope = fileURL.startAccessingSecurityScopedResource()
-        defer { if accessedSecurityScope { fileURL.stopAccessingSecurityScopedResource() } }
+        let sourceHandle = try FileHandle(forReadingFrom: fileURL)
+        let sourceSize: UInt64
+        do {
+            sourceSize = try sourceHandle.seekToEnd()
+            try sourceHandle.close()
+        } catch {
+            try? sourceHandle.close()
+            throw error
+        }
+        guard sourceSize <= UInt64(100 * 1_024 * 1_024) else {
+            throw VaultwardenServiceError.sendFileTooLarge
+        }
         let credentials = try sessionStore.load(reference: session.tokenReference)
         guard let userKey = await keyMemory.load(reference: session.tokenReference) else {
             throw VaultwardenServiceError.vaultLocked
@@ -631,8 +745,16 @@ struct DefaultVaultwardenService: VaultwardenService {
             encryptedFilePath: encryptedURL.path
         )
         let encryptedSize = try encryptedURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+        let passwordOverride = try Self.sendAccessPassword(
+            password,
+            sendKeyBase64URL: try prepared.client.sends().decrypt(send: prepared.send).key
+        )
         let body = try bitwardenEncoder.encode(
-            SendWriteRequestDTO(prepared.send, fileLength: Int64(encryptedSize))
+            SendWriteRequestDTO(
+                prepared.send,
+                fileLength: Int64(encryptedSize),
+                passwordOverride: passwordOverride
+            )
         )
         let (responseData, _) = try await authenticatedResponse(
             session: session,
@@ -641,7 +763,8 @@ struct DefaultVaultwardenService: VaultwardenService {
             body: body
         )
         guard let upload = try? BitwardenJSONDecoder.make().decode(FileSendUploadResponseDTO.self, from: responseData),
-              let sendID = upload.sendResponse?.id ?? upload.sendIDFromPath else {
+              let sendID = upload.sendResponse?.id ?? upload.sendIDFromPath,
+              let createdSendID = UUID(uuidString: sendID) else {
             throw VaultwardenServiceError.invalidFileSendResponse
         }
 
@@ -679,6 +802,7 @@ struct DefaultVaultwardenService: VaultwardenService {
             try? await deleteSend(id: UUID(uuidString: sendID) ?? item.id, session: session)
             throw error
         }
+        return createdSendID
     }
 
     func downloadAndDecryptSendFile(
@@ -689,7 +813,11 @@ struct DefaultVaultwardenService: VaultwardenService {
     ) async throws -> URL {
         guard let fileID = remote.view.file?.id ?? item.fileID,
               let sendID = remote.view.id else { throw VaultwardenServiceError.missingSendFile }
-        let passwordBody = try JSONEncoder().encode(SendFileAccessRequestDTO(password: password))
+        let accessPassword = try Self.sendAccessPassword(
+            password,
+            sendKeyBase64URL: remote.view.key
+        )
+        let passwordBody = try JSONEncoder().encode(SendFileAccessRequestDTO(password: accessPassword))
         let (accessData, _) = try await authenticatedResponse(
             session: session,
             method: "POST",
@@ -726,6 +854,40 @@ struct DefaultVaultwardenService: VaultwardenService {
             decryptedFilePath: outputURL.path
         )
         return outputURL
+    }
+
+    /// Bitwarden Send access endpoints never receive the recipient's plaintext password.
+    /// They expect PBKDF2-HMAC-SHA256(password, raw 16-byte Send key, 100_000),
+    /// encoded as standard Base64. Do not normalize the password: spaces and symbols are
+    /// valid password characters and must be hashed byte-for-byte as entered.
+    private static func sendAccessPassword(
+        _ password: String?,
+        sendKeyBase64URL: String?
+    ) throws -> String? {
+        guard let password, !password.isEmpty else { return nil }
+        guard let sendKeyBase64URL,
+              let sendKey = decodeBase64URL(sendKeyBase64URL),
+              sendKey.count == 16 else {
+            throw VaultwardenServiceError.invalidFileSendResponse
+        }
+        let passwordHash = try PBKDF2SHA256.derive(
+            password: Data(password.utf8),
+            salt: sendKey,
+            iterations: 100_000,
+            outputByteCount: 32
+        )
+        return passwordHash.base64EncodedString()
+    }
+
+    private static func decodeBase64URL(_ value: String) -> Data? {
+        var base64 = value
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        let remainder = base64.count % 4
+        if remainder != 0 {
+            base64.append(String(repeating: "=", count: 4 - remainder))
+        }
+        return Data(base64Encoded: base64)
     }
 
     private func syncResponse(
@@ -956,14 +1118,20 @@ struct DefaultVaultwardenService: VaultwardenService {
         guard let userKey = await keyMemory.load(reference: session.tokenReference) else {
             throw VaultwardenServiceError.vaultLocked
         }
-        let send = try await BitwardenCipherWriter.encryptTextSend(
+        let prepared = try await BitwardenCipherWriter.encryptTextSendPrepared(
             item: item,
             password: password,
             email: session.accountID,
             userKey: userKey,
             credentials: credentials
         )
-        let body = try bitwardenEncoder.encode(SendWriteRequestDTO(send))
+        let passwordOverride = try Self.sendAccessPassword(
+            password,
+            sendKeyBase64URL: try prepared.client.sends().decrypt(send: prepared.send).key
+        )
+        let body = try bitwardenEncoder.encode(
+            SendWriteRequestDTO(prepared.send, passwordOverride: passwordOverride)
+        )
         _ = try await authenticatedResponse(session: session, method: "POST", path: "api/sends", body: body)
     }
 
@@ -1154,6 +1322,17 @@ struct DefaultVaultwardenService: VaultwardenService {
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter
     }()
+
+    private static let serverDateFormatterWithoutFractionalSeconds: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
+
+    private static func parseServerDate(_ value: String) -> Date? {
+        serverDateFormatter.date(from: value)
+            ?? serverDateFormatterWithoutFractionalSeconds.date(from: value)
+    }
 
     private func refreshCredentials(
         baseURL: URL,

@@ -23,23 +23,6 @@ struct VaultView: View {
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search your vault")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button {
-                            Task { await store.sync() }
-                        } label: {
-                            Label("Sync Now", systemImage: "arrow.triangle.2.circlepath")
-                        }
-                        Button { store.lock(requestAutomaticUnlock: false) } label: {
-                            Label("Lock Now", systemImage: "lock.fill")
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis")
-                    }
-                }
-
-                ToolbarSpacer(.fixed, placement: .topBarTrailing)
-
-                ToolbarItem(placement: .topBarTrailing) {
                     Button { showingAddItem = true } label: {
                         Image(systemName: "plus")
                     }
@@ -218,6 +201,23 @@ private struct VaultDashboard: View {
                                         Label("Delete Folder", systemImage: "trash")
                                     }
                                 }
+                                .confirmationDialog(
+                                    "Delete \(folder.name)?",
+                                    isPresented: deleteFolderConfirmationBinding(for: folder),
+                                    titleVisibility: .visible
+                                ) {
+                                    Button("Delete Folder", role: .destructive) {
+                                        showingDeleteFolder = false
+                                        folderToDelete = nil
+                                        Task { await store.deleteFolder(folder) }
+                                    }
+                                    Button("Cancel", role: .cancel) {
+                                        showingDeleteFolder = false
+                                        folderToDelete = nil
+                                    }
+                                } message: {
+                                    Text("Vault items are kept and moved to Unfolder.")
+                                }
                                 if index < store.folders.count - 1 { Divider().padding(.leading, 52) }
                             }
                         }
@@ -313,20 +313,17 @@ private struct VaultDashboard: View {
         } message: {
             Text("Items in this folder will keep their assignment.")
         }
-        .confirmationDialog(
-            "Delete \(folderToDelete?.name ?? "folder")?",
-            isPresented: $showingDeleteFolder,
-            titleVisibility: .visible
-        ) {
-            Button("Delete Folder", role: .destructive) {
-                guard let folder = folderToDelete else { return }
+    }
+
+    private func deleteFolderConfirmationBinding(for folder: VaultFolder) -> Binding<Bool> {
+        Binding(
+            get: { showingDeleteFolder && folderToDelete?.id == folder.id },
+            set: { isPresented in
+                guard !isPresented, folderToDelete?.id == folder.id else { return }
+                showingDeleteFolder = false
                 folderToDelete = nil
-                Task { await store.deleteFolder(folder) }
             }
-            Button("Cancel", role: .cancel) { folderToDelete = nil }
-        } message: {
-            Text("Vault items are kept and moved to Unfolder.")
-        }
+        )
     }
 
     private func collapsibleHeader(_ title: String, isExpanded: Binding<Bool>) -> some View {
@@ -446,6 +443,17 @@ private struct FolderRow: View {
     }
 }
 
+private enum VaultRowAction: Equatable {
+    case delete(UUID)
+    case archive(UUID)
+
+    var itemID: UUID {
+        switch self {
+        case let .delete(id), let .archive(id): id
+        }
+    }
+}
+
 struct VaultCollectionView: View {
     @EnvironmentObject private var store: AppStore
     let title: String
@@ -458,6 +466,8 @@ struct VaultCollectionView: View {
     @State private var pendingArchive: [VaultItem] = []
     @State private var showingDeleteConfirmation = false
     @State private var showingArchiveConfirmation = false
+    @State private var pendingRowAction: VaultRowAction?
+    @State private var showingRowAlert = false
 
     private var liveItems: [VaultItem] {
         if let category { return store.items(in: category) }
@@ -533,20 +543,6 @@ struct VaultCollectionView: View {
                                         archiveButton(for: item)
                                         deleteButton(for: item)
                                     }
-                                    .confirmationDialog(
-                                        deleteConfirmationTitle,
-                                        isPresented: rowDeleteConfirmationBinding(for: item),
-                                        titleVisibility: .visible,
-                                        actions: deleteConfirmationActions,
-                                        message: deleteConfirmationMessage
-                                    )
-                                    .confirmationDialog(
-                                        archiveConfirmationTitle,
-                                        isPresented: rowArchiveConfirmationBinding(for: item),
-                                        titleVisibility: .visible,
-                                        actions: archiveConfirmationActions,
-                                        message: archiveConfirmationMessage
-                                    )
                             }
                         }
                     }
@@ -646,6 +642,20 @@ struct VaultCollectionView: View {
                 }
             }
         }
+        .alert(rowAlertTitle, isPresented: $showingRowAlert) {
+            if case .some(.delete(_)) = pendingRowAction {
+                Button(rowDeleteActionTitle, role: .destructive) {
+                    confirmPendingRowDelete()
+                }
+            } else if case .some(.archive(_)) = pendingRowAction {
+                Button(rowArchiveActionTitle) {
+                    confirmPendingRowArchive()
+                }
+            }
+            Button("Cancel", role: .cancel) { pendingRowAction = nil }
+        } message: {
+            Text(rowAlertMessage)
+        }
     }
 
     private var sharedCodePeriod: Int {
@@ -680,16 +690,14 @@ struct VaultCollectionView: View {
     private func archiveButton(for item: VaultItem) -> some View {
         if !item.isDeleted {
             Button {
-                pendingArchive = [item]
-                showingArchiveConfirmation = true
+                requestRowAction(.archive(item.id))
             } label: {
                 Label(item.isArchived ? "Unarchive" : "Archive", systemImage: item.isArchived ? "tray.and.arrow.up" : "archivebox")
             }
             .tint(.orange)
         } else {
             Button {
-                pendingArchive = [item]
-                showingArchiveConfirmation = true
+                requestRowAction(.archive(item.id))
             } label: {
                 Label("Restore", systemImage: "arrow.uturn.backward")
             }
@@ -699,10 +707,84 @@ struct VaultCollectionView: View {
 
     private func deleteButton(for item: VaultItem) -> some View {
         Button(role: .destructive) {
-            pendingDeletion = [item]
-            showingDeleteConfirmation = true
+            requestRowAction(.delete(item.id))
         } label: {
-            Label(item.isDeleted ? "Delete Permanently" : "Move to Deleted", systemImage: "trash")
+            Label(item.isDeleted ? "Delete Permanently" : "Delete", systemImage: "trash")
+        }
+        .tint(.red)
+    }
+
+    private var pendingRowItem: VaultItem? {
+        guard let id = pendingRowAction?.itemID else { return nil }
+        return store.items.first { $0.id == id }
+    }
+
+    private var rowAlertTitle: String {
+        guard let item = pendingRowItem else { return "Vault Item" }
+        switch pendingRowAction {
+        case .some(.delete(_)):
+            return item.isDeleted ? "Delete permanently?" : "Delete item?"
+        case .some(.archive(_)):
+            if item.isDeleted { return "Restore item?" }
+            return item.isArchived ? "Unarchive item?" : "Archive item?"
+        case nil:
+            return "Vault Item"
+        }
+    }
+
+    private var rowDeleteActionTitle: String {
+        pendingRowItem?.isDeleted == true ? "Delete Permanently" : "Delete"
+    }
+
+    private var rowArchiveActionTitle: String {
+        guard let item = pendingRowItem else { return "Continue" }
+        if item.isDeleted { return "Restore" }
+        return item.isArchived ? "Unarchive" : "Archive"
+    }
+
+    private var rowAlertMessage: String {
+        guard let item = pendingRowItem else { return "" }
+        switch pendingRowAction {
+        case .some(.delete(_)):
+            return item.isDeleted ? "This cannot be undone." : "You can restore this item later from Deleted."
+        case .some(.archive(_)):
+            return "This action applies to \(item.name)."
+        case nil:
+            return ""
+        }
+    }
+
+    private func requestRowAction(_ action: VaultRowAction) {
+        pendingRowAction = action
+        showingRowAlert = false
+        Task { @MainActor in
+            // The swipe row is transient while its actions close. Wait until
+            // that animation completes, then present from this stable screen.
+            try? await Task.sleep(for: .milliseconds(400))
+            guard pendingRowAction == action, pendingRowItem != nil else {
+                pendingRowAction = nil
+                return
+            }
+            showingRowAlert = true
+        }
+    }
+
+    private func confirmPendingRowDelete() {
+        guard let item = pendingRowItem else { return }
+        pendingRowAction = nil
+        Task {
+            if item.isDeleted { await store.permanentlyDelete(item) }
+            else { await store.trash(item) }
+        }
+    }
+
+    private func confirmPendingRowArchive() {
+        guard let item = pendingRowItem else { return }
+        pendingRowAction = nil
+        Task {
+            if item.isDeleted { await store.restore(item) }
+            else if item.isArchived { await store.unarchive(item) }
+            else { await store.archive(item) }
         }
     }
 
@@ -755,7 +837,7 @@ struct VaultCollectionView: View {
     private var deleteConfirmationTitle: String {
         pendingDeletion.allSatisfy(\.isDeleted)
             ? "Delete permanently?"
-            : "Move to Deleted?"
+            : "Delete selected items?"
     }
 
     private var archiveConfirmationTitle: String {
@@ -768,7 +850,7 @@ struct VaultCollectionView: View {
     @ViewBuilder
     private func deleteConfirmationActions() -> some View {
         Button(
-            pendingDeletion.allSatisfy(\.isDeleted) ? "Delete Permanently" : "Move to Deleted",
+            pendingDeletion.allSatisfy(\.isDeleted) ? "Delete Permanently" : "Delete",
             role: .destructive,
             action: confirmDeleteAction
         )
@@ -819,36 +901,6 @@ struct VaultCollectionView: View {
     private var bulkArchiveConfirmationBinding: Binding<Bool> {
         Binding(
             get: { showingArchiveConfirmation && editMode.isEditing },
-            set: { newValue in
-                showingArchiveConfirmation = newValue
-                if !newValue { pendingArchive = [] }
-            }
-        )
-    }
-
-    private func rowDeleteConfirmationBinding(for item: VaultItem) -> Binding<Bool> {
-        Binding(
-            get: {
-                showingDeleteConfirmation
-                    && !editMode.isEditing
-                    && pendingDeletion.count == 1
-                    && pendingDeletion.first?.id == item.id
-            },
-            set: { newValue in
-                showingDeleteConfirmation = newValue
-                if !newValue { pendingDeletion = [] }
-            }
-        )
-    }
-
-    private func rowArchiveConfirmationBinding(for item: VaultItem) -> Binding<Bool> {
-        Binding(
-            get: {
-                showingArchiveConfirmation
-                    && !editMode.isEditing
-                    && pendingArchive.count == 1
-                    && pendingArchive.first?.id == item.id
-            },
             set: { newValue in
                 showingArchiveConfirmation = newValue
                 if !newValue { pendingArchive = [] }
@@ -1142,7 +1194,7 @@ struct VaultItemDetailView: View {
                                             .font(.headline)
                                             .foregroundStyle(.primary)
 
-                                        Text("Passkeys are a secure way to sign in using Face ID or your device passcode. They provide stronger phishing resistance than traditional passwords.")
+                                        Text("Passkeys are a secure way to sign in using \(BiometricAuthenticator.displayName) or your device passcode. They provide stronger phishing resistance than traditional passwords.")
                                             .font(.subheadline)
                                             .foregroundStyle(.secondary)
                                             .fixedSize(horizontal: false, vertical: true)
@@ -1732,18 +1784,24 @@ struct AddEditVaultItemView: View {
     @State private var showingGenerator = false
     @State private var isSaving = false
 
-    init(existingItem: VaultItem? = nil, prefilledPassword: String = "") {
+    init(
+        existingItem: VaultItem? = nil,
+        prefilledPassword: String = "",
+        prefilledName: String = "",
+        prefilledUsername: String = "",
+        prefilledTOTPSecret: String = ""
+    ) {
         self.existingItem = existingItem
         existingID = existingItem?.id
-        _name = State(initialValue: existingItem?.name ?? "")
-        _username = State(initialValue: existingItem?.username ?? "")
+        _name = State(initialValue: existingItem?.name ?? prefilledName)
+        _username = State(initialValue: existingItem?.username ?? prefilledUsername)
         _password = State(initialValue: existingItem?.password ?? prefilledPassword)
         _uri = State(initialValue: existingItem?.uri ?? "")
         _type = State(initialValue: existingItem?.type ?? .login)
         _folder = State(initialValue: existingItem?.folder ?? "")
         _notes = State(initialValue: existingItem?.notes ?? "")
         _isFavorite = State(initialValue: existingItem?.isFavorite ?? false)
-        _totpSecret = State(initialValue: existingItem?.totpSecret ?? "")
+        _totpSecret = State(initialValue: existingItem?.totpSecret ?? prefilledTOTPSecret)
         _card = State(initialValue: existingItem?.card ?? CardDetails())
         _identity = State(initialValue: existingItem?.identity ?? IdentityDetails())
         _customFields = State(initialValue: existingItem?.customFields ?? [])

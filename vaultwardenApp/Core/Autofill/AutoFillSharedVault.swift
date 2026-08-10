@@ -390,7 +390,7 @@ nonisolated enum AutoFillSharedVaultError: LocalizedError {
         case .vaultUnavailable: "Open the main app and sync your vault before using AutoFill."
         case .invalidVaultKey: "The shared vault key is invalid. Sign in again from the main app."
         case .invalidPayload: "The shared AutoFill vault could not be decrypted. Sync from the main app."
-        case .authenticationFailed: "Face ID or device-passcode authentication was not completed."
+        case .authenticationFailed: "Biometric or device-passcode authentication was not completed."
         case let .keychain(status): "Keychain could not unlock AutoFill (error \(status))."
         }
     }

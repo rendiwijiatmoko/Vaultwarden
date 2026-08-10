@@ -15,6 +15,14 @@ struct SettingsView: View {
                 }
 
                 Section("Security & Access") {
+                    NavigationLink { PendingLoginRequestsView() } label: {
+                        SettingsRow(
+                            icon: "checkmark.shield.fill",
+                            color: .vaultBlue,
+                            title: "Approve Login Requests",
+                            subtitle: "Review pending device sign-ins"
+                        )
+                    }
                     NavigationLink { AutoFillSettingsView() } label: {
                         SettingsRow(icon: "rectangle.and.pencil.and.ellipsis", color: .vaultGreen, title: "AutoFill & Passwords", subtitle: "Passwords, passkeys and codes")
                     }
@@ -207,7 +215,10 @@ private struct AutoFillSettingsView: View {
 
             Section("Protection") {
                 LabeledContent("Unlock before filling", value: "Required")
-                Label("The shared credential vault is encrypted and its key requires Face ID, Touch ID, or device authentication.", systemImage: "faceid")
+                Label(
+                    "The shared credential vault is encrypted and its key requires biometrics or device authentication.",
+                    systemImage: BiometricAuthenticator.systemImage
+                )
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -241,6 +252,16 @@ private struct AutoFillSettingsView: View {
                     }
                 } label: {
                     Label("Open Passwords & Codes Settings", systemImage: "arrow.up.forward.app")
+                }
+
+                Button {
+                    ASSettingsHelper.openVerificationCodeAppSettings { error in
+                        Task { @MainActor in
+                            statusMessage = error == nil ? "Opened verification-code app settings." : error?.localizedDescription
+                        }
+                    }
+                } label: {
+                    Label("Choose Verification Code App", systemImage: "lock.rotation")
                 }
                 if let statusMessage {
                     Text(statusMessage).font(.caption).foregroundStyle(.secondary)
@@ -285,19 +306,19 @@ private struct SecuritySettingsView: View {
                 Picker("Vault timeout", selection: $store.settings.vaultTimeout) {
                     ForEach(VaultTimeout.allCases) { Text($0.rawValue).tag($0) }
                 }
-                Toggle("Lock when app enters background", isOn: $store.settings.lockOnBackground)
             }
             Section("Sensitive Actions") {
                 Toggle("Authenticate before reveal or copy", isOn: $store.settings.requireBiometricForSensitiveActions)
                 Toggle("Clear clipboard automatically", isOn: $store.settings.clearClipboard)
             }
             Section {
-                Button("Lock Vault Now") { store.lock(requestAutomaticUnlock: false) }
-                Button("Change Master Password") { }
                 Button("Deauthorize This Device", role: .destructive) { }
             }
             Section {
-                Label("Biometric unlock will protect a locally wrapped vault key. The master password remains the recovery path.", systemImage: "faceid")
+                Label(
+                    "Biometric unlock will protect a locally wrapped vault key. The master password remains the recovery path.",
+                    systemImage: BiometricAuthenticator.systemImage
+                )
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

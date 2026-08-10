@@ -106,7 +106,7 @@ struct OnboardingView: View {
             VStack(spacing: 12) {
                 OnboardingFeatureRow(icon: "key.fill", color: .vaultBlue, title: "Passwords & passkeys", message: "Sign in quickly without exposing your credentials.")
                 OnboardingFeatureRow(icon: "lock.rotation", color: .vaultYellow, title: "Verification codes", message: "Generate and copy time-based codes from the same vault.")
-                OnboardingFeatureRow(icon: "faceid", color: .vaultGreen, title: "Protected locally", message: "Require biometrics before unlock, reveal, copy, or fill.")
+                OnboardingFeatureRow(icon: BiometricAuthenticator.systemImage, color: .vaultGreen, title: "Protected locally", message: "Require biometrics before unlock, reveal, copy, or fill.")
             }
         }
     }
@@ -177,7 +177,7 @@ struct OnboardingView: View {
     private var securityPage: some View {
         VStack(alignment: .leading, spacing: 24) {
             OnboardingHero(
-                icon: "faceid",
+                icon: BiometricAuthenticator.systemImage,
                 color: .vaultGreen,
                 title: "Protect this device",
                 message: "Choose when iOS should verify that it is really you. These options can be changed later."
@@ -185,9 +185,9 @@ struct OnboardingView: View {
 
             VStack(spacing: 0) {
                 OnboardingToggleRow(
-                    icon: "faceid",
+                    icon: BiometricAuthenticator.systemImage,
                     title: "Unlock with biometrics",
-                    message: "Use Face ID or Touch ID instead of typing the master password every time.",
+                    message: "Use \(BiometricAuthenticator.displayName) instead of typing the master password every time.",
                     isOn: $biometricUnlock
                 )
 
@@ -205,7 +205,7 @@ struct OnboardingView: View {
                 OnboardingToggleRow(
                     icon: "ellipsis.rectangle.fill",
                     title: "Allow device passcode",
-                    message: "Use the iPhone passcode when biometrics are unavailable.",
+                    message: "Use the device passcode when biometrics are unavailable.",
                     isOn: $allowPasscodeFallback
                 )
             }

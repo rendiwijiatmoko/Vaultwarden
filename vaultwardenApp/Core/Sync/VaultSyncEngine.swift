@@ -2,6 +2,7 @@ import Foundation
 
 nonisolated struct SyncFlushResult: Sendable {
     var completed = 0
+    var completedMutationIDs: [UUID] = []
     var deferred = 0
     var conflicted = 0
     var failed = 0
@@ -76,6 +77,7 @@ actor VaultSyncEngine {
                 try await service.executeMutation(mutation, session: session)
                 try await queue.remove(id: mutation.id, reference: session.tokenReference)
                 result.completed += 1
+                result.completedMutationIDs.append(mutation.id)
             } catch {
                 if Self.isRevisionConflict(error), mutation.revisionRetryCount < 2 {
                     do {
@@ -86,6 +88,7 @@ actor VaultSyncEngine {
                         try await service.executeMutation(mutation, session: session)
                         try await queue.remove(id: mutation.id, reference: session.tokenReference)
                         result.completed += 1
+                        result.completedMutationIDs.append(mutation.id)
                         continue
                     } catch {
                         if Self.isRevisionConflict(error) {

@@ -20,6 +20,21 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>xyz.0xmwehehe.vaultwardenApp.otpauth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>otpauth</string>
+			</array>
+		</dict>
+	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>LSApplicationCategoryType</key>
@@ -30,6 +45,10 @@
 	</array>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Use Face ID to unlock your encrypted vault and approve credential access.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Take a photo to attach to an encrypted Vaultwarden Send.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Select a photo to attach to an encrypted Vaultwarden Send.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Connect to your self-hosted Vaultwarden server on the local network.</string>
 	<key>UIApplicationSceneManifest</key>

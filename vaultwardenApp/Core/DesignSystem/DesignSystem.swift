@@ -72,6 +72,7 @@ struct AnimatedCopyButton: View {
     var title: String?
     var accessibilityName = "value"
     var onCopy: (() -> Void)?
+    var fillsWidth = false
     @State private var copied = false
     @State private var copySequence = 0
 
@@ -87,6 +88,7 @@ struct AnimatedCopyButton: View {
                         .contentTransition(.symbolEffect(.replace))
                 }
             }
+            .frame(maxWidth: fillsWidth ? .infinity : nil)
         }
         .accessibilityLabel(copied ? "\(accessibilityName) copied" : "Copy \(accessibilityName)")
     }

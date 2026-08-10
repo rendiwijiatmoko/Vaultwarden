@@ -6,7 +6,6 @@
 "AutoFill & Passwords" = "Isi Otomatis & Kata Sandi";
 "Security" = "Keamanan";
 "Vault timeout" = "Batas waktu vault";
-"Lock when app enters background" = "Kunci saat aplikasi masuk latar belakang";
 "Unlock with biometrics" = "Buka dengan biometrik";
 "Device passcode fallback" = "Gunakan kode sandi perangkat sebagai cadangan";
 "Authenticate before reveal or copy" = "Autentikasi sebelum menampilkan atau menyalin";

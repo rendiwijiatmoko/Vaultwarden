@@ -48,9 +48,9 @@ struct GeneratorView: View {
                             value: generated,
                             title: "Copy",
                             accessibilityName: "generated value",
-                            onCopy: recordCurrent
+                            onCopy: recordCurrent,
+                            fillsWidth: true
                         )
-                            .frame(maxWidth: .infinity)
                         .buttonStyle(.borderedProminent)
                         .controlSize(.large)
 
@@ -320,17 +320,21 @@ private struct GeneratorHistoryView: View {
                             Image(systemName: "trash")
                         }
                         .accessibilityLabel("Clear generator history")
+                        .confirmationDialog(
+                            "Clear generator history?",
+                            isPresented: $confirmClear,
+                            titleVisibility: .visible
+                        ) {
+                            Button("Clear History", role: .destructive) {
+                                try? GeneratorHistoryStore.clear()
+                                reload()
+                            }
+                            Button("Cancel", role: .cancel) { }
+                        } message: {
+                            Text("All generated values stored on this device will be removed.")
+                        }
                     }
                 }
-            }
-            .confirmationDialog("Clear generator history?", isPresented: $confirmClear, titleVisibility: .visible) {
-                Button("Clear History", role: .destructive) {
-                    try? GeneratorHistoryStore.clear()
-                    reload()
-                }
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                Text("All generated values stored on this device will be removed.")
             }
         }
     }

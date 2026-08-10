@@ -20,6 +20,8 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>VaultSharedKeychainAccessGroup</key>
 	<string>$(AppIdentifierPrefix)xyz.0xmwehehe.vaultwardenApp.shared</string>
 	<key>NSFaceIDUsageDescription</key>

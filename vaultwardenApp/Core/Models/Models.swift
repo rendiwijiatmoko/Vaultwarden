@@ -266,7 +266,6 @@ struct AppSettings: Codable {
     var biometricUnlock = true
     var requireBiometricForSensitiveActions = true
     var devicePasscodeFallback = false
-    var lockOnBackground = false
     var clearClipboard = true
     var showFavicons = true
     var haptics = true

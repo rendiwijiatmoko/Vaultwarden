@@ -59,14 +59,32 @@ nonisolated enum BitwardenCipherWriter {
         userKey: Data,
         credentials: StoredSessionCredentials
     ) async throws -> BitwardenSdk.Send {
-        try await encryptNewSend(
+        try await encryptTextSendPrepared(
             item: item,
             password: password,
-            fileName: nil,
             email: email,
             userKey: userKey,
             credentials: credentials
+        ).send
+    }
+
+    static func encryptTextSendPrepared(
+        item: SendItem,
+        password: String?,
+        email: String,
+        userKey: Data,
+        credentials: StoredSessionCredentials
+    ) async throws -> (send: BitwardenSdk.Send, client: Client) {
+        let client = try await initializedClient(
+            email: email,
+            userKey: userKey,
+            credentials: credentials,
+            organizationKeys: [:]
         )
+        let send = try client.sends().encrypt(
+            send: makeNewSendView(item: item, password: password, fileName: nil)
+        )
+        return (send, client)
     }
 
     static func encryptFileSend(
@@ -85,23 +103,6 @@ nonisolated enum BitwardenCipherWriter {
         )
         let send = try client.sends().encrypt(send: makeNewSendView(item: item, password: password, fileName: fileName))
         return (send, client)
-    }
-
-    private static func encryptNewSend(
-        item: SendItem,
-        password: String?,
-        fileName: String?,
-        email: String,
-        userKey: Data,
-        credentials: StoredSessionCredentials
-    ) async throws -> BitwardenSdk.Send {
-        let client = try await initializedClient(
-            email: email,
-            userKey: userKey,
-            credentials: credentials,
-            organizationKeys: [:]
-        )
-        return try client.sends().encrypt(send: makeNewSendView(item: item, password: password, fileName: fileName))
     }
 
     private static func makeNewSendView(
@@ -334,7 +335,11 @@ nonisolated struct SendWriteRequestDTO: Encodable {
     let text: SendTextWriteDTO?
     let type: UInt8
 
-    init(_ send: BitwardenSdk.Send, fileLength: Int64? = nil) {
+    init(
+        _ send: BitwardenSdk.Send,
+        fileLength: Int64? = nil,
+        passwordOverride: String? = nil
+    ) {
         authType = send.authType.rawValue
         deletionDate = send.deletionDate
         disabled = send.disabled
@@ -347,7 +352,7 @@ nonisolated struct SendWriteRequestDTO: Encodable {
         maxAccessCount = send.maxAccessCount.flatMap(Int32.init(exactly:))
         name = send.name
         notes = send.notes
-        password = send.password
+        password = passwordOverride ?? send.password
         text = send.text.map { SendTextWriteDTO(text: $0.text, hidden: $0.hidden) }
         type = send.type.rawValue
     }

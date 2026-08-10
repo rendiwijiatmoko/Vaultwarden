@@ -11,6 +11,7 @@ final class AppStore: ObservableObject {
     private var remoteCiphers: [UUID: RemoteCipherState] = [:]
     private var folderIDsByName: [String: String] = [:]
     private var remoteSends: [UUID: RemoteSendState] = [:]
+    private var temporarySendPasswords: [UUID: String] = [:]
     private var organizationKeys: [String: String] = [:]
     private var backgroundedAt: Date?
 
@@ -78,6 +79,10 @@ final class AppStore: ObservableObject {
         Array(Set(activeItems.compactMap(\.organization))).sorted()
     }
     var isAuthenticated: Bool { authenticatedSession != nil }
+
+    func temporaryPassword(for sendID: UUID) -> String? {
+        temporarySendPasswords[sendID]
+    }
 
     func items(in category: VaultCategory) -> [VaultItem] {
         switch category {
@@ -277,7 +282,7 @@ final class AppStore: ObservableObject {
             isSyncing = true
             defer { isSyncing = false }
             do {
-                try await vaultwardenService.createFileSend(
+                let createdSendID = try await vaultwardenService.createFileSend(
                     item: send,
                     password: password,
                     fileURL: fileURL,
@@ -285,6 +290,21 @@ final class AppStore: ObservableObject {
                 )
                 let snapshot = try await vaultwardenService.sync(session: session)
                 apply(snapshot)
+                if let password, !password.isEmpty,
+                   let createdSend = sends.first(where: { $0.id == createdSendID }),
+                   let createdRemote = remoteSends[createdSendID] {
+                    // Re-apply protection through the normal update endpoint after the
+                    // file/v2 flow has assigned the final server Send ID.
+                    let passwordMutation = try await vaultwardenService.prepareSendWrite(
+                        item: createdSend,
+                        password: nil,
+                        passwordUpdate: .set(password),
+                        existing: createdRemote,
+                        session: session
+                    )
+                    guard await enqueueAndAttempt(passwordMutation) else { return false }
+                    temporarySendPasswords[createdSendID] = password
+                }
                 return true
             } catch {
                 userFacingNotice = "File Send failed: \(error.localizedDescription)"
@@ -293,6 +313,7 @@ final class AppStore: ObservableObject {
             }
         }
         do {
+            let sendIDsBeforeCreate = Set(remoteSends.keys)
             let mutation = try await vaultwardenService.prepareSendWrite(
                 item: send,
                 password: password,
@@ -300,7 +321,26 @@ final class AppStore: ObservableObject {
                 existing: nil,
                 session: session
             )
-            return await enqueueAndAttempt(mutation)
+            guard await enqueueAndAttempt(mutation) else { return false }
+            if let password, !password.isEmpty,
+               let createdSend = sends.first(where: {
+                   !sendIDsBeforeCreate.contains($0.id)
+                       && $0.name == send.name
+                       && $0.kind == send.kind
+                       && abs($0.deletesAt.timeIntervalSince(send.deletesAt)) < 2
+               }),
+               let createdRemote = remoteSends[createdSend.id] {
+                let passwordMutation = try await vaultwardenService.prepareSendWrite(
+                    item: createdSend,
+                    password: nil,
+                    passwordUpdate: .set(password),
+                    existing: createdRemote,
+                    session: session
+                )
+                guard await enqueueAndAttempt(passwordMutation) else { return false }
+                temporarySendPasswords[createdSend.id] = password
+            }
+            return true
         } catch {
             userFacingNotice = "Could not prepare the encrypted Send: \(error.localizedDescription)"
             return false
@@ -322,7 +362,17 @@ final class AppStore: ObservableObject {
             if passwordUpdate == .remove {
                 mutations.append(vaultwardenService.prepareSendPasswordRemoval(item: send, session: session))
             }
-            return await enqueueAndAttempt(mutations)
+            let didSave = await enqueueAndAttempt(mutations)
+            guard didSave else { return false }
+            switch passwordUpdate {
+            case let .set(password):
+                temporarySendPasswords[send.id] = password
+            case .remove:
+                temporarySendPasswords[send.id] = nil
+            case .preserve:
+                break
+            }
+            return true
         } catch {
             userFacingNotice = "Could not prepare the encrypted Send update: \(error.localizedDescription)"
             return false
@@ -395,6 +445,24 @@ final class AppStore: ObservableObject {
         let configuration = try await vaultwardenService.discover(serverURL: url)
         discoveredServerVersion = configuration.version
         return configuration
+    }
+
+    func loadPendingLoginRequests() async throws -> [PendingLoginRequest] {
+        guard let authenticatedSession else {
+            throw VaultwardenServiceError.sessionExpired
+        }
+        return try await vaultwardenService.pendingLoginRequests(session: authenticatedSession)
+    }
+
+    func respondToLoginRequest(_ request: PendingLoginRequest, approved: Bool) async throws {
+        guard let authenticatedSession else {
+            throw VaultwardenServiceError.sessionExpired
+        }
+        try await vaultwardenService.respondToLoginRequest(
+            request,
+            approved: approved,
+            session: authenticatedSession
+        )
     }
 
     func sync() async {
@@ -530,6 +598,7 @@ final class AppStore: ObservableObject {
         remoteCiphers = [:]
         folderIDsByName = [:]
         remoteSends = [:]
+        temporarySendPasswords = [:]
         organizationKeys = [:]
     }
 
@@ -556,6 +625,7 @@ final class AppStore: ObservableObject {
 
     private func flushPendingMutations(refreshVault: Bool, showDeferredNotice: Bool) async {
         guard let session = authenticatedSession else { return }
+        let mutationsBeforeFlush = (try? await syncEngine.mutations(reference: session.tokenReference)) ?? []
         let queuedBeforeFlush = (try? await syncEngine.pendingCount(reference: session.tokenReference)) ?? 0
         if refreshVault, queuedBeforeFlush > 0 { isSyncing = true }
         defer {
@@ -567,6 +637,15 @@ final class AppStore: ObservableObject {
             do {
                 let snapshot = try await vaultwardenService.sync(session: session)
                 apply(snapshot)
+                // A successful write can be followed by an eventually-consistent
+                // `/sync` response that still contains the previous item state.
+                // Keep completed non-create projections through this first refresh
+                // so rows do not disappear and immediately reappear.
+                let completedIDs = Set(result.completedMutationIDs)
+                for mutation in mutationsBeforeFlush
+                where completedIDs.contains(mutation.id) && !mutation.isCreate {
+                    apply(mutation.projection)
+                }
                 await applyPendingProjectionsAndPublish()
             } catch {
                 // Server writes are already committed. Keep the optimistic projection until retry sync succeeds.
@@ -647,7 +726,9 @@ final class AppStore: ObservableObject {
     func appDidEnterBackground(at date: Date = Date()) {
         guard authenticatedSession != nil else { return }
         backgroundedAt = date
-        if settings.lockOnBackground || settings.vaultTimeout == .immediately {
+        // A manual Lock Now intentionally waits for the Unlock button. Do not
+        // turn it back into an automatic prompt when the app is backgrounded.
+        if !isLocked, settings.vaultTimeout == .immediately {
             lock()
         }
     }
@@ -667,6 +748,7 @@ final class AppStore: ObservableObject {
     func lock(requestAutomaticUnlock: Bool = true) {
         shouldAutomaticallyPromptUnlock = requestAutomaticUnlock
         if requestAutomaticUnlock { unlockPromptGeneration &+= 1 }
+        temporarySendPasswords = [:]
         isLocked = true
         let session = authenticatedSession
         let previousLockTask = lockTask

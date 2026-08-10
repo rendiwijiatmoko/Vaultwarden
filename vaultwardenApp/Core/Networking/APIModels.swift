@@ -161,3 +161,23 @@ nonisolated struct IdentityErrorDTO: Decodable {
         case message
     }
 }
+
+nonisolated struct PendingLoginRequestListDTO: Decodable, Sendable {
+    let data: [PendingLoginRequestDTO]
+}
+
+nonisolated struct PendingLoginRequestDTO: Decodable, Sendable {
+    let id: String
+    let publicKey: String
+    let requestDeviceType: String
+    let requestIpAddress: String
+    let creationDate: String
+    let origin: String?
+}
+
+nonisolated struct LoginRequestResponseDTO: Encodable, Sendable {
+    let deviceIdentifier: String
+    let key: String
+    let masterPasswordHash: String?
+    let requestApproved: Bool
+}

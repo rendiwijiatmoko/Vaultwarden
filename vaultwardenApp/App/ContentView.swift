@@ -4,6 +4,8 @@ struct ContentView: View {
     @ObservedObject var store: AppStore
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
+    @State private var queuedCodeSetup: OTPAuthSetupRequest?
+    @State private var presentedCodeSetup: OTPAuthSetupRequest?
 
     var body: some View {
         Group {
@@ -35,10 +37,27 @@ struct ContentView: View {
                     .transition(.opacity)
             }
         }
+        .overlay {
+            if store.isAuthenticated, scenePhase != .active {
+                LockView(isPrivacyShield: true)
+                    .environmentObject(store)
+                    .transition(.opacity)
+                    .zIndex(1_000)
+            }
+        }
         .animation(.snappy, value: store.isLocked)
         .animation(.smooth, value: hasCompletedOnboarding)
         .tint(.vaultBlue)
         .preferredColorScheme(preferredColorScheme)
+        .onOpenURL(perform: receiveVerificationCodeSetup)
+        .sheet(item: $presentedCodeSetup) { request in
+            AddEditVaultItemView(
+                prefilledName: request.name,
+                prefilledUsername: request.username,
+                prefilledTOTPSecret: request.sourceURL.absoluteString
+            )
+            .environmentObject(store)
+        }
         .onAppear {
             // Migrate installations where the former Settings preview reset this flag.
             // A valid authenticated session must never be sent back through onboarding.
@@ -63,6 +82,8 @@ struct ContentView: View {
                 Task { await store.refreshAfterBecomingActive() }
             }
         }
+        .onChange(of: store.isLocked) { _, _ in presentQueuedCodeSetupIfPossible() }
+        .onChange(of: store.isAuthenticated) { _, _ in presentQueuedCodeSetupIfPossible() }
     }
 
     private var preferredColorScheme: ColorScheme? {
@@ -71,6 +92,25 @@ struct ContentView: View {
         case .light: .light
         case .dark: .dark
         }
+    }
+
+    private func receiveVerificationCodeSetup(_ url: URL) {
+        guard let request = OTPAuthSetupRequest.parse(url) else {
+            store.userFacingNotice = "This verification-code setup link is not a valid TOTP configuration."
+            return
+        }
+        queuedCodeSetup = request
+        presentQueuedCodeSetupIfPossible()
+    }
+
+    private func presentQueuedCodeSetupIfPossible() {
+        guard store.isAuthenticated,
+              !store.isLocked,
+              presentedCodeSetup == nil,
+              let request = queuedCodeSetup else { return }
+        store.selectedTab = .vault
+        queuedCodeSetup = nil
+        presentedCodeSetup = request
     }
 
 }

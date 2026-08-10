@@ -4,6 +4,31 @@ import LocalAuthentication
 import SwiftUI
 
 enum BiometricAuthenticator {
+    static var displayName: String {
+        switch currentType {
+        case .faceID: "Face ID"
+        case .touchID: "Touch ID"
+        case .opticID: "Optic ID"
+        default: "Biometrics"
+        }
+    }
+
+    static var systemImage: String {
+        switch currentType {
+        case .faceID: "faceid"
+        case .touchID: "touchid"
+        case .opticID: "opticid"
+        default: "person.badge.key.fill"
+        }
+    }
+
+    private static var currentType: LABiometryType {
+        let context = LAContext()
+        var error: NSError?
+        _ = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error)
+        return context.biometryType
+    }
+
     static func authenticate(reason: String, allowPasscode: Bool = false) async -> Bool {
         let context = LAContext()
         context.localizedCancelTitle = "Cancel"
@@ -119,14 +144,60 @@ nonisolated enum TOTPGenerator {
     }
 }
 
+/// A standard `otpauth://totp` payload handed to the app by iOS when the user
+/// chooses Vaultwarden in Passwords & Codes > Set Up Codes In.
+nonisolated struct OTPAuthSetupRequest: Identifiable, Hashable, Sendable {
+    let sourceURL: URL
+    let name: String
+    let username: String
+
+    var id: String { sourceURL.absoluteString }
+
+    static func parse(_ url: URL) -> OTPAuthSetupRequest? {
+        guard url.scheme?.lowercased() == "otpauth",
+              url.host?.lowercased() == "totp",
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+
+        let parameters = (components.queryItems ?? []).reduce(into: [String: String]()) { result, item in
+            result[item.name.lowercased()] = item.value ?? ""
+        }
+        guard parameters["secret"]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            return nil
+        }
+
+        let label = components.path
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            .removingPercentEncoding?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let labelParts = label.split(separator: ":", maxSplits: 1).map {
+            String($0).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let issuer = parameters["issuer"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let account = labelParts.count == 2 ? labelParts[1] : (labelParts.first ?? "")
+        let resolvedName = !issuer.isEmpty ? issuer : (labelParts.first?.isEmpty == false ? labelParts[0] : "Verification Code")
+
+        return OTPAuthSetupRequest(
+            sourceURL: url,
+            name: resolvedName,
+            username: account
+        )
+    }
+}
+
 struct LockView: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.scenePhase) private var scenePhase
-    @State private var masterPassword = ""
+    private let isPrivacyShield: Bool
     @State private var showPasswordUnlock = false
     @State private var biometricFailed = false
     @State private var isUnlocking = false
     @State private var lastAutomaticAttemptGeneration: Int?
+
+    init(isPrivacyShield: Bool = false) {
+        self.isPrivacyShield = isPrivacyShield
+    }
 
     var body: some View {
         VStack(spacing: 26) {
@@ -134,22 +205,17 @@ struct LockView: View {
             Image(systemName: "lock.shield.fill")
                 .font(.system(size: 64))
                 .foregroundStyle(Color.vaultBlue.gradient)
-            VStack(spacing: 8) {
-                Text("Vault Locked")
-                    .font(.largeTitle.bold())
-                Text("Authenticate to access your encrypted vault.")
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            }
+            Text("Vaultwarden Is Locked")
+                .font(.title.bold())
+                .multilineTextAlignment(.center)
 
             Button {
                 Task { await attemptDeviceUnlock() }
             } label: {
                 HStack {
-                    if isUnlocking { ProgressView().tint(.white) }
                     Label(
-                        biometricFailed ? "Try Face ID or Device Passcode" : "Unlock with Face ID",
-                        systemImage: biometricFailed ? "lock.open.fill" : "faceid"
+                        biometricFailed ? "Try \(BiometricAuthenticator.displayName) or Device Passcode" : "Unlock",
+                        systemImage: biometricFailed ? "lock.open.fill" : BiometricAuthenticator.systemImage
                     )
                 }
                 .frame(maxWidth: .infinity)
@@ -158,43 +224,32 @@ struct LockView: View {
             .controlSize(.large)
             .disabled(isUnlocking)
 
-            if biometricFailed {
+            if biometricFailed, !isPrivacyShield {
                 Text(store.lastUnlockError
-                     ?? "Face ID was not completed. Try again to use Face ID or the iPhone passcode, or unlock with your master password.")
+                     ?? "\(BiometricAuthenticator.displayName) was not completed. Try again using biometrics or the device passcode, or unlock with your master password.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
             }
 
-            Button("Use Master Password") { showPasswordUnlock.toggle() }
-                .buttonStyle(.bordered)
-
-            if showPasswordUnlock {
-                SecureField("Master password", text: $masterPassword)
-                    .textContentType(.password)
-                    .padding(14)
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
-                Button("Unlock") {
-                    guard !masterPassword.isEmpty else { return }
-                    Task {
-                        isUnlocking = true
-                        let success = await store.unlock(masterPassword: masterPassword)
-                        if success { masterPassword = "" }
-                        biometricFailed = !success
-                        isUnlocking = false
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(isUnlocking || masterPassword.isEmpty)
+            if !isPrivacyShield {
+                Button("Use Master Password") { showPasswordUnlock = true }
+                    .buttonStyle(.plain)
             }
             Spacer()
-            Text("Vault key protected by iOS Keychain")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
+            if !isPrivacyShield {
+                Text("Vault key protected by iOS Keychain")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
         }
         .padding(28)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.ultraThinMaterial)
+        .background {
+            Color(uiColor: .systemGroupedBackground)
+                .ignoresSafeArea(.all)
+        }
+        .ignoresSafeArea(.all)
         .task(id: store.unlockPromptGeneration) {
             await attemptAutomaticUnlockIfNeeded()
         }
@@ -202,10 +257,15 @@ struct LockView: View {
             guard phase == .active else { return }
             Task { await attemptAutomaticUnlockIfNeeded() }
         }
+        .fullScreenCover(isPresented: $showPasswordUnlock) {
+            MasterPasswordUnlockView()
+                .environmentObject(store)
+        }
     }
 
     private func attemptAutomaticUnlockIfNeeded() async {
-        guard scenePhase == .active,
+        guard !isPrivacyShield,
+              scenePhase == .active,
               store.isLocked,
               store.settings.biometricUnlock,
               store.shouldAutomaticallyPromptUnlock,
@@ -215,10 +275,158 @@ struct LockView: View {
     }
 
     private func attemptDeviceUnlock() async {
-        guard !isUnlocking else { return }
+        guard !isPrivacyShield, !isUnlocking else { return }
         isUnlocking = true
         let success = await store.unlockWithBiometrics()
         biometricFailed = !success
         isUnlocking = false
+    }
+}
+
+private struct MasterPasswordUnlockView: View {
+    @EnvironmentObject private var store: AppStore
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var masterPassword = ""
+    @State private var isPasswordVisible = false
+    @State private var isUnlocking = false
+    @State private var errorMessage: String?
+    @FocusState private var passwordIsFocused: Bool
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("Master password")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Color.vaultBlue)
+
+                        HStack(spacing: 12) {
+                            Group {
+                                if isPasswordVisible {
+                                    TextField("Master password", text: $masterPassword)
+                                } else {
+                                    SecureField("Master password", text: $masterPassword)
+                                }
+                            }
+                            .textContentType(.password)
+                            .focused($passwordIsFocused)
+                            .submitLabel(.go)
+                            .onSubmit { Task { await unlockWithMasterPassword() } }
+
+                            Button {
+                                isPasswordVisible.toggle()
+                            } label: {
+                                Image(systemName: isPasswordVisible ? "eye.slash" : "eye")
+                                    .font(.title3)
+                                    .foregroundStyle(Color.vaultBlue)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(isPasswordVisible ? "Hide master password" : "Show master password")
+                        }
+                        .padding(.vertical, 6)
+
+                        Divider()
+
+                        Text("Your vault is locked. Verify your master password to continue.")
+                            .foregroundStyle(.secondary)
+
+                        Text(accountDescription)
+                            .foregroundStyle(.secondary)
+
+                        if let errorMessage {
+                            Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                        }
+                    }
+                    .padding(20)
+                    .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
+
+                    VStack(spacing: 14) {
+                        Button {
+                            Task { await unlockWithBiometrics() }
+                        } label: {
+                            Label(
+                                "Use \(BiometricAuthenticator.displayName) To Unlock",
+                                systemImage: BiometricAuthenticator.systemImage
+                            )
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.large)
+                        .disabled(isUnlocking)
+
+                        Button {
+                            Task { await unlockWithMasterPassword() }
+                        } label: {
+                            HStack {
+                                if isUnlocking { ProgressView().tint(.white) }
+                                Text("Unlock")
+                            }
+                            .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                        .disabled(masterPassword.isEmpty || isUnlocking)
+                    }
+                }
+                .padding(20)
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .background(Color(uiColor: .systemGroupedBackground))
+            .navigationTitle("Verify Master Password")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+        .task {
+            await Task.yield()
+            passwordIsFocused = true
+        }
+        .overlay {
+            if scenePhase != .active {
+                LockView(isPrivacyShield: true)
+                    .environmentObject(store)
+            }
+        }
+    }
+
+    private var accountDescription: String {
+        let server = URL(string: store.settings.serverURL)?.host ?? store.settings.serverURL
+        return "Logged in as \(store.settings.email) on \(server)."
+    }
+
+    private func unlockWithMasterPassword() async {
+        guard !masterPassword.isEmpty, !isUnlocking else { return }
+        isUnlocking = true
+        errorMessage = nil
+        let success = await store.unlock(masterPassword: masterPassword)
+        isUnlocking = false
+        if success {
+            masterPassword = ""
+            dismiss()
+        } else {
+            errorMessage = store.lastUnlockError ?? "The master password is incorrect."
+            passwordIsFocused = true
+        }
+    }
+
+    private func unlockWithBiometrics() async {
+        guard !isUnlocking else { return }
+        passwordIsFocused = false
+        isUnlocking = true
+        errorMessage = nil
+        let success = await store.unlockWithBiometrics()
+        isUnlocking = false
+        if success {
+            dismiss()
+        } else {
+            errorMessage = store.lastUnlockError ?? "\(BiometricAuthenticator.displayName) could not unlock the vault."
+        }
     }
 }
