@@ -1,0 +1,692 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A1B2C3D4E5F6000000000001 /* CredentialProviderViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000002 /* CredentialProviderViewController.swift */; };
+		A1B2C3D4E5F6000000000003 /* VaultAutoFillExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000004 /* VaultAutoFillExtension.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		A1B2C3D4E5F6000000000012 /* ../vaultwardenApp/Core/Autofill/AutoFillSharedVault.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000013 /* ../vaultwardenApp/Core/Autofill/AutoFillSharedVault.swift */; };
+		A1B2C3D4E5F6000000000014 /* ../vaultwardenApp/Core/Autofill/AutoFillPasskeySupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000015 /* ../vaultwardenApp/Core/Autofill/AutoFillPasskeySupport.swift */; };
+		A1B2C3D4E5F6000000000016 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000017 /* PrivacyInfo.xcprivacy */; };
+		B17A2D010000000000000001 /* BitwardenSdk in Frameworks */ = {isa = PBXBuildFile; productRef = B17A2D030000000000000003 /* BitwardenSdk */; };
+		B17A2D010000000000000004 /* BitwardenSdk in Frameworks */ = {isa = PBXBuildFile; productRef = B17A2D030000000000000003 /* BitwardenSdk */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		A1B2C3D4E5F6000000000010 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 24CE3C6D302863650023BAC2 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A1B2C3D4E5F600000000000C;
+			remoteInfo = VaultAutoFillExtension;
+		};
+		D00000000000000000000007 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 24CE3C6D302863650023BAC2 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 24CE3C74302863650023BAC2;
+			remoteInfo = vaultwardenApp;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		A1B2C3D4E5F600000000000B /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				A1B2C3D4E5F6000000000003 /* VaultAutoFillExtension.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		24CE3C75302863650023BAC2 /* vaultwardenApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = vaultwardenApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1B2C3D4E5F6000000000002 /* CredentialProviderViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialProviderViewController.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6000000000004 /* VaultAutoFillExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = VaultAutoFillExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1B2C3D4E5F6000000000005 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A1B2C3D4E5F6000000000006 /* VaultAutoFillExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = VaultAutoFillExtension.entitlements; sourceTree = "<group>"; };
+		A1B2C3D4E5F6000000000013 /* ../vaultwardenApp/Core/Autofill/AutoFillSharedVault.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../vaultwardenApp/Core/Autofill/AutoFillSharedVault.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6000000000015 /* ../vaultwardenApp/Core/Autofill/AutoFillPasskeySupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../vaultwardenApp/Core/Autofill/AutoFillPasskeySupport.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6000000000017 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		D00000000000000000000001 /* vaultwardenAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = vaultwardenAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		C0D3A11F0000000000000001 /* Exceptions for "vaultwardenApp" folder in "vaultwardenApp" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 24CE3C74302863650023BAC2 /* vaultwardenApp */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		24CE3C77302863650023BAC2 /* vaultwardenApp */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				C0D3A11F0000000000000001 /* Exceptions for "vaultwardenApp" folder in "vaultwardenApp" target */,
+			);
+			path = vaultwardenApp;
+			sourceTree = "<group>";
+		};
+		D00000000000000000000002 /* vaultwardenAppTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = vaultwardenAppTests;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		24CE3C72302863650023BAC2 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B17A2D010000000000000001 /* BitwardenSdk in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A1B2C3D4E5F6000000000008 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B17A2D010000000000000004 /* BitwardenSdk in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D00000000000000000000005 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		24CE3C6C302863650023BAC2 = {
+			isa = PBXGroup;
+			children = (
+				24CE3C77302863650023BAC2 /* vaultwardenApp */,
+				A1B2C3D4E5F6000000000007 /* VaultAutoFillExtension */,
+				D00000000000000000000002 /* vaultwardenAppTests */,
+				24CE3C76302863650023BAC2 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		24CE3C76302863650023BAC2 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				24CE3C75302863650023BAC2 /* vaultwardenApp.app */,
+				A1B2C3D4E5F6000000000004 /* VaultAutoFillExtension.appex */,
+				D00000000000000000000001 /* vaultwardenAppTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A1B2C3D4E5F6000000000007 /* VaultAutoFillExtension */ = {
+			isa = PBXGroup;
+			children = (
+				A1B2C3D4E5F6000000000002 /* CredentialProviderViewController.swift */,
+				A1B2C3D4E5F6000000000013 /* ../vaultwardenApp/Core/Autofill/AutoFillSharedVault.swift */,
+				A1B2C3D4E5F6000000000015 /* ../vaultwardenApp/Core/Autofill/AutoFillPasskeySupport.swift */,
+				A1B2C3D4E5F6000000000005 /* Info.plist */,
+				A1B2C3D4E5F6000000000006 /* VaultAutoFillExtension.entitlements */,
+				A1B2C3D4E5F6000000000017 /* PrivacyInfo.xcprivacy */,
+			);
+			path = VaultAutoFillExtension;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		24CE3C74302863650023BAC2 /* vaultwardenApp */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 24CE3C80302863660023BAC2 /* Build configuration list for PBXNativeTarget "vaultwardenApp" */;
+			buildPhases = (
+				24CE3C71302863650023BAC2 /* Sources */,
+				24CE3C72302863650023BAC2 /* Frameworks */,
+				24CE3C73302863650023BAC2 /* Resources */,
+				A1B2C3D4E5F600000000000B /* Embed App Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A1B2C3D4E5F6000000000011 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				24CE3C77302863650023BAC2 /* vaultwardenApp */,
+			);
+			name = vaultwardenApp;
+			packageProductDependencies = (
+				B17A2D030000000000000003 /* BitwardenSdk */,
+			);
+			productName = vaultwardenApp;
+			productReference = 24CE3C75302863650023BAC2 /* vaultwardenApp.app */;
+			productType = "com.apple.product-type.application";
+		};
+		A1B2C3D4E5F600000000000C /* VaultAutoFillExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A1B2C3D4E5F600000000000D /* Build configuration list for PBXNativeTarget "VaultAutoFillExtension" */;
+			buildPhases = (
+				A1B2C3D4E5F6000000000009 /* Sources */,
+				A1B2C3D4E5F6000000000008 /* Frameworks */,
+				A1B2C3D4E5F600000000000A /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = VaultAutoFillExtension;
+			packageProductDependencies = (
+				B17A2D030000000000000003 /* BitwardenSdk */,
+			);
+			productName = VaultAutoFillExtension;
+			productReference = A1B2C3D4E5F6000000000004 /* VaultAutoFillExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		D00000000000000000000003 /* vaultwardenAppTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D0000000000000000000000B /* Build configuration list for PBXNativeTarget "vaultwardenAppTests" */;
+			buildPhases = (
+				D00000000000000000000004 /* Sources */,
+				D00000000000000000000005 /* Frameworks */,
+				D00000000000000000000006 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				D00000000000000000000008 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				D00000000000000000000002 /* vaultwardenAppTests */,
+			);
+			name = vaultwardenAppTests;
+			packageProductDependencies = (
+			);
+			productName = vaultwardenAppTests;
+			productReference = D00000000000000000000001 /* vaultwardenAppTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		24CE3C6D302863650023BAC2 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2620;
+				LastUpgradeCheck = 2620;
+				TargetAttributes = {
+					24CE3C74302863650023BAC2 = {
+						CreatedOnToolsVersion = 26.2;
+					};
+					A1B2C3D4E5F600000000000C = {
+						CreatedOnToolsVersion = 26.2;
+					};
+					D00000000000000000000003 = {
+						CreatedOnToolsVersion = 26.2;
+						TestTargetID = 24CE3C74302863650023BAC2;
+					};
+				};
+			};
+			buildConfigurationList = 24CE3C70302863650023BAC2 /* Build configuration list for PBXProject "vaultwardenApp" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				id,
+				Base,
+			);
+			mainGroup = 24CE3C6C302863650023BAC2;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				B17A2D020000000000000002 /* XCRemoteSwiftPackageReference "sdk-swift" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 24CE3C76302863650023BAC2 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				24CE3C74302863650023BAC2 /* vaultwardenApp */,
+				A1B2C3D4E5F600000000000C /* VaultAutoFillExtension */,
+				D00000000000000000000003 /* vaultwardenAppTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		24CE3C73302863650023BAC2 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A1B2C3D4E5F600000000000A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1B2C3D4E5F6000000000016 /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D00000000000000000000006 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		24CE3C71302863650023BAC2 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A1B2C3D4E5F6000000000009 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1B2C3D4E5F6000000000001 /* CredentialProviderViewController.swift in Sources */,
+				A1B2C3D4E5F6000000000012 /* ../vaultwardenApp/Core/Autofill/AutoFillSharedVault.swift in Sources */,
+				A1B2C3D4E5F6000000000014 /* ../vaultwardenApp/Core/Autofill/AutoFillPasskeySupport.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D00000000000000000000004 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A1B2C3D4E5F6000000000011 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A1B2C3D4E5F600000000000C /* VaultAutoFillExtension */;
+			targetProxy = A1B2C3D4E5F6000000000010 /* PBXContainerItemProxy */;
+		};
+		D00000000000000000000008 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 24CE3C74302863650023BAC2 /* vaultwardenApp */;
+			targetProxy = D00000000000000000000007 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		24CE3C7E302863660023BAC2 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 5KQGTJX2K7;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		24CE3C7F302863660023BAC2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 5KQGTJX2K7;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		24CE3C81302863660023BAC2 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = vaultwardenApp/vaultwardenApp.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 2;
+				DEVELOPMENT_TEAM = 5KQGTJX2K7;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = vaultwardenApp/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Vaultwarden;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_NSFaceIDUsageDescription = "Use Face ID to unlock your encrypted vault and approve credential access.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Connect to your self-hosted Vaultwarden server on the local network.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_VaultSharedKeychainAccessGroup = "$(AppIdentifierPrefix)xyz.0xmwehehe.vaultwardenApp.shared";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = xyz.0xmwehehe.vaultwardenApp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		24CE3C82302863660023BAC2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = vaultwardenApp/vaultwardenApp.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 2;
+				DEVELOPMENT_TEAM = 5KQGTJX2K7;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = vaultwardenApp/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Vaultwarden;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_NSFaceIDUsageDescription = "Use Face ID to unlock your encrypted vault and approve credential access.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Connect to your self-hosted Vaultwarden server on the local network.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_VaultSharedKeychainAccessGroup = "$(AppIdentifierPrefix)xyz.0xmwehehe.vaultwardenApp.shared";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = xyz.0xmwehehe.vaultwardenApp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		A1B2C3D4E5F600000000000E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = VaultAutoFillExtension/VaultAutoFillExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 2;
+				DEVELOPMENT_TEAM = 5KQGTJX2K7;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = VaultAutoFillExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Vaultwarden;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = xyz.0xmwehehe.vaultwardenApp.autofill;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A1B2C3D4E5F600000000000F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = VaultAutoFillExtension/VaultAutoFillExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 2;
+				DEVELOPMENT_TEAM = 5KQGTJX2K7;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = VaultAutoFillExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Vaultwarden;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = xyz.0xmwehehe.vaultwardenApp.autofill;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		D00000000000000000000009 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 5KQGTJX2K7;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = xyz.0xmwehehe.vaultwardenAppTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/vaultwardenApp.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/vaultwardenApp";
+			};
+			name = Debug;
+		};
+		D0000000000000000000000A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 5KQGTJX2K7;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = xyz.0xmwehehe.vaultwardenAppTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/vaultwardenApp.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/vaultwardenApp";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		24CE3C70302863650023BAC2 /* Build configuration list for PBXProject "vaultwardenApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				24CE3C7E302863660023BAC2 /* Debug */,
+				24CE3C7F302863660023BAC2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		24CE3C80302863660023BAC2 /* Build configuration list for PBXNativeTarget "vaultwardenApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				24CE3C81302863660023BAC2 /* Debug */,
+				24CE3C82302863660023BAC2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A1B2C3D4E5F600000000000D /* Build configuration list for PBXNativeTarget "VaultAutoFillExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1B2C3D4E5F600000000000E /* Debug */,
+				A1B2C3D4E5F600000000000F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		D0000000000000000000000B /* Build configuration list for PBXNativeTarget "vaultwardenAppTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D00000000000000000000009 /* Debug */,
+				D0000000000000000000000A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		B17A2D020000000000000002 /* XCRemoteSwiftPackageReference "sdk-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/bitwarden/sdk-swift";
+			requirement = {
+				kind = revision;
+				revision = 3dbc27249f48fcb88c56739ece52e2335701de0b;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		B17A2D030000000000000003 /* BitwardenSdk */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B17A2D020000000000000002 /* XCRemoteSwiftPackageReference "sdk-swift" */;
+			productName = BitwardenSdk;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 24CE3C6D302863650023BAC2 /* Project object */;
+}
