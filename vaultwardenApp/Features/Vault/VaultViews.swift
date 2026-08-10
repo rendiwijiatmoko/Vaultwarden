@@ -1782,6 +1782,7 @@ struct AddEditVaultItemView: View {
     @State private var identity: IdentityDetails
     @State private var customFields: [VaultCustomField]
     @State private var showingGenerator = false
+    @State private var showingUsernameGenerator = false
     @State private var isSaving = false
 
     init(
@@ -1888,6 +1889,12 @@ struct AddEditVaultItemView: View {
                     showingGenerator = false
                 }
             }
+            .sheet(isPresented: $showingUsernameGenerator) {
+                QuickUsernameGeneratorView { generated in
+                    identity.username = generated
+                    showingUsernameGenerator = false
+                }
+            }
         }
     }
 
@@ -1955,11 +1962,16 @@ struct AddEditVaultItemView: View {
     private var identityForm: some View {
         Group {
             Section("Personal Information") {
-                LabeledFormField("Title", text: $identity.title, placeholder: "Mr, Mrs, Dr, etc.")
+                Picker("Title", selection: $identity.title) {
+                    ForEach(identityTitleOptions, id: \.self) { title in
+                        Text(title.isEmpty ? "Select Title" : title).tag(title)
+                    }
+                }
                 LabeledFormField("First Name", text: $identity.firstName, placeholder: "Enter first name", textContentType: .givenName)
                 LabeledFormField("Middle Name", text: $identity.middleName, placeholder: "Optional", textContentType: .middleName)
                 LabeledFormField("Last Name", text: $identity.lastName, placeholder: "Enter last name", textContentType: .familyName)
                 LabeledFormField("Username", text: $identity.username, placeholder: "Enter username", capitalization: .never)
+                Button("Generate Username") { showingUsernameGenerator = true }
                 LabeledFormField("Company", text: $identity.company, placeholder: "Enter company", textContentType: .organizationName)
             }
 
@@ -1990,6 +2002,15 @@ struct AddEditVaultItemView: View {
                 LabeledFormField("Country", text: $identity.country, placeholder: "Enter country", textContentType: .countryName)
             }
         }
+    }
+
+    private var identityTitleOptions: [String] {
+        var values = ["", "Mr", "Mrs", "Ms", "Miss", "Dr", "Prof", "Mx"]
+        let existingTitle = identity.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !existingTitle.isEmpty, !values.contains(existingTitle) {
+            values.append(existingTitle)
+        }
+        return values
     }
 
     private var customFieldsEditor: some View {

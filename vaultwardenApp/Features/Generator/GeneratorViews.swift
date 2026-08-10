@@ -367,10 +367,14 @@ struct QuickPasswordGeneratorView: View {
                     generated = PasswordGenerator.password(length: Int(length), uppercase: true, numbers: true, symbols: true)
                 }
                 .buttonStyle(.bordered)
-                Button("Use This Password") { onUse(generated) }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .frame(maxWidth: .infinity)
+                Button {
+                    onUse(generated)
+                } label: {
+                    Text("Use This Password")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
                 Spacer()
             }
             .padding(20)
@@ -379,6 +383,49 @@ struct QuickPasswordGeneratorView: View {
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
             .onChange(of: length) { _, _ in
                 generated = PasswordGenerator.password(length: Int(length), uppercase: true, numbers: true, symbols: true)
+            }
+        }
+        .presentationDetents([.medium])
+    }
+}
+
+struct QuickUsernameGeneratorView: View {
+    @Environment(\.dismiss) private var dismiss
+    let onUse: (String) -> Void
+    @State private var generated = PasswordGenerator.username()
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 24) {
+                ColoredGeneratedValue(value: generated)
+                    .font(.title2.monospaced().weight(.semibold))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(18)
+                    .background(Color.vaultBlue.opacity(0.12), in: RoundedRectangle(cornerRadius: 18))
+
+                Button("Generate Another Username") {
+                    generated = PasswordGenerator.username()
+                }
+                .buttonStyle(.bordered)
+
+                Button {
+                    onUse(generated)
+                } label: {
+                    Text("Use This Username")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+
+                Spacer()
+            }
+            .padding(20)
+            .navigationTitle("Generate Username")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
             }
         }
         .presentationDetents([.medium])
