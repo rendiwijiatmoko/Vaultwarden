@@ -73,6 +73,8 @@ struct AnimatedCopyButton: View {
     var accessibilityName = "value"
     var onCopy: (() -> Void)?
     var fillsWidth = false
+    var color: Color = .vaultBlue
+    var copiedColor: Color = .vaultGreen
     @State private var copied = false
     @State private var copySequence = 0
 
@@ -84,7 +86,7 @@ struct AnimatedCopyButton: View {
                         .contentTransition(.symbolEffect(.replace))
                 } else {
                     Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                        .foregroundStyle(copied ? Color.vaultGreen : Color.vaultBlue)
+                        .foregroundStyle(copied ? copiedColor : color)
                         .contentTransition(.symbolEffect(.replace))
                 }
             }

@@ -274,9 +274,12 @@ nonisolated struct BitwardenVaultPayloadDecoder: VaultPayloadDecoder {
             )
         }
         let ssh = view.sshKey
-        let firstURI = login?.uris?.compactMap(\.uri).first ?? ""
+        let loginURIs = login?.uris?.compactMap(\.uri) ?? []
+        let firstURI = loginURIs.first ?? ""
         var risks = Set<VaultRisk>()
-        if firstURI.lowercased().hasPrefix("http://") { risks.insert(.unsecured) }
+        if loginURIs.contains(where: { $0.lowercased().hasPrefix("http://") }) {
+            risks.insert(.unsecured)
+        }
 
         return VaultItem(
             id: view.id.flatMap(UUID.init(uuidString:)) ?? UUID(),
@@ -284,6 +287,7 @@ nonisolated struct BitwardenVaultPayloadDecoder: VaultPayloadDecoder {
             username: login?.username ?? ssh?.publicKey ?? "",
             password: login?.password ?? ssh?.privateKey ?? "",
             uri: firstURI,
+            additionalURIs: loginURIs.count > 1 ? Array(loginURIs.dropFirst()) : nil,
             type: view.localItemType,
             folder: folderName,
             organization: organizationName,

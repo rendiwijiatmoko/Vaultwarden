@@ -1,10 +1,6 @@
 import Foundation
 import SwiftUI
 
-enum AppTab: Hashable {
-    case vault, generator, send, settings
-}
-
 nonisolated enum VaultItemType: String, CaseIterable, Codable, Identifiable, Sendable {
     case login = "Login"
     case secureNote = "Secure Note"
@@ -111,6 +107,9 @@ nonisolated struct VaultItem: Identifiable, Hashable, Codable, Sendable {
     var username: String = ""
     var password: String = ""
     var uri: String = ""
+    /// Additional login websites after the primary `uri`. Optional keeps
+    /// cached items written by older app versions decodable.
+    var additionalURIs: [String]?
     var type: VaultItemType = .login
     var folder: String?
     var organization: String?
@@ -130,6 +129,37 @@ nonisolated struct VaultItem: Identifiable, Hashable, Codable, Sendable {
 
     var isDeleted: Bool { deletedAt != nil }
     var isArchived: Bool { archivedAt != nil }
+
+    var websiteURIs: [String] {
+        ([uri] + (additionalURIs ?? []))
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+
+    /// An absolute HTTP(S) URL suitable for opening in a browser. Vault URIs
+    /// commonly omit the scheme, so treat a bare host as HTTPS by default.
+    var websiteURL: URL? {
+        websiteURL(for: uri)
+    }
+
+    func websiteURL(for uri: String) -> URL? {
+        let value = uri.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return nil }
+
+        let hasExplicitScheme = value.range(
+            of: "^[A-Za-z][A-Za-z0-9+.-]*://",
+            options: .regularExpression
+        ) != nil
+        let candidate = hasExplicitScheme ? value : "https://\(value)"
+
+        guard let components = URLComponents(string: candidate),
+              let scheme = components.scheme?.lowercased(),
+              scheme == "https" || scheme == "http",
+              components.host?.isEmpty == false else {
+            return nil
+        }
+        return components.url
+    }
+
     var displaySubtitle: String {
         if type == .card, let card, !card.cardholderName.isEmpty {
             return [card.brand, card.maskedNumber].filter { !$0.isEmpty }.joined(separator: " • ")
@@ -150,7 +180,7 @@ nonisolated struct VaultCollection: Identifiable, Hashable, Codable, Sendable {
 }
 
 enum VaultCategory: String, CaseIterable, Identifiable {
-    case all = "All"
+    case logins = "Login"
     case passkeys = "Passkeys"
     case codes = "Codes"
     case cards = "Cards"
@@ -165,7 +195,7 @@ enum VaultCategory: String, CaseIterable, Identifiable {
 
     var icon: String {
         switch self {
-        case .all: "key.fill"
+        case .logins: "key.fill"
         case .passkeys: "person.badge.key.fill"
         case .codes: "lock.rotation"
         case .cards: "creditcard.fill"
@@ -180,7 +210,7 @@ enum VaultCategory: String, CaseIterable, Identifiable {
 
     var color: Color {
         switch self {
-        case .all: .vaultBlue
+        case .logins: .vaultBlue
         case .passkeys: .vaultGreen
         case .codes: .vaultYellow
         case .cards: .vaultCyan

@@ -189,6 +189,7 @@ nonisolated struct OTPAuthSetupRequest: Identifiable, Hashable, Sendable {
 struct LockView: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     private let isPrivacyShield: Bool
     @State private var showPasswordUnlock = false
     @State private var biometricFailed = false
@@ -218,7 +219,7 @@ struct LockView: View {
                         systemImage: biometricFailed ? "lock.open.fill" : BiometricAuthenticator.systemImage
                     )
                 }
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: horizontalSizeClass == .regular ? 360 : .infinity)
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
@@ -232,16 +233,9 @@ struct LockView: View {
                     .multilineTextAlignment(.center)
             }
 
-            if !isPrivacyShield {
-                Button("Use Master Password") { showPasswordUnlock = true }
-                    .buttonStyle(.plain)
-            }
+            Button("Use Master Password") { showPasswordUnlock = true }
+                .buttonStyle(.plain)
             Spacer()
-            if !isPrivacyShield {
-                Text("Vault key protected by iOS Keychain")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            }
         }
         .padding(28)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

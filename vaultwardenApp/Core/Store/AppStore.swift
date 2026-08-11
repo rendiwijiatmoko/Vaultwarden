@@ -15,7 +15,11 @@ final class AppStore: ObservableObject {
     private var organizationKeys: [String: String] = [:]
     private var backgroundedAt: Date?
 
-    @Published var selectedTab: AppTab = .vault
+    /// Sidebar selection. `nil` keeps the split view collapsed on the sidebar,
+    /// which is the intended landing screen on iPhone.
+    @Published var selectedFilter: VaultFilter?
+    /// Detail-column selection.
+    @Published var selectedItemID: UUID?
     @Published var items: [VaultItem] = []
     @Published var folders: [VaultFolder] = []
     @Published var collections: [VaultCollection] = []
@@ -86,7 +90,7 @@ final class AppStore: ObservableObject {
 
     func items(in category: VaultCategory) -> [VaultItem] {
         switch category {
-        case .all: activeItems
+        case .logins: activeItems.filter { $0.type == .login }
         case .passkeys: activeItems.filter { $0.passkeyCount > 0 }
         case .codes: activeItems.filter { $0.totpSecret?.isEmpty == false }
         case .cards: activeItems.filter { $0.type == .card }
@@ -99,7 +103,42 @@ final class AppStore: ObservableObject {
         }
     }
 
-    func count(for category: VaultCategory) -> Int { items(in: category).count }
+    var favoriteItems: [VaultItem] { activeItems.filter(\.isFavorite) }
+
+    /// Resolves a navigation selection into live items. Everything is derived
+    /// from `items` on demand, so a list stays correct after an edit or sync
+    /// without having to be re-entered.
+    func items(for filter: VaultFilter) -> [VaultItem] {
+        switch filter {
+        case let .category(category): items(in: category)
+        case .favorites: favoriteItems
+        case .unfoldered: unfolderedItems
+        case let .folder(name): items(inFolder: name)
+        case let .collection(identifier): activeItems.filter { $0.collectionIDs.contains(identifier) }
+        case let .organization(name): items(inOrganization: name)
+        }
+    }
+
+    func count(for filter: VaultFilter) -> Int { items(for: filter).count }
+
+    func title(for filter: VaultFilter) -> String {
+        switch filter {
+        case let .category(category): category.rawValue
+        case .favorites: "Favorites"
+        case .unfoldered: "Unfoldered"
+        case let .folder(name): name
+        case let .collection(identifier): collection(withID: identifier)?.name ?? "Collection"
+        case let .organization(name): name
+        }
+    }
+
+    /// Shared vaults are modelled as collections when the server exposes them
+    /// and fall back to plain organization names otherwise.
+    var sharedFilters: [VaultFilter] {
+        collections.isEmpty
+            ? organizations.map(VaultFilter.organization)
+            : collections.map { VaultFilter.collection($0.id) }
+    }
 
     func items(inFolder folder: String) -> [VaultItem] {
         activeItems.filter { $0.folder == folder }
@@ -109,8 +148,8 @@ final class AppStore: ObservableObject {
         activeItems.filter { $0.organization == organization }
     }
 
-    func items(inCollection collection: VaultCollection) -> [VaultItem] {
-        activeItems.filter { $0.collectionIDs.contains(collection.id) }
+    func collection(withID identifier: String) -> VaultCollection? {
+        collections.first { $0.id == identifier }
     }
 
     func search(_ query: String) -> [VaultItem] {
@@ -118,7 +157,7 @@ final class AppStore: ObservableObject {
         return activeItems.filter {
             $0.name.localizedCaseInsensitiveContains(query)
                 || $0.username.localizedCaseInsensitiveContains(query)
-                || $0.uri.localizedCaseInsensitiveContains(query)
+                || $0.websiteURIs.contains { $0.localizedCaseInsensitiveContains(query) }
                 || ($0.folder?.localizedCaseInsensitiveContains(query) ?? false)
         }
     }
@@ -148,14 +187,15 @@ final class AppStore: ObservableObject {
         }
     }
 
-    func trash(_ item: VaultItem) async {
-        guard let session = authenticatedSession else { return }
+    @discardableResult
+    func trash(_ item: VaultItem) async -> Bool {
+        guard let session = authenticatedSession else { return false }
         if remoteCiphers[item.id] == nil {
             var updated = item
             updated.deletedAt = Date()
-            _ = await save(updated)
+            return await save(updated)
         } else {
-            _ = await enqueueAndAttempt(
+            return await enqueueAndAttempt(
                 vaultwardenService.prepareCipherAction(id: item.id, action: .trash, session: session)
             )
         }
@@ -200,9 +240,10 @@ final class AppStore: ObservableObject {
         }
     }
 
-    func permanentlyDelete(_ item: VaultItem) async {
-        guard let session = authenticatedSession else { return }
-        _ = await enqueueAndAttempt(
+    @discardableResult
+    func permanentlyDelete(_ item: VaultItem) async -> Bool {
+        guard let session = authenticatedSession else { return false }
+        return await enqueueAndAttempt(
             vaultwardenService.prepareCipherAction(id: item.id, action: .delete, session: session)
         )
     }
@@ -575,6 +616,7 @@ final class AppStore: ObservableObject {
         lastSync = snapshot.revision
         lastSyncError = nil
         lastSyncUsedOfflineCache = snapshot.isFromOfflineCache
+        discardSelectionForMissingItem()
     }
 
     private func apply(_ projection: VaultMutationProjection) {
@@ -587,6 +629,16 @@ final class AppStore: ObservableObject {
         case let .deleteItem(id): remoteCiphers[id] = nil
         case let .deleteSend(id): remoteSends[id] = nil
         default: break
+        }
+        discardSelectionForMissingItem()
+    }
+
+    /// Keeps the split view's detail column from stranding on an item that a
+    /// sync or a permanent delete has just removed.
+    private func discardSelectionForMissingItem() {
+        guard let selectedItemID else { return }
+        if !items.contains(where: { $0.id == selectedItemID }) {
+            self.selectedItemID = nil
         }
     }
 
@@ -796,7 +848,8 @@ final class AppStore: ObservableObject {
         lastSyncUsedOfflineCache = false
         discoveredServerVersion = nil
         pendingMutationCount = 0
-        selectedTab = .vault
+        selectedFilter = nil
+        selectedItemID = nil
 
         if cleanupFailure != nil {
             userFacingNotice = "You were logged out, but iOS could not verify removal of every protected Keychain item. Restart the device and log out again before handing it to someone else."

@@ -1079,32 +1079,22 @@ private struct AutoFillCredentialListView: View {
             .navigationSubtitle(viewModel.subtitle)
             .toolbarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
+                ToolbarItem(placement: .topBarLeading) {
                     Button(action: viewModel.onCancel) {
                         Image(systemName: "xmark")
                     }
                     .accessibilityLabel("Close AutoFill")
                 }
 
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(action: viewModel.onAccount) {
-                        Text(viewModel.avatarInitial)
-                            .font(.headline)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .buttonBorderShape(.circle)
-                    .accessibilityLabel("Account \(viewModel.accountDisplayName)")
-                }
-
                 if viewModel.showsCredentialList {
-                    DefaultToolbarItem(kind: .search, placement: .bottomBar)
-                    ToolbarSpacer(.fixed, placement: .bottomBar)
-                    ToolbarItem(placement: .bottomBar) {
+                    ToolbarItem(placement: .topBarTrailing) {
                         Button(action: viewModel.onAdd) {
                             Image(systemName: "plus")
                         }
                         .accessibilityLabel("Create new password")
                     }
+
+                    DefaultToolbarItem(kind: .search, placement: .bottomBar)
                 }
             }
         }
@@ -1132,20 +1122,26 @@ private struct AutoFillCredentialListView: View {
                 )
             }
         } else {
-            List(viewModel.filteredCredentials) { credential in
-                Button {
-                    viewModel.onSelect(credential)
-                } label: {
-                    AutoFillCredentialRow(
-                        credential: credential,
-                        kind: viewModel.kind,
-                        showsWebsiteIcon: viewModel.showsWebsiteIcons,
-                        serverURL: viewModel.websiteIconServerURL
-                    )
+            List {
+                Section {
+                    ForEach(viewModel.filteredCredentials) { credential in
+                        Button {
+                            viewModel.onSelect(credential)
+                        } label: {
+                            AutoFillCredentialRow(
+                                credential: credential,
+                                kind: viewModel.kind,
+                                showsWebsiteIcon: viewModel.showsWebsiteIcons,
+                                serverURL: viewModel.websiteIconServerURL
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .alignmentGuide(.listRowSeparatorLeading) { _ in 55 }
+                    }
                 }
-                .buttonStyle(.plain)
+                .listSectionSeparator(.hidden, edges: .top)
             }
-            .listStyle(.insetGrouped)
+            .listStyle(.plain)
         }
     }
 

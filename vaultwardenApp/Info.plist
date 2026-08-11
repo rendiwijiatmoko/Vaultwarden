@@ -46,7 +46,7 @@
 	<key>NSFaceIDUsageDescription</key>
 	<string>Use Face ID to unlock your encrypted vault and approve credential access.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Take a photo to attach to an encrypted Vaultwarden Send.</string>
+	<string>Scan authenticator QR codes or take a photo to attach to an encrypted Vaultwarden Send.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Select a photo to attach to an encrypted Vaultwarden Send.</string>
 	<key>NSLocalNetworkUsageDescription</key>

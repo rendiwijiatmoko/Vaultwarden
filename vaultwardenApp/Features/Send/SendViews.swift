@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 
 struct SendView: View {
     @EnvironmentObject private var store: AppStore
+    @Environment(\.dismiss) private var dismiss
     @State private var showingCreate = false
     @State private var selection = 0
     @State private var pendingSwipeAction: SendSwipeAction?
@@ -41,8 +42,11 @@ struct SendView: View {
             }
             .background(Color.vaultBackground)
             .navigationTitle("Send")
-            .toolbarTitleDisplayMode(.inlineLarge)
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { dismiss() }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { showingCreate = true } label: { Image(systemName: "plus") }
                 }

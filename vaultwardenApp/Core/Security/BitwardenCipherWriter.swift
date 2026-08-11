@@ -181,15 +181,21 @@ nonisolated enum BitwardenCipherWriter {
 
     private static func makeView(item: VaultItem, existing: CipherView?, folderID: String?) -> CipherView {
         let now = Date()
+        let existingLoginURIs = existing?.login?.uris ?? []
+        let loginURIs = item.websiteURIs.enumerated().map { index, uri in
+            LoginUriView(
+                uri: uri,
+                match: existingLoginURIs.indices.contains(index) ? existingLoginURIs[index].match : nil,
+                uriChecksum: nil
+            )
+        }
         let login: LoginView? = item.type == .login ? LoginView(
             username: item.username.nilIfEmpty,
             password: item.password.nilIfEmpty,
             passwordRevisionDate: existing?.login?.password == item.password
                 ? existing?.login?.passwordRevisionDate
                 : now,
-            uris: item.uri.nilIfEmpty.map {
-                [LoginUriView(uri: $0, match: existing?.login?.uris?.first?.match, uriChecksum: nil)]
-            },
+            uris: loginURIs.isEmpty ? nil : loginURIs,
             totp: item.totpSecret?.nilIfEmpty,
             autofillOnPageLoad: existing?.login?.autofillOnPageLoad,
             fido2Credentials: existing?.login?.fido2Credentials

@@ -12,7 +12,7 @@ struct ContentView: View {
             if hasCompletedOnboarding {
                 if store.isAuthenticated {
                     ZStack {
-                        MainTabView()
+                        RootSplitView()
                             .environmentObject(store)
                             .blur(radius: store.isLocked ? 12 : 0)
                             .allowsHitTesting(!store.isLocked)
@@ -108,33 +108,8 @@ struct ContentView: View {
               !store.isLocked,
               presentedCodeSetup == nil,
               let request = queuedCodeSetup else { return }
-        store.selectedTab = .vault
         queuedCodeSetup = nil
         presentedCodeSetup = request
     }
 
-}
-
-private struct MainTabView: View {
-    @EnvironmentObject private var store: AppStore
-
-    var body: some View {
-        TabView(selection: $store.selectedTab) {
-            Tab("Vault", systemImage: "lock.rectangle.stack.fill", value: AppTab.vault) {
-                VaultView()
-            }
-
-            Tab("Generator", systemImage: "wand.and.sparkles", value: AppTab.generator) {
-                GeneratorView()
-            }
-
-            Tab("Send", systemImage: "paperplane.fill", value: AppTab.send) {
-                SendView()
-            }
-
-            Tab("Settings", systemImage: "gearshape.fill", value: AppTab.settings) {
-                SettingsView()
-            }
-        }
-    }
 }

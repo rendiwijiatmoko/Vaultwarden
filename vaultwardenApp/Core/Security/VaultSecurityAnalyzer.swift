@@ -29,9 +29,11 @@ nonisolated enum VaultSecurityAnalyzer {
                 analyzed.risks.insert(.reused)
             }
 
-            if item.uri.trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased()
-                .hasPrefix("http://") {
+            if item.websiteURIs.contains(where: {
+                $0.trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased()
+                    .hasPrefix("http://")
+            }) {
                 analyzed.risks.insert(.unsecured)
             }
 

@@ -1,357 +1,9 @@
 import SwiftUI
 import UIKit
+import VisionKit
+internal import Vision
 
-struct VaultView: View {
-    @EnvironmentObject private var store: AppStore
-    @State private var searchText = ""
-    @State private var showingAddItem = false
-    @State private var showingAddFolder = false
-    @State private var folderName = ""
-
-    var body: some View {
-        NavigationStack {
-            Group {
-                if searchText.isEmpty {
-                    VaultDashboard(showingAddFolder: $showingAddFolder)
-                } else {
-                    VaultItemListContent(items: store.search(searchText), emptyMessage: "No vault items match “\(searchText)”.")
-                }
-            }
-            .background(Color.vaultBackground)
-            .navigationTitle("Vault")
-            .toolbarTitleDisplayMode(.inlineLarge)
-            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search your vault")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { showingAddItem = true } label: {
-                        Image(systemName: "plus")
-                    }
-                    .accessibilityLabel("Add vault item")
-                }
-            }
-            .sheet(isPresented: $showingAddItem) {
-                AddEditVaultItemView()
-            }
-            .alert("New Folder", isPresented: $showingAddFolder) {
-                TextField("Folder name", text: $folderName)
-                Button("Cancel", role: .cancel) { folderName = "" }
-                Button("Create") {
-                    let name = folderName.trimmingCharacters(in: .whitespacesAndNewlines)
-                    folderName = ""
-                    Task { _ = await store.addFolder(named: name) }
-                }
-            } message: {
-                Text("Folders organize your personal vault. They are not shared with organization members.")
-            }
-        }
-    }
-
-}
-
-private struct VaultDashboard: View {
-    @EnvironmentObject private var store: AppStore
-    @Binding var showingAddFolder: Bool
-    @State private var favoritesExpanded = true
-    @State private var personalFoldersExpanded = true
-    @State private var sharedVaultsExpanded = true
-    @State private var hiddenItemsExpanded = false
-    @State private var folderToRename: VaultFolder?
-    @State private var folderToDelete: VaultFolder?
-    @State private var renameFolderName = ""
-    @State private var showingRenameFolder = false
-    @State private var showingDeleteFolder = false
-
-    private let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
-
-    private var favoriteItems: [VaultItem] {
-        store.activeItems.filter(\.isFavorite)
-    }
-
-    private var dashboardCategories: [VaultCategory] {
-        VaultCategory.allCases.filter { $0 != .archived && $0 != .deleted }
-    }
-
-    private var hiddenCategories: [VaultCategory] {
-        [.archived, .deleted]
-    }
-
-    private var personalFolderCount: Int {
-        store.folders.count + 1
-    }
-
-    var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 24) {
-                VStack(alignment: .leading, spacing: 8) {
-                    VaultSyncStatusText()
-
-                    LazyVGrid(columns: columns, spacing: 12) {
-                        ForEach(dashboardCategories) { category in
-                            NavigationLink {
-                                VaultCollectionView(title: category.rawValue, items: store.items(in: category), category: category)
-                            } label: {
-                                CategoryCard(category: category, count: store.count(for: category))
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-
-                if !favoriteItems.isEmpty {
-                    VStack(alignment: .leading, spacing: 12) {
-                        collapsibleHeader("Favorites", isExpanded: $favoritesExpanded)
-
-                        if favoritesExpanded {
-                            ForEach(favoriteItems.prefix(5)) { item in
-                                NavigationLink {
-                                    VaultItemDetailView(itemID: item.id)
-                                } label: {
-                                    VaultItemRow(item: item)
-                                }
-                                .buttonStyle(.plain)
-                                .transition(.opacity.combined(with: .move(edge: .top)))
-                            }
-
-                            if favoriteItems.count > 5 {
-                                NavigationLink {
-                                    VaultCollectionView(title: "Favorites", items: favoriteItems)
-                                } label: {
-                                    HStack(spacing: 6) {
-                                        Text("See More")
-                                            .font(.subheadline.weight(.semibold))
-                                        Image(systemName: "chevron.right")
-                                            .font(.caption.bold())
-                                    }
-                                    .foregroundStyle(Color.vaultBlue)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 8)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
-                }
-
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(spacing: 12) {
-                        Button {
-                            withAnimation(.snappy) {
-                                personalFoldersExpanded.toggle()
-                            }
-                        } label: {
-                            HStack {
-                                Text("Personal Folders (\(personalFolderCount))")
-                                    .font(.title3.bold())
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                Image(systemName: "chevron.down")
-                                    .font(.subheadline.bold())
-                                    .foregroundStyle(.secondary)
-                                    .rotationEffect(.degrees(personalFoldersExpanded ? 0 : -90))
-                            }
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Personal Folders, \(personalFolderCount), \(personalFoldersExpanded ? "expanded" : "collapsed")")
-                        .accessibilityHint("Double tap to \(personalFoldersExpanded ? "collapse" : "expand")")
-
-                        Button { showingAddFolder = true } label: {
-                            Image(systemName: "folder.badge.plus")
-                        }
-                        .accessibilityLabel("Create folder")
-                    }
-
-                    if personalFoldersExpanded {
-                        VStack(spacing: 0) {
-                            NavigationLink {
-                                VaultCollectionView(title: "Unfolder", items: store.unfolderedItems)
-                            } label: {
-                                FolderRow(
-                                    icon: "questionmark.folder.fill",
-                                    name: "Unfolder",
-                                    count: store.unfolderedItems.count,
-                                    color: .secondary
-                                )
-                            }
-                            .buttonStyle(.plain)
-
-                            if !store.folders.isEmpty {
-                                Divider().padding(.leading, 52)
-                            }
-
-                            ForEach(Array(store.folders.enumerated()), id: \.element.id) { index, folder in
-                                NavigationLink {
-                                    VaultCollectionView(title: folder.name, items: store.items(inFolder: folder.name))
-                                } label: {
-                                    FolderRow(icon: folder.icon, name: folder.name, count: store.items(inFolder: folder.name).count)
-                                }
-                                .buttonStyle(.plain)
-                                .contextMenu {
-                                    Button {
-                                        folderToRename = folder
-                                        renameFolderName = folder.name
-                                        showingRenameFolder = true
-                                    } label: {
-                                        Label("Rename Folder", systemImage: "pencil")
-                                    }
-                                    Button(role: .destructive) {
-                                        folderToDelete = folder
-                                        showingDeleteFolder = true
-                                    } label: {
-                                        Label("Delete Folder", systemImage: "trash")
-                                    }
-                                }
-                                .confirmationDialog(
-                                    "Delete \(folder.name)?",
-                                    isPresented: deleteFolderConfirmationBinding(for: folder),
-                                    titleVisibility: .visible
-                                ) {
-                                    Button("Delete Folder", role: .destructive) {
-                                        showingDeleteFolder = false
-                                        folderToDelete = nil
-                                        Task { await store.deleteFolder(folder) }
-                                    }
-                                    Button("Cancel", role: .cancel) {
-                                        showingDeleteFolder = false
-                                        folderToDelete = nil
-                                    }
-                                } message: {
-                                    Text("Vault items are kept and moved to Unfolder.")
-                                }
-                                if index < store.folders.count - 1 { Divider().padding(.leading, 52) }
-                            }
-                        }
-                        .background(Color.vaultCard, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-                        .transition(.opacity.combined(with: .move(edge: .top)))
-                    }
-                }
-
-                if !store.organizations.isEmpty || !store.collections.isEmpty {
-                    VStack(alignment: .leading, spacing: 12) {
-                        collapsibleHeader("Shared Vaults", isExpanded: $sharedVaultsExpanded)
-
-                        if sharedVaultsExpanded {
-                            VStack(spacing: 0) {
-                                if store.collections.isEmpty {
-                                    ForEach(Array(store.organizations.enumerated()), id: \.element) { index, organization in
-                                        NavigationLink {
-                                            VaultCollectionView(title: organization, items: store.items(inOrganization: organization))
-                                        } label: {
-                                            FolderRow(icon: "person.2.fill", name: organization, count: store.items(inOrganization: organization).count, color: .vaultGreen)
-                                        }
-                                        .buttonStyle(.plain)
-                                        if index < store.organizations.count - 1 { Divider().padding(.leading, 52) }
-                                    }
-                                } else {
-                                    ForEach(Array(store.collections.enumerated()), id: \.element.id) { index, collection in
-                                        NavigationLink {
-                                            VaultCollectionView(title: collection.name, items: store.items(inCollection: collection))
-                                        } label: {
-                                            FolderRow(
-                                                icon: collection.isReadOnly ? "folder.badge.minus" : "person.2.fill",
-                                                name: collection.name,
-                                                count: store.items(inCollection: collection).count,
-                                                color: .vaultGreen
-                                            )
-                                        }
-                                        .buttonStyle(.plain)
-                                        if index < store.collections.count - 1 { Divider().padding(.leading, 52) }
-                                    }
-                                }
-                            }
-                            .background(Color.vaultCard, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-                            .transition(.opacity.combined(with: .move(edge: .top)))
-                        }
-                    }
-                }
-
-                VStack(alignment: .leading, spacing: 12) {
-                    collapsibleHeader("Hidden Items (\(hiddenCategories.count))", isExpanded: $hiddenItemsExpanded)
-
-                    if hiddenItemsExpanded {
-                        VStack(spacing: 0) {
-                            ForEach(Array(hiddenCategories.enumerated()), id: \.element.id) { index, category in
-                                NavigationLink {
-                                    VaultCollectionView(
-                                        title: category.rawValue,
-                                        items: store.items(in: category),
-                                        category: category
-                                    )
-                                } label: {
-                                    FolderRow(
-                                        icon: category.icon,
-                                        name: category.rawValue,
-                                        count: store.count(for: category),
-                                        color: category.color
-                                    )
-                                }
-                                .buttonStyle(.plain)
-
-                                if index < hiddenCategories.count - 1 {
-                                    Divider().padding(.leading, 52)
-                                }
-                            }
-                        }
-                        .background(Color.vaultCard, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-                        .transition(.opacity.combined(with: .move(edge: .top)))
-                    }
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 28)
-        }
-        .refreshable { await store.syncFromPullToRefresh() }
-        .alert("Rename Folder", isPresented: $showingRenameFolder) {
-            TextField("Folder name", text: $renameFolderName)
-            Button("Cancel", role: .cancel) { folderToRename = nil }
-            Button("Save") {
-                guard let folder = folderToRename else { return }
-                let name = renameFolderName
-                folderToRename = nil
-                Task { _ = await store.renameFolder(folder, to: name) }
-            }
-        } message: {
-            Text("Items in this folder will keep their assignment.")
-        }
-    }
-
-    private func deleteFolderConfirmationBinding(for folder: VaultFolder) -> Binding<Bool> {
-        Binding(
-            get: { showingDeleteFolder && folderToDelete?.id == folder.id },
-            set: { isPresented in
-                guard !isPresented, folderToDelete?.id == folder.id else { return }
-                showingDeleteFolder = false
-                folderToDelete = nil
-            }
-        )
-    }
-
-    private func collapsibleHeader(_ title: String, isExpanded: Binding<Bool>) -> some View {
-        Button {
-            withAnimation(.snappy) {
-                isExpanded.wrappedValue.toggle()
-            }
-        } label: {
-            HStack {
-                Text(title)
-                    .font(.title3.bold())
-                    .foregroundStyle(.primary)
-                Spacer()
-                Image(systemName: "chevron.down")
-                    .font(.subheadline.bold())
-                    .foregroundStyle(.secondary)
-                    .rotationEffect(.degrees(isExpanded.wrappedValue ? 0 : -90))
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(title), \(isExpanded.wrappedValue ? "expanded" : "collapsed")")
-        .accessibilityHint("Double tap to \(isExpanded.wrappedValue ? "collapse" : "expand")")
-    }
-
-}
-
-private struct VaultSyncStatusText: View {
+struct VaultSyncStatusText: View {
     @EnvironmentObject private var store: AppStore
 
     private var appearance: (text: String, color: Color) {
@@ -391,58 +43,6 @@ private struct VaultSyncStatusText: View {
     }
 }
 
-private struct CategoryCard: View {
-    let category: VaultCategory
-    let count: Int
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top) {
-                VaultIcon(systemName: category.icon, color: category.color, size: 34)
-                Spacer()
-                Text(count, format: .number)
-                    .font(.body)
-                    .foregroundStyle(.secondary)
-            }
-            Text(category.rawValue)
-                .font(.body.weight(.semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.85)
-                .foregroundStyle(.primary)
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, minHeight: 98, alignment: .leading)
-        .background(Color.vaultCard, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-    }
-}
-
-private struct FolderRow: View {
-    let icon: String
-    let name: String
-    let count: Int
-    var color: Color = .vaultBlue
-
-    var body: some View {
-        HStack(spacing: 14) {
-            Image(systemName: icon)
-                .font(.title3)
-                .foregroundStyle(color)
-                .frame(width: 30)
-            Text(name)
-                .font(.body.weight(.medium))
-            Spacer()
-            Text(count, format: .number)
-                .foregroundStyle(.secondary)
-            Image(systemName: "chevron.right")
-                .font(.caption.bold())
-                .foregroundStyle(.tertiary)
-        }
-        .padding(.horizontal, 16)
-        .frame(minHeight: 58)
-        .contentShape(Rectangle())
-    }
-}
-
 private enum VaultRowAction: Equatable {
     case delete(UUID)
     case archive(UUID)
@@ -454,13 +54,59 @@ private enum VaultRowAction: Equatable {
     }
 }
 
+private enum VaultSortOrder: String, CaseIterable, Identifiable {
+    case nameAscending
+    case nameDescending
+    case newestFirst
+    case oldestFirst
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .nameAscending: "Name (A–Z)"
+        case .nameDescending: "Name (Z–A)"
+        case .newestFirst: "Newest First"
+        case .oldestFirst: "Oldest First"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .nameAscending: "textformat.abc"
+        case .nameDescending: "textformat.abc"
+        case .newestFirst: "clock.arrow.trianglehead.counterclockwise.rotate.90"
+        case .oldestFirst: "clock.arrow.trianglehead.2.counterclockwise.rotate.90"
+        }
+    }
+
+    func areInIncreasingOrder(_ lhs: VaultItem, _ rhs: VaultItem) -> Bool {
+        switch self {
+        case .nameAscending:
+            return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+        case .nameDescending:
+            return lhs.name.localizedStandardCompare(rhs.name) == .orderedDescending
+        case .newestFirst:
+            return lhs.updatedAt > rhs.updatedAt
+        case .oldestFirst:
+            return lhs.updatedAt < rhs.updatedAt
+        }
+    }
+}
+
 struct VaultCollectionView: View {
     @EnvironmentObject private var store: AppStore
-    let title: String
-    let items: [VaultItem]
-    var category: VaultCategory?
-    @State private var searchText = ""
+    let filter: VaultFilter
+    /// `true` only when hosted as a split view column, where the list selection
+    /// is what drives the detail column. In a navigation stack the push comes
+    /// from `NavigationLink`, so selection stays local and app state is left
+    /// untouched.
+    let usesColumnSelection: Bool
+    private let externalSearchText: Binding<String>?
+    private let onSelectionChange: ((Set<UUID>, Bool) -> Void)?
+    @State private var compactSearchText = ""
     @State private var selection = Set<UUID>()
+    @State private var showingAddItem = false
     @State private var editMode: EditMode = .inactive
     @State private var pendingDeletion: [VaultItem] = []
     @State private var pendingArchive: [VaultItem] = []
@@ -468,41 +114,66 @@ struct VaultCollectionView: View {
     @State private var showingArchiveConfirmation = false
     @State private var pendingRowAction: VaultRowAction?
     @State private var showingRowAlert = false
+    @State private var sortOrder: VaultSortOrder = .nameAscending
 
-    private var liveItems: [VaultItem] {
-        if let category { return store.items(in: category) }
-        let sourceIDs = Set(items.map(\.id))
-        return store.items.filter {
-            sourceIDs.contains($0.id) && !$0.isDeleted && !$0.isArchived
-        }
+    init(
+        filter: VaultFilter,
+        usesColumnSelection: Bool,
+        searchText: Binding<String>? = nil,
+        onSelectionChange: ((Set<UUID>, Bool) -> Void)? = nil
+    ) {
+        self.filter = filter
+        self.usesColumnSelection = usesColumnSelection
+        externalSearchText = searchText
+        self.onSelectionChange = onSelectionChange
     }
+
+    private var searchText: String {
+        externalSearchText?.wrappedValue ?? compactSearchText
+    }
+
+    private var searchTextBinding: Binding<String> {
+        externalSearchText ?? $compactSearchText
+    }
+
+    private var category: VaultCategory? { filter.category }
+
+    private var title: String { store.title(for: filter) }
+
+    /// Always resolved against the live store, so newly added or edited items
+    /// show up without re-entering the list.
+    private var liveItems: [VaultItem] { store.items(for: filter) }
 
     private var filteredItems: [VaultItem] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return liveItems }
-        return liveItems.filter {
+        let matches = query.isEmpty ? liveItems : liveItems.filter {
             $0.name.localizedCaseInsensitiveContains(query)
                 || $0.username.localizedCaseInsensitiveContains(query)
-                || $0.uri.localizedCaseInsensitiveContains(query)
+                || $0.websiteURIs.contains { $0.localizedCaseInsensitiveContains(query) }
                 || $0.type.rawValue.localizedCaseInsensitiveContains(query)
         }
+        return matches.sorted(by: sortOrder.areInIncreasingOrder)
     }
 
     private var selectedItems: [VaultItem] {
         store.items.filter { selection.contains($0.id) }
     }
 
-    private var visibleItemIDs: Set<UUID> {
-        Set(filteredItems.map(\.id))
-    }
-
-    private var hasSelectedAllVisibleItems: Bool {
-        !visibleItemIDs.isEmpty && visibleItemIDs.isSubset(of: selection)
+    private var subtitle: String {
+        if editMode.isEditing {
+            return "\(selection.count) Selected"
+        }
+        if category == .security {
+            return "\(liveItems.count) Recommendations"
+        }
+        return "\(liveItems.count) Item\(liveItems.count == 1 ? "" : "s")"
     }
 
     var body: some View {
+        let displayedItems = filteredItems
+
         Group {
-            if filteredItems.isEmpty, category != .security {
+            if displayedItems.isEmpty, category != .security {
                 EmptyStateView(
                     icon: searchText.isEmpty ? (category?.icon ?? "folder") : "magnifyingglass",
                     title: searchText.isEmpty ? "Nothing here" : "No Results",
@@ -510,75 +181,56 @@ struct VaultCollectionView: View {
                         ? "Items in this section will appear here."
                         : "No vault items match “\(searchText)”."
                 )
-            } else {
-                List(selection: editMode.isEditing ? $selection : nil) {
-                    if category == .security, !editMode.isEditing {
-                        Section {
-                            SecurityInformationCard()
-                        }
-                    }
-
-                    if filteredItems.isEmpty {
-                        Section {
-                            EmptyStateView(
-                                icon: searchText.isEmpty ? "checkmark.shield.fill" : "magnifyingglass",
-                                title: searchText.isEmpty ? "No Recommendations" : "No Results",
-                                message: searchText.isEmpty
-                                    ? "No security issues were found in your active vault."
-                                    : "No security recommendations match “\(searchText)”."
-                            )
-                            .frame(maxWidth: .infinity, minHeight: 220)
-                            .listRowBackground(Color.clear)
-                        }
-                    } else {
-                        Section {
-                            ForEach(filteredItems) { item in
-                                row(for: item)
-                                    .tag(item.id)
-                                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                        deleteButton(for: item)
-                                        archiveButton(for: item)
-                                    }
-                                    .contextMenu {
-                                        archiveButton(for: item)
-                                        deleteButton(for: item)
-                                    }
-                            }
-                        }
-                    }
+            } else if editMode.isEditing {
+                // Multi-select for bulk actions.
+                if usesColumnSelection {
+                    List { listSections(displayedItems) }
+                        .listStyle(.plain)
+                        .refreshable { await store.syncFromPullToRefresh() }
+                } else {
+                    List(selection: $selection) { listSections(displayedItems) }
+                        .listStyle(.plain)
+                        .refreshable { await store.syncFromPullToRefresh() }
                 }
-                .listStyle(.insetGrouped)
+            } else {
+                List { listSections(displayedItems) }
+                    .listStyle(.plain)
+                    .refreshable { await store.syncFromPullToRefresh() }
             }
         }
         .environment(\.editMode, $editMode)
         .onAppear {
             guard !editMode.isEditing else { return }
             selection.removeAll()
+            onSelectionChange?([], false)
         }
         .onChange(of: editMode) { _, newValue in
             if !newValue.isEditing {
                 selection.removeAll()
             }
+            onSelectionChange?(newValue.isEditing ? selection : [], newValue.isEditing)
         }
+        .onChange(of: selection) { _, newValue in
+            onSelectionChange?(newValue, editMode.isEditing)
+        }
+        .onDisappear { onSelectionChange?([], false) }
         .navigationTitle(title)
-        .modifier(
-            OptionalNavigationSubtitle(
-                subtitle: category == .security ? "\(liveItems.count) Recommendations" : nil
-            )
-        )
-        .navigationBarTitleDisplayMode(category == .security ? .inline : .large)
+        .navigationSubtitle(subtitle)
+        .navigationBarTitleDisplayMode(usesColumnSelection ? .large : .inline)
         .navigationBarBackButtonHidden(editMode.isEditing)
-        .toolbar(editMode.isEditing ? .hidden : .visible, for: .tabBar)
-        .searchable(
-            text: $searchText,
-            placement: .navigationBarDrawer(displayMode: .automatic),
-            prompt: "Search \(title.lowercased())"
+        .modifier(
+            AdaptiveCollectionSearch(
+                text: searchTextBinding,
+                prompt: "Search \(title.lowercased())",
+                isEnabled: !usesColumnSelection,
+                isEditing: editMode.isEditing
+            )
         )
         .toolbar {
             if editMode.isEditing {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button(hasSelectedAllVisibleItems ? "Deselect All" : "Select All") {
-                        withAnimation(.snappy) { toggleSelectAll() }
+                    Button(hasSelectedAllVisibleItems(in: displayedItems) ? "Deselect All" : "Select All") {
+                        withAnimation(.snappy) { toggleSelectAll(in: displayedItems) }
                     }
                 }
             }
@@ -593,17 +245,26 @@ struct VaultCollectionView: View {
             }
 
             ToolbarItem(placement: .topBarTrailing) {
-                Button(editMode.isEditing ? "Done" : "Select") {
-                    withAnimation(.snappy) {
-                        if editMode.isEditing {
-                            editMode = .inactive
-                            selection.removeAll()
-                        } else {
-                            editMode = .active
-                        }
-                    }
+                selectionModeButton
+            }
+
+            if !editMode.isEditing {
+                ToolbarItem(placement: .bottomBar) {
+                    sortMenu
                 }
-                .disabled(liveItems.isEmpty)
+
+                ToolbarSpacer(.flexible, placement: .bottomBar)
+
+                if !usesColumnSelection {
+                    // iOS 26 renders this as the native bottom search pill.
+                    DefaultToolbarItem(kind: .search, placement: .bottomBar)
+
+                    ToolbarSpacer(.flexible, placement: .bottomBar)
+                }
+
+                ToolbarItem(placement: .bottomBar) {
+                    addItemButton
+                }
             }
 
             if editMode.isEditing {
@@ -656,33 +317,215 @@ struct VaultCollectionView: View {
         } message: {
             Text(rowAlertMessage)
         }
+        .sheet(isPresented: $showingAddItem) {
+            AddEditVaultItemView().environmentObject(store)
+        }
     }
 
     private var sharedCodePeriod: Int {
         liveItems.compactMap(\.totpSecret).first.map(TOTPGenerator.period(secret:)) ?? 30
     }
 
+    private var addItemButton: some View {
+        Button { showingAddItem = true } label: {
+            Image(systemName: "plus")
+        }
+        .accessibilityLabel("Add vault item")
+    }
+
     @ViewBuilder
-    private func row(for item: VaultItem) -> some View {
-        if editMode.isEditing {
-            collectionRowContent(for: item)
-        } else if category == .codes, let secret = item.totpSecret {
-            TOTPItemRow(item: item, secret: secret)
+    private var selectionModeButton: some View {
+        if usesColumnSelection, editMode.isEditing {
+            Button(action: toggleSelectionMode) {
+                Image(systemName: "checkmark")
+            }
+            .buttonStyle(.borderedProminent)
+            .accessibilityLabel("Done")
         } else {
-            NavigationLink {
-                VaultItemDetailView(itemID: item.id)
-            } label: {
-                collectionRowContent(for: item)
+            Button(editMode.isEditing ? "Done" : "Select", action: toggleSelectionMode)
+                .disabled(liveItems.isEmpty)
+        }
+    }
+
+    private func toggleSelectionMode() {
+        withAnimation(.snappy) {
+            if editMode.isEditing {
+                editMode = .inactive
+                selection.removeAll()
+            } else {
+                editMode = .active
             }
         }
     }
 
+    private var sortMenu: some View {
+        Menu {
+            Picker("Sort vault items", selection: $sortOrder) {
+                ForEach(VaultSortOrder.allCases) { order in
+                    Label(order.title, systemImage: order.icon)
+                        .tag(order)
+                }
+            }
+        } label: {
+            Image(systemName: "arrow.up.arrow.down")
+        }
+        .accessibilityLabel("Sort vault items")
+    }
+
     @ViewBuilder
-    private func collectionRowContent(for item: VaultItem) -> some View {
-        if category == .security {
-            SecurityRecommendationRow(item: item)
+    private func listSections(_ displayedItems: [VaultItem]) -> some View {
+        if category == .security, !editMode.isEditing {
+            Section {
+                SecurityInformationCard()
+                    .listRowSeparator(.hidden)
+            }
+            .listSectionSeparator(.hidden)
+        }
+
+        if displayedItems.isEmpty {
+            Section {
+                EmptyStateView(
+                    icon: searchText.isEmpty ? "checkmark.shield.fill" : "magnifyingglass",
+                    title: searchText.isEmpty ? "No Recommendations" : "No Results",
+                    message: searchText.isEmpty
+                        ? "No security issues were found in your active vault."
+                        : "No security recommendations match “\(searchText)”."
+                )
+                .frame(maxWidth: .infinity, minHeight: 220)
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+            }
+            .listSectionSeparator(.hidden)
         } else {
-            VaultItemRow(item: item)
+            Section {
+                ForEach(Array(displayedItems.enumerated()), id: \.element.id) { index, item in
+                    let isSelected = isRowSelected(item)
+                    let nextIsSelected = index + 1 < displayedItems.count
+                        && isRowSelected(displayedItems[index + 1])
+
+                    row(for: item, isSelected: isSelected)
+                        .tag(item.id)
+                        .listRowBackground(
+                            selectionBackground(
+                                at: index,
+                                item: item,
+                                displayedItems: displayedItems
+                            )
+                        )
+                        .listRowSeparator(
+                            isSelected || nextIsSelected ? .hidden : .visible
+                        )
+                        // Every row's separator starts at the same place —
+                        // just past the thumbnail — instead of some spanning
+                        // the full width and some being inset.
+                        .alignmentGuide(.listRowSeparatorLeading) { _ in
+                            Self.separatorInset
+                        }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            deleteButton(for: item)
+                            archiveButton(for: item)
+                        }
+                        .contextMenu {
+                            archiveButton(for: item)
+                            deleteButton(for: item)
+                        }
+                }
+            }
+            // No hairline above the first row.
+            .listSectionSeparator(.hidden, edges: .top)
+        }
+    }
+
+    /// Thumbnail width (42) plus the row's leading stack spacing (13).
+    private static let separatorInset: CGFloat = 55
+
+    @ViewBuilder
+    private func row(for item: VaultItem, isSelected: Bool) -> some View {
+        if editMode.isEditing, usesColumnSelection {
+            Button {
+                withAnimation(.snappy) {
+                    if selection.contains(item.id) {
+                        selection.remove(item.id)
+                    } else {
+                        selection.insert(item.id)
+                    }
+                }
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: selection.contains(item.id) ? "checkmark.circle.fill" : "circle")
+                        .font(.title3)
+                        .foregroundStyle(selection.contains(item.id) ? Color.white : Color.secondary)
+                        .accessibilityHidden(true)
+
+                    collectionRowContent(for: item, isSelected: selection.contains(item.id))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(item.name)
+            .accessibilityValue(selection.contains(item.id) ? "Selected" : "Not selected")
+        } else if editMode.isEditing {
+            collectionRowContent(for: item)
+        } else if category == .codes, let secret = item.totpSecret {
+            TOTPItemRow(
+                item: item,
+                secret: secret,
+                isSelected: isSelected,
+                onSelect: usesColumnSelection ? { store.selectedItemID = item.id } : nil
+            )
+        } else if usesColumnSelection {
+            Button {
+                store.selectedItemID = item.id
+            } label: {
+                collectionRowContent(for: item, isSelected: isSelected)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        } else {
+            NavigationLink(value: item.id) {
+                collectionRowContent(for: item, isSelected: isSelected)
+            }
+        }
+    }
+
+    private func isRowSelected(_ item: VaultItem) -> Bool {
+        guard usesColumnSelection else { return false }
+        return editMode.isEditing
+            ? selection.contains(item.id)
+            : store.selectedItemID == item.id
+    }
+
+    @ViewBuilder
+    private func collectionRowContent(for item: VaultItem, isSelected: Bool = false) -> some View {
+        if category == .security {
+            SecurityRecommendationRow(item: item, isSelected: isSelected)
+        } else {
+            VaultItemRow(item: item, isSelected: isSelected)
+        }
+    }
+
+    @ViewBuilder
+    private func selectionBackground(
+        at index: Int,
+        item: VaultItem,
+        displayedItems: [VaultItem]
+    ) -> some View {
+        if isRowSelected(item) {
+            let previousIsSelected = index > 0 && isRowSelected(displayedItems[index - 1])
+            let nextIsSelected = index + 1 < displayedItems.count
+                && isRowSelected(displayedItems[index + 1])
+
+            UnevenRoundedRectangle(
+                topLeadingRadius: previousIsSelected ? 0 : 22,
+                bottomLeadingRadius: nextIsSelected ? 0 : 22,
+                bottomTrailingRadius: nextIsSelected ? 0 : 22,
+                topTrailingRadius: previousIsSelected ? 0 : 22,
+                style: .continuous
+            )
+            .fill(Color.accentColor)
+            .padding(.horizontal, 12)
+        } else {
+            Color.clear
         }
     }
 
@@ -908,8 +751,18 @@ struct VaultCollectionView: View {
         )
     }
 
-    private func toggleSelectAll() {
-        if hasSelectedAllVisibleItems {
+    private func visibleItemIDs(in displayedItems: [VaultItem]) -> Set<UUID> {
+        Set(displayedItems.map(\.id))
+    }
+
+    private func hasSelectedAllVisibleItems(in displayedItems: [VaultItem]) -> Bool {
+        let visibleItemIDs = visibleItemIDs(in: displayedItems)
+        return !visibleItemIDs.isEmpty && visibleItemIDs.isSubset(of: selection)
+    }
+
+    private func toggleSelectAll(in displayedItems: [VaultItem]) {
+        let visibleItemIDs = visibleItemIDs(in: displayedItems)
+        if !visibleItemIDs.isEmpty, visibleItemIDs.isSubset(of: selection) {
             selection.subtract(visibleItemIDs)
         } else {
             selection.formUnion(visibleItemIDs)
@@ -917,13 +770,20 @@ struct VaultCollectionView: View {
     }
 }
 
-private struct OptionalNavigationSubtitle: ViewModifier {
-    let subtitle: String?
+/// Compact navigation uses the iOS 26 bottom search item. The regular-width
+/// search is attached by `RootSplitView` to the detail column so it can occupy
+/// the far-right toolbar position. Selection temporarily removes compact search
+/// to keep it from competing with bulk actions.
+private struct AdaptiveCollectionSearch: ViewModifier {
+    @Binding var text: String
+    let prompt: String
+    let isEnabled: Bool
+    let isEditing: Bool
 
     @ViewBuilder
     func body(content: Content) -> some View {
-        if let subtitle {
-            content.navigationSubtitle(subtitle)
+        if isEnabled, !isEditing {
+            content.searchable(text: $text, prompt: prompt)
         } else {
             content
         }
@@ -934,11 +794,11 @@ private struct SecurityInformationCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Label("Security Recommendations", systemImage: "checkmark.shield.fill")
-                .font(.headline)
+                .font(.body.bold())
                 .foregroundStyle(Color.vaultBlue)
 
             Text("Vaultwarden highlights passwords that may be exposed, weak, reused, or used on unsecured websites so you can update them quickly.")
-                .font(.body)
+                .font(.footnote)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -950,6 +810,7 @@ private struct SecurityInformationCard: View {
 private struct SecurityRecommendationRow: View {
     @EnvironmentObject private var store: AppStore
     let item: VaultItem
+    var isSelected = false
 
     private var recommendation: (text: String, color: Color) {
         if item.risks.contains(.exposed) {
@@ -978,11 +839,12 @@ private struct SecurityRecommendationRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(item.name)
                     .font(.body.weight(.semibold))
+                    .foregroundStyle(isSelected ? Color.white : Color.primary)
                     .lineLimit(1)
 
                 Text(recommendation.text)
                     .font(.subheadline)
-                    .foregroundStyle(recommendation.color)
+                    .foregroundStyle(isSelected ? Color.white.opacity(0.72) : recommendation.color)
                     .lineLimit(1)
             }
 
@@ -993,29 +855,10 @@ private struct SecurityRecommendationRow: View {
     }
 }
 
-struct VaultItemListContent: View {
-    let items: [VaultItem]
-    let emptyMessage: String
-
-    var body: some View {
-        if items.isEmpty {
-            EmptyStateView(icon: "magnifyingglass", title: "No Results", message: emptyMessage)
-        } else {
-            List(items) { item in
-                NavigationLink {
-                    VaultItemDetailView(itemID: item.id)
-                } label: {
-                    VaultItemRow(item: item)
-                }
-            }
-            .listStyle(.plain)
-        }
-    }
-}
-
 struct VaultItemRow: View {
     @EnvironmentObject private var store: AppStore
     let item: VaultItem
+    var isSelected = false
 
     var body: some View {
         HStack(spacing: 13) {
@@ -1028,6 +871,7 @@ struct VaultItemRow: View {
                 HStack(spacing: 6) {
                     Text(item.name)
                         .font(.body.weight(.semibold))
+                        .foregroundStyle(isSelected ? Color.white : Color.primary)
                         .lineLimit(1)
                     if item.isFavorite {
                         Image(systemName: "star.fill")
@@ -1037,7 +881,7 @@ struct VaultItemRow: View {
                 }
                 Text(item.displaySubtitle)
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(isSelected ? Color.white.opacity(0.72) : Color.secondary)
                     .lineLimit(1)
             }
             Spacer()
@@ -1047,7 +891,7 @@ struct VaultItemRow: View {
                 if item.organization != nil { Image(systemName: "person.2.fill") }
             }
             .font(.caption)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(isSelected ? Color.white.opacity(0.72) : Color.secondary)
         }
         .padding(.vertical, 7)
     }
@@ -1126,12 +970,14 @@ private struct VaultItemThumbnail: View {
 
 struct VaultItemDetailView: View {
     @EnvironmentObject private var store: AppStore
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let itemID: UUID
     @State private var revealPassword = false
     @State private var revealCardNumber = false
     @State private var revealSecurityCode = false
     @State private var revealIdentityNumber = false
-    @State private var showingEdit = false
+    @State private var isEditing = false
     @State private var showDeleteConfirmation = false
     @State private var showArchiveConfirmation = false
 
@@ -1139,7 +985,20 @@ struct VaultItemDetailView: View {
 
     var body: some View {
         Group {
-            if let item {
+            if let item, isEditing {
+                // Editing happens on this screen rather than in a sheet. The
+                // `.id` keeps the editor's field state tied to the item.
+                AddEditVaultItemView(
+                    existingItem: item,
+                    presentation: .inline,
+                    onFinish: { withAnimation(.snappy) { isEditing = false } }
+                )
+                .id(item.id)
+                .transition(.opacity)
+                // Suppresses both the back chevron and the swipe-to-pop gesture,
+                // which would otherwise abandon the edit without asking.
+                .navigationBarBackButtonHidden(true)
+            } else if let item {
                 List {
                     Section {
                         HStack(spacing: 16) {
@@ -1204,11 +1063,34 @@ struct VaultItemDetailView: View {
                             }
                         }
 
-                        if !item.uri.isEmpty {
-                            Section("Website") {
-                                LabeledContent("URI", value: item.uri)
-                                if let url = URL(string: item.uri) {
-                                    Link(destination: url) { Label("Open Website", systemImage: "safari") }
+                        if !item.websiteURIs.isEmpty {
+                            Section("Websites (URI)") {
+                                ForEach(Array(item.websiteURIs.enumerated()), id: \.offset) { index, uri in
+                                    HStack(spacing: 12) {
+                                        Text(uri)
+                                            .foregroundStyle(.secondary)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .textSelection(.enabled)
+
+                                        if let url = item.websiteURL(for: uri) {
+                                            Link(destination: url) {
+                                                Label("Open Website", systemImage: "safari")
+                                                    .labelStyle(.iconOnly)
+                                            }
+                                            .accessibilityLabel(
+                                                index == 0 ? "Open Website" : "Open Website \(index + 1)"
+                                            )
+                                            .fixedSize()
+                                        }
+
+                                        AnimatedCopyButton(
+                                            value: uri,
+                                            accessibilityName: index == 0 ? "website URI" : "website URI \(index + 1)"
+                                        )
+                                        .buttonStyle(.borderless)
+                                        .fixedSize()
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                                 }
                             }
                         }
@@ -1354,7 +1236,7 @@ struct VaultItemDetailView: View {
                                     titleVisibility: .visible
                                 ) {
                                     Button("Delete Permanently", role: .destructive) {
-                                        Task { await store.permanentlyDelete(item) }
+                                        Task { await deleteAndLeaveDetail(item, permanently: true) }
                                     }
                                     Button("Cancel", role: .cancel) { }
                                 } message: {
@@ -1391,16 +1273,19 @@ struct VaultItemDetailView: View {
                         .textCase(nil)
                     }
                 }
-                .navigationTitle(item.name)
+                // The item name already appears in the detail header. Keep the
+                // split-view toolbar free for Edit and Search, like Passwords.
+                .navigationTitle("")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     if !item.isDeleted {
                         ToolbarItem(placement: .topBarTrailing) {
-                            Button("Edit") { showingEdit = true }
+                            Button("Edit") {
+                                withAnimation(.snappy) { isEditing = true }
+                            }
                         }
                     }
                 }
-                .sheet(isPresented: $showingEdit) { AddEditVaultItemView(existingItem: item) }
             } else {
                 EmptyStateView(icon: "questionmark.folder", title: "Item unavailable", message: "This item may have been deleted.")
             }
@@ -1417,11 +1302,28 @@ struct VaultItemDetailView: View {
             titleVisibility: .visible
         ) {
             Button("Move to Deleted", role: .destructive) {
-                Task { await store.trash(item) }
+                Task { await deleteAndLeaveDetail(item, permanently: false) }
             }
             Button("Cancel", role: .cancel) { }
         } message: {
             Text("You can restore this item later from Deleted.")
+        }
+    }
+
+    @MainActor
+    private func deleteAndLeaveDetail(_ item: VaultItem, permanently: Bool) async {
+        let didDelete = if permanently {
+            await store.permanentlyDelete(item)
+        } else {
+            await store.trash(item)
+        }
+        guard didDelete else { return }
+
+        if store.selectedItemID == item.id {
+            store.selectedItemID = nil
+        }
+        if horizontalSizeClass == .compact {
+            dismiss()
         }
     }
 }
@@ -1624,49 +1526,69 @@ private struct TOTPItemRow: View {
     @EnvironmentObject private var store: AppStore
     let item: VaultItem
     let secret: String
+    var isSelected = false
+    var onSelect: (() -> Void)?
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
             let code = TOTPGenerator.code(secret: secret, date: context.date) ?? "------"
 
             HStack(spacing: 12) {
-                NavigationLink {
-                    VaultItemDetailView(itemID: item.id)
-                } label: {
-                    HStack(spacing: 12) {
-                        VaultItemThumbnail(
-                            item: item,
-                            showsWebsiteIcon: store.settings.showFavicons,
-                            serverURL: store.authenticatedSession?.serverURL
-                        )
-
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(item.name)
-                                .font(.body.weight(.semibold))
-                                .lineLimit(1)
-                            Text(item.username.isEmpty ? item.displaySubtitle : item.username)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-
-                        Spacer(minLength: 4)
-
-                        Text(code.chunked(every: 3))
-                            .font(.body.monospacedDigit().weight(.semibold))
-                            .foregroundStyle(.primary)
-                            .contentTransition(.numericText())
-                            .accessibilityLabel("Code \(code)")
+                if let onSelect {
+                    Button(action: onSelect) {
+                        rowContent(code: code)
+                            .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
+                } else {
+                    // Value-based like every other compact-width row, so it
+                    // feeds the same navigation destination.
+                    NavigationLink(value: item.id) {
+                        rowContent(code: code)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
 
-                AnimatedCopyButton(value: code, accessibilityName: "verification code")
+                AnimatedCopyButton(
+                    value: code,
+                    accessibilityName: "verification code",
+                    color: isSelected ? .white : .vaultBlue,
+                    copiedColor: isSelected ? .white : .vaultGreen
+                )
                     .font(.body.weight(.semibold))
                     .frame(width: 30, height: 30)
                 .buttonStyle(.borderless)
             }
             .padding(.vertical, 6)
+        }
+    }
+
+    private func rowContent(code: String) -> some View {
+        HStack(spacing: 12) {
+            VaultItemThumbnail(
+                item: item,
+                showsWebsiteIcon: store.settings.showFavicons,
+                serverURL: store.authenticatedSession?.serverURL
+            )
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(item.name)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(isSelected ? Color.white : Color.primary)
+                    .lineLimit(1)
+                Text(item.username.isEmpty ? item.displaySubtitle : item.username)
+                    .font(.caption)
+                    .foregroundStyle(isSelected ? Color.white.opacity(0.72) : Color.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 4)
+
+            Text(code.chunked(every: 3))
+                .font(.body.monospacedDigit().weight(.semibold))
+                .foregroundStyle(isSelected ? Color.white : Color.primary)
+                .contentTransition(.numericText())
+                .accessibilityLabel("Code \(code)")
         }
     }
 }
@@ -1710,21 +1632,84 @@ private struct TOTPCircularTimer: View {
     }
 }
 
+private enum AddEditCredentialField: Hashable {
+    case loginUsername
+    case loginPassword
+    case identityUsername
+
+    var suggestionTitle: String {
+        switch self {
+        case .loginPassword:
+            "Strong Password Suggestion"
+        case .loginUsername, .identityUsername:
+            "Username Suggestion"
+        }
+    }
+}
+
+private struct CredentialKeyboardSuggestion: View {
+    let title: String
+    let value: String
+    let onUse: () -> Void
+    let onCustomize: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button(action: onUse) {
+                VStack(spacing: 1) {
+                    Text(title)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(value)
+                        .font(.callout.monospaced().weight(.medium))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+                }
+                .frame(maxWidth: .infinity)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Use \(title.lowercased())")
+            .accessibilityValue(value)
+
+            Divider()
+                .frame(height: 34)
+
+            Button(action: onCustomize) {
+                Image(systemName: "wand.and.sparkles")
+                    .frame(width: 32, height: 34)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Color.vaultBlue)
+            .accessibilityLabel("Open generator")
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
 private struct LabeledFormField: View {
     let title: String
     @Binding var text: String
     let placeholder: String
     let isSecure: Bool
+    let showsRevealButton: Bool
+    let focusBinding: FocusState<AddEditCredentialField?>.Binding?
+    let focusValue: AddEditCredentialField?
     let keyboardType: UIKeyboardType
     let textContentType: UITextContentType?
     let capitalization: TextInputAutocapitalization?
     let autocorrectionDisabled: Bool
+    @State private var isRevealed = false
 
     init(
         _ title: String,
         text: Binding<String>,
         placeholder: String = "",
         isSecure: Bool = false,
+        showsRevealButton: Bool = false,
+        focusBinding: FocusState<AddEditCredentialField?>.Binding? = nil,
+        focusValue: AddEditCredentialField? = nil,
         keyboardType: UIKeyboardType = .default,
         textContentType: UITextContentType? = nil,
         capitalization: TextInputAutocapitalization? = nil,
@@ -1734,6 +1719,9 @@ private struct LabeledFormField: View {
         _text = text
         self.placeholder = placeholder
         self.isSecure = isSecure
+        self.showsRevealButton = showsRevealButton
+        self.focusBinding = focusBinding
+        self.focusValue = focusValue
         self.keyboardType = keyboardType
         self.textContentType = textContentType
         self.capitalization = capitalization
@@ -1746,33 +1734,89 @@ private struct LabeledFormField: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Group {
-                if isSecure {
-                    SecureField(placeholder, text: $text)
-                } else {
-                    TextField(placeholder, text: $text)
+            HStack(spacing: 12) {
+                focusedInput
+                .font(.body)
+                .keyboardType(keyboardType)
+                .textContentType(textContentType)
+                .textInputAutocapitalization(capitalization)
+                .autocorrectionDisabled(autocorrectionDisabled)
+
+                if isSecure && showsRevealButton {
+                    Button {
+                        isRevealed.toggle()
+                    } label: {
+                        Image(systemName: isRevealed ? "eye.slash" : "eye")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel(isRevealed ? "Hide \(title)" : "Show \(title)")
                 }
             }
-            .font(.body)
-            .keyboardType(keyboardType)
-            .textContentType(textContentType)
-            .textInputAutocapitalization(capitalization)
-            .autocorrectionDisabled(autocorrectionDisabled)
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .contain)
     }
+
+    @ViewBuilder
+    private var focusedInput: some View {
+        if let focusBinding, let focusValue {
+            input.focused(focusBinding, equals: focusValue)
+        } else {
+            input
+        }
+    }
+
+    @ViewBuilder
+    private var input: some View {
+        if isSecure && !isRevealed {
+            SecureField(placeholder, text: $text)
+        } else {
+            TextField(placeholder, text: $text)
+        }
+    }
 }
 
 struct AddEditVaultItemView: View {
+    /// `sheet` brings its own navigation stack and Cancel/Save titles.
+    /// `inline` drops the stack so the editor can take over a detail screen
+    /// that is already inside one, and uses the compact ✕ / ✓ controls.
+    enum Presentation {
+        case sheet
+        case inline
+    }
+
+    private struct EditableWebsiteURI: Identifiable {
+        let id = UUID()
+        var value: String
+    }
+
+    private struct EditableSnapshot: Equatable {
+        let name: String
+        let username: String
+        let password: String
+        let uris: [String]
+        let type: VaultItemType
+        let folder: String?
+        let notes: String
+        let isFavorite: Bool
+        let totpSecret: String?
+        let card: CardDetails?
+        let identity: IdentityDetails?
+        let customFields: [VaultCustomField]
+    }
+
     @EnvironmentObject private var store: AppStore
     @Environment(\.dismiss) private var dismiss
     private let existingItem: VaultItem?
     private let existingID: UUID?
+    private let presentation: Presentation
+    /// Called instead of `dismiss()` when the editor is hosted inline.
+    private let onFinish: (() -> Void)?
     @State private var name: String
     @State private var username: String
     @State private var password: String
-    @State private var uri: String
+    @State private var websiteURIs: [EditableWebsiteURI]
     @State private var type: VaultItemType
     @State private var folder: String
     @State private var notes: String
@@ -1783,21 +1827,34 @@ struct AddEditVaultItemView: View {
     @State private var customFields: [VaultCustomField]
     @State private var showingGenerator = false
     @State private var showingUsernameGenerator = false
+    @State private var showingTOTPScanner = false
+    @State private var totpScanError: String?
     @State private var isSaving = false
+    @State private var passwordSuggestion: String
+    @State private var usernameSuggestion: String
+    @FocusState private var focusedCredentialField: AddEditCredentialField?
 
     init(
         existingItem: VaultItem? = nil,
         prefilledPassword: String = "",
         prefilledName: String = "",
         prefilledUsername: String = "",
-        prefilledTOTPSecret: String = ""
+        prefilledTOTPSecret: String = "",
+        presentation: Presentation = .sheet,
+        onFinish: (() -> Void)? = nil
     ) {
         self.existingItem = existingItem
         existingID = existingItem?.id
+        self.presentation = presentation
+        self.onFinish = onFinish
         _name = State(initialValue: existingItem?.name ?? prefilledName)
         _username = State(initialValue: existingItem?.username ?? prefilledUsername)
         _password = State(initialValue: existingItem?.password ?? prefilledPassword)
-        _uri = State(initialValue: existingItem?.uri ?? "")
+        let initialURIs = existingItem?.websiteURIs ?? []
+        _websiteURIs = State(
+            initialValue: (initialURIs.isEmpty ? [""] : initialURIs)
+                .map { EditableWebsiteURI(value: $0) }
+        )
         _type = State(initialValue: existingItem?.type ?? .login)
         _folder = State(initialValue: existingItem?.folder ?? "")
         _notes = State(initialValue: existingItem?.notes ?? "")
@@ -1806,14 +1863,35 @@ struct AddEditVaultItemView: View {
         _card = State(initialValue: existingItem?.card ?? CardDetails())
         _identity = State(initialValue: existingItem?.identity ?? IdentityDetails())
         _customFields = State(initialValue: existingItem?.customFields ?? [])
+        _passwordSuggestion = State(
+            initialValue: PasswordGenerator.password(
+                length: 20,
+                uppercase: true,
+                numbers: true,
+                symbols: true
+            )
+        )
+        _usernameSuggestion = State(initialValue: PasswordGenerator.username())
     }
 
     var body: some View {
-        NavigationStack {
-            Form {
+        switch presentation {
+        case .sheet: NavigationStack { editor }
+        case .inline: editor
+        }
+    }
+
+    private var editor: some View {
+        Form {
                 Section {
-                    Picker("Type", selection: $type) {
-                        ForEach(VaultItemType.allCases) { Text($0.rawValue).tag($0) }
+                    if existingItem == nil {
+                        Picker("Type", selection: $type) {
+                            ForEach(VaultItemType.allCases.filter { $0 != .sshKey }) {
+                                Text($0.rawValue).tag($0)
+                            }
+                        }
+                    } else {
+                        LabeledContent("Type", value: type.rawValue)
                     }
                     LabeledFormField("Name", text: $name, placeholder: "Enter item name", textContentType: .name)
                     Toggle("Favorite", isOn: $isFavorite)
@@ -1825,21 +1903,55 @@ struct AddEditVaultItemView: View {
                             "Username",
                             text: $username,
                             placeholder: "Enter username",
+                            focusBinding: $focusedCredentialField,
+                            focusValue: .loginUsername,
+                            textContentType: .oneTimeCode,
                             capitalization: .never,
                             autocorrectionDisabled: true
                         )
-                        LabeledFormField("Password", text: $password, placeholder: "Enter password", isSecure: true)
-                        Button("Generate Password") { showingGenerator = true }
-                    }
-                    Section("Website") {
                         LabeledFormField(
-                            "Website URI",
-                            text: $uri,
-                            placeholder: "https://example.com",
-                            keyboardType: .URL,
+                            "Password",
+                            text: $password,
+                            placeholder: "Enter password",
+                            isSecure: true,
+                            showsRevealButton: true,
+                            focusBinding: $focusedCredentialField,
+                            focusValue: .loginPassword,
+                            textContentType: .oneTimeCode,
                             capitalization: .never,
                             autocorrectionDisabled: true
                         )
+                    }
+                    Section("Websites (URI)") {
+                        ForEach($websiteURIs) { $website in
+                            HStack(alignment: .bottom, spacing: 12) {
+                                LabeledFormField(
+                                    "Website",
+                                    text: $website.value,
+                                    placeholder: "https://example.com",
+                                    keyboardType: .URL,
+                                    capitalization: .never,
+                                    autocorrectionDisabled: true
+                                )
+
+                                if websiteURIs.count > 1 {
+                                    Button(role: .destructive) {
+                                        websiteURIs.removeAll { $0.id == website.id }
+                                    } label: {
+                                        Image(systemName: "minus.circle.fill")
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .accessibilityLabel("Remove website")
+                                    .padding(.bottom, 2)
+                                }
+                            }
+                        }
+
+                        Button {
+                            websiteURIs.append(EditableWebsiteURI(value: ""))
+                        } label: {
+                            Label("Add Website", systemImage: "plus.circle")
+                        }
                     }
                     Section("Authenticator") {
                         LabeledFormField(
@@ -1849,6 +1961,16 @@ struct AddEditVaultItemView: View {
                             capitalization: .characters,
                             autocorrectionDisabled: true
                         )
+                        Button {
+                            guard DataScannerViewController.isSupported,
+                                  DataScannerViewController.isAvailable else {
+                                totpScanError = "QR code scanning is not available on this device."
+                                return
+                            }
+                            showingTOTPScanner = true
+                        } label: {
+                            Label("Scan", systemImage: "qrcode.viewfinder")
+                        }
                     }
                 } else if type == .card {
                     cardForm
@@ -1870,31 +1992,171 @@ struct AddEditVaultItemView: View {
 
                 customFieldsEditor
             }
-            .navigationTitle(existingID == nil ? "New Item" : "Edit Item")
+            .navigationTitle(navigationTitleText)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button { finish() } label: {
+                        switch presentation {
+                        case .sheet: Text("Cancel")
+                        case .inline: Image(systemName: "xmark")
+                        }
+                    }
+                    .accessibilityLabel("Cancel")
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
                         Task { await save() }
                     } label: {
-                        if isSaving { ProgressView() } else { Text("Save") }
+                        if isSaving {
+                            ProgressView()
+                        } else {
+                            switch presentation {
+                            case .sheet: Text("Save")
+                            case .inline: Image(systemName: "checkmark")
+                            }
+                        }
                     }
+                    .accessibilityLabel("Save")
+                    .buttonStyle(.borderedProminent)
                     .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving)
+                }
+                ToolbarItemGroup(placement: .keyboard) {
+                    CredentialKeyboardSuggestion(
+                        title: keyboardSuggestionField.suggestionTitle,
+                        value: suggestion(for: keyboardSuggestionField),
+                        onUse: {
+                            guard let focusedCredentialField else { return }
+                            useSuggestion(for: focusedCredentialField)
+                        },
+                        onCustomize: {
+                            guard let focusedCredentialField else { return }
+                            presentGenerator(for: focusedCredentialField)
+                        }
+                    )
+                    .opacity(focusedCredentialField == nil ? 0 : 1)
+                    .allowsHitTesting(focusedCredentialField != nil)
+                    .accessibilityHidden(focusedCredentialField == nil)
                 }
             }
             .sheet(isPresented: $showingGenerator) {
                 QuickPasswordGeneratorView { generated in
                     password = generated
+                    passwordSuggestion = generated
                     showingGenerator = false
                 }
             }
             .sheet(isPresented: $showingUsernameGenerator) {
                 QuickUsernameGeneratorView { generated in
-                    identity.username = generated
+                    if type == .identity {
+                        identity.username = generated
+                    } else {
+                        username = generated
+                    }
+                    usernameSuggestion = generated
                     showingUsernameGenerator = false
                 }
             }
+            .sheet(isPresented: $showingTOTPScanner) {
+                NavigationStack {
+                    TOTPQRCodeScannerView { scannedValue in
+                        showingTOTPScanner = false
+                        guard let url = URL(string: scannedValue),
+                              OTPAuthSetupRequest.parse(url) != nil else {
+                            totpScanError = "This QR code is not a valid TOTP authenticator setup."
+                            return
+                        }
+                        totpSecret = scannedValue
+                    }
+                    .ignoresSafeArea(edges: .bottom)
+                    .navigationTitle("Scan Authenticator Code")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Cancel") { showingTOTPScanner = false }
+                        }
+                    }
+                }
+            }
+            .alert(
+                "Unable to Scan Code",
+                isPresented: Binding(
+                    get: { totpScanError != nil },
+                    set: { if !$0 { totpScanError = nil } }
+                )
+            ) {
+                Button("OK", role: .cancel) { totpScanError = nil }
+            } message: {
+                Text(totpScanError ?? "Please try again.")
+            }
+            .onChange(of: focusedCredentialField) { oldValue, newValue in
+                guard let newValue, newValue != oldValue else { return }
+                refreshSuggestion(for: newValue)
+            }
+    }
+
+    private var navigationTitleText: String {
+        switch presentation {
+        case .inline: ""
+        case .sheet: existingID == nil ? "New Item" : "Edit Item"
+        }
+    }
+
+    private var keyboardSuggestionField: AddEditCredentialField {
+        focusedCredentialField ?? (type == .identity ? .identityUsername : .loginUsername)
+    }
+
+    private func presentGenerator(for field: AddEditCredentialField) {
+        focusedCredentialField = nil
+        switch field {
+        case .loginPassword:
+            showingGenerator = true
+        case .loginUsername, .identityUsername:
+            showingUsernameGenerator = true
+        }
+    }
+
+    private func suggestion(for field: AddEditCredentialField) -> String {
+        switch field {
+        case .loginPassword:
+            passwordSuggestion
+        case .loginUsername, .identityUsername:
+            usernameSuggestion
+        }
+    }
+
+    private func refreshSuggestion(for field: AddEditCredentialField) {
+        switch field {
+        case .loginPassword:
+            passwordSuggestion = PasswordGenerator.password(
+                length: 20,
+                uppercase: true,
+                numbers: true,
+                symbols: true
+            )
+        case .loginUsername, .identityUsername:
+            usernameSuggestion = PasswordGenerator.username()
+        }
+    }
+
+    private func useSuggestion(for field: AddEditCredentialField) {
+        switch field {
+        case .loginPassword:
+            password = passwordSuggestion
+        case .loginUsername:
+            username = usernameSuggestion
+        case .identityUsername:
+            identity.username = usernameSuggestion
+        }
+    }
+
+    /// Inline hosts stay on screen, so hand control back to them instead of
+    /// dismissing a presentation that does not exist.
+    private func finish() {
+        if let onFinish {
+            onFinish()
+        } else {
+            dismiss()
         }
     }
 
@@ -1970,8 +2232,16 @@ struct AddEditVaultItemView: View {
                 LabeledFormField("First Name", text: $identity.firstName, placeholder: "Enter first name", textContentType: .givenName)
                 LabeledFormField("Middle Name", text: $identity.middleName, placeholder: "Optional", textContentType: .middleName)
                 LabeledFormField("Last Name", text: $identity.lastName, placeholder: "Enter last name", textContentType: .familyName)
-                LabeledFormField("Username", text: $identity.username, placeholder: "Enter username", capitalization: .never)
-                Button("Generate Username") { showingUsernameGenerator = true }
+                LabeledFormField(
+                    "Username",
+                    text: $identity.username,
+                    placeholder: "Enter username",
+                    focusBinding: $focusedCredentialField,
+                    focusValue: .identityUsername,
+                    textContentType: .oneTimeCode,
+                    capitalization: .never,
+                    autocorrectionDisabled: true
+                )
                 LabeledFormField("Company", text: $identity.company, placeholder: "Enter company", textContentType: .organizationName)
             }
 
@@ -2072,12 +2342,16 @@ struct AddEditVaultItemView: View {
         )
     }
 
-    private func save() async {
+    private var draftItem: VaultItem {
         var item = existingItem ?? VaultItem(name: name)
+        let normalizedURIs = websiteURIs
+            .map { $0.value.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
         item.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         item.username = username
         item.password = password
-        item.uri = uri
+        item.uri = normalizedURIs.first ?? ""
+        item.additionalURIs = normalizedURIs.count > 1 ? Array(normalizedURIs.dropFirst()) : nil
         item.type = type
         item.folder = folder.isEmpty ? nil : folder
         item.notes = notes
@@ -2087,10 +2361,96 @@ struct AddEditVaultItemView: View {
         item.identity = type == .identity ? identity : nil
         item.customFields = customFields.filter { !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         if let existingID { item.id = existingID }
+        return item
+    }
+
+    private func editableSnapshot(for item: VaultItem) -> EditableSnapshot {
+        EditableSnapshot(
+            name: item.name.trimmingCharacters(in: .whitespacesAndNewlines),
+            username: item.username,
+            password: item.password,
+            uris: item.websiteURIs
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty },
+            type: item.type,
+            folder: item.folder?.isEmpty == false ? item.folder : nil,
+            notes: item.notes,
+            isFavorite: item.isFavorite,
+            totpSecret: item.totpSecret?.isEmpty == false ? item.totpSecret : nil,
+            card: item.type == .card ? (item.card ?? CardDetails()) : nil,
+            identity: item.type == .identity ? (item.identity ?? IdentityDetails()) : nil,
+            customFields: item.customFields.filter {
+                !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+        )
+    }
+
+    private func save() async {
+        let item = draftItem
+        if let existingItem,
+           editableSnapshot(for: item) == editableSnapshot(for: existingItem) {
+            finish()
+            return
+        }
+
         isSaving = true
         defer { isSaving = false }
         if await store.save(item) {
-            dismiss()
+            finish()
+        }
+    }
+}
+
+private struct TOTPQRCodeScannerView: UIViewControllerRepresentable {
+    let onScan: (String) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onScan: onScan)
+    }
+
+    func makeUIViewController(context: Context) -> DataScannerViewController {
+        let scanner = DataScannerViewController(
+            recognizedDataTypes: [.barcode(symbologies: [.qr])],
+            qualityLevel: .balanced,
+            recognizesMultipleItems: false,
+            isHighFrameRateTrackingEnabled: false,
+            isPinchToZoomEnabled: true,
+            isGuidanceEnabled: true,
+            isHighlightingEnabled: true
+        )
+        scanner.delegate = context.coordinator
+        try? scanner.startScanning()
+        return scanner
+    }
+
+    func updateUIViewController(_ uiViewController: DataScannerViewController, context: Context) {}
+
+    static func dismantleUIViewController(_ uiViewController: DataScannerViewController, coordinator: Coordinator) {
+        uiViewController.stopScanning()
+    }
+
+    final class Coordinator: NSObject, DataScannerViewControllerDelegate {
+        private let onScan: (String) -> Void
+        private var hasScanned = false
+
+        init(onScan: @escaping (String) -> Void) {
+            self.onScan = onScan
+        }
+
+        func dataScanner(
+            _ dataScanner: DataScannerViewController,
+            didAdd addedItems: [RecognizedItem],
+            allItems: [RecognizedItem]
+        ) {
+            guard !hasScanned else { return }
+            for item in addedItems {
+                guard case let .barcode(barcode) = item,
+                      let value = barcode.payloadStringValue else { continue }
+                hasScanned = true
+                dataScanner.stopScanning()
+                onScan(value)
+                return
+            }
         }
     }
 }

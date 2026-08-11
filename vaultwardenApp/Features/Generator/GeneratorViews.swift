@@ -8,6 +8,7 @@ private enum GeneratorMode: String, CaseIterable, Identifiable {
 }
 
 struct GeneratorView: View {
+    @Environment(\.dismiss) private var dismiss
     @State private var mode: GeneratorMode = .password
     @State private var generated = ""
     @State private var length = 20.0
@@ -69,8 +70,11 @@ struct GeneratorView: View {
             }
             .background(Color.vaultBackground)
             .navigationTitle("Generator")
-            .toolbarTitleDisplayMode(.inlineLarge)
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { dismiss() }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         loadHistory()
@@ -349,43 +353,79 @@ struct QuickPasswordGeneratorView: View {
     let onUse: (String) -> Void
     @State private var generated = PasswordGenerator.password(length: 20, uppercase: true, numbers: true, symbols: true)
     @State private var length = 20.0
+    @State private var useUppercase = true
+    @State private var useNumbers = true
+    @State private var useSymbols = true
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 24) {
-                ColoredGeneratedValue(value: generated)
-                    .font(.title2.monospaced().weight(.semibold))
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            ScrollView {
+                VStack(spacing: 20) {
+                    ColoredGeneratedValue(value: generated)
+                        .font(.title2.monospaced().weight(.semibold))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .minimumScaleFactor(0.65)
+                        .lineLimit(3, reservesSpace: true)
+                        .frame(height: 78, alignment: .topLeading)
+                        .padding(18)
+                        .background(Color.vaultBlue.opacity(0.12), in: RoundedRectangle(cornerRadius: 18))
+
+                    VStack(spacing: 17) {
+                        HStack {
+                            Text("Length")
+                            Spacer()
+                            Text(Int(length), format: .number)
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                        }
+                        Slider(value: $length, in: 8...64, step: 1)
+                        Divider()
+                        Toggle("Uppercase", isOn: $useUppercase)
+                        Toggle("Numbers", isOn: $useNumbers)
+                        Toggle("Symbols", isOn: $useSymbols)
+                    }
                     .padding(18)
-                    .background(Color.vaultBlue.opacity(0.12), in: RoundedRectangle(cornerRadius: 18))
-                HStack {
-                    Text("Length")
-                    Slider(value: $length, in: 8...64, step: 1)
-                    Text(Int(length), format: .number).monospacedDigit()
+                    .background(Color.vaultCard, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+
+                    Button {
+                        regenerate()
+                    } label: {
+                        Label("Regenerate", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.vaultBlue)
+
+                    Button {
+                        onUse(generated)
+                    } label: {
+                        Text("Use This Password")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
                 }
-                Button("Regenerate") {
-                    generated = PasswordGenerator.password(length: Int(length), uppercase: true, numbers: true, symbols: true)
-                }
-                .buttonStyle(.bordered)
-                Button {
-                    onUse(generated)
-                } label: {
-                    Text("Use This Password")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                Spacer()
+                .padding(20)
             }
-            .padding(20)
+            .background(Color.vaultBackground)
             .navigationTitle("Generate Password")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
-            .onChange(of: length) { _, _ in
-                generated = PasswordGenerator.password(length: Int(length), uppercase: true, numbers: true, symbols: true)
-            }
+            .onChange(of: length) { _, _ in regenerate() }
+            .onChange(of: useUppercase) { _, _ in regenerate() }
+            .onChange(of: useNumbers) { _, _ in regenerate() }
+            .onChange(of: useSymbols) { _, _ in regenerate() }
         }
-        .presentationDetents([.medium])
+        .presentationDetents([.large])
+    }
+
+    private func regenerate() {
+        generated = PasswordGenerator.password(
+            length: Int(length),
+            uppercase: useUppercase,
+            numbers: useNumbers,
+            symbols: useSymbols
+        )
     }
 }
 
@@ -403,10 +443,13 @@ struct QuickUsernameGeneratorView: View {
                     .padding(18)
                     .background(Color.vaultBlue.opacity(0.12), in: RoundedRectangle(cornerRadius: 18))
 
-                Button("Generate Another Username") {
+                Button {
                     generated = PasswordGenerator.username()
+                } label: {
+                    Label("Regenerate", systemImage: "arrow.clockwise")
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.vaultBlue)
 
                 Button {
                     onUse(generated)
