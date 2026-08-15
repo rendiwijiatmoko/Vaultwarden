@@ -37,6 +37,25 @@ enum VaultFilter: Hashable, Identifiable {
         return nil
     }
 
+    /// Seeds the new-item editor from the section the user is currently
+    /// browsing. The editor still presents its normal picker, so this is only
+    /// an initial selection and never locks the item type.
+    var newItemType: VaultItemType {
+        switch self {
+        case .category(.cards): .card
+        case .category(.identities): .identity
+        case .category(.secureNotes): .secureNote
+        default: .login
+        }
+    }
+
+    /// A folder list should create items in that folder by default. As with
+    /// the type seed, users can change or clear this in the editor.
+    var newItemFolder: String {
+        if case let .folder(name) = self { return name }
+        return ""
+    }
+
     var icon: String {
         switch self {
         case let .category(category): category.icon

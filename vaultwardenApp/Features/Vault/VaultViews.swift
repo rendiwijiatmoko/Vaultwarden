@@ -318,7 +318,11 @@ struct VaultCollectionView: View {
             Text(rowAlertMessage)
         }
         .sheet(isPresented: $showingAddItem) {
-            AddEditVaultItemView().environmentObject(store)
+            AddEditVaultItemView(
+                prefilledType: filter.newItemType,
+                prefilledFolder: filter.newItemFolder
+            )
+            .environmentObject(store)
         }
     }
 
@@ -1633,16 +1637,123 @@ private struct TOTPCircularTimer: View {
 }
 
 private enum AddEditCredentialField: Hashable {
+    /// All non-generator inputs participate in the same focus state. This is
+    /// important when the keyboard moves directly between fields: without it,
+    /// SwiftUI can keep the old credential focus value and fail to rebuild the
+    /// keyboard suggestion when Username or Password becomes active again.
+    case nonCredential(UUID)
     case loginUsername
     case loginPassword
     case identityUsername
 
     var suggestionTitle: String {
         switch self {
+        case .nonCredential:
+            ""
         case .loginPassword:
             "Strong Password Suggestion"
         case .loginUsername, .identityUsername:
             "Username Suggestion"
+        }
+    }
+
+    var supportsGeneratorSuggestion: Bool {
+        switch self {
+        case .nonCredential:
+            false
+        case .loginUsername, .loginPassword, .identityUsername:
+            true
+        }
+    }
+}
+
+private struct AddEditFocusBindingKey: EnvironmentKey {
+    static let defaultValue: FocusState<AddEditCredentialField?>.Binding? = nil
+}
+
+private extension EnvironmentValues {
+    var addEditFocusBinding: FocusState<AddEditCredentialField?>.Binding? {
+        get { self[AddEditFocusBindingKey.self] }
+        set { self[AddEditFocusBindingKey.self] = newValue }
+    }
+}
+
+/// Installs a non-blocking tap recognizer on the editor's window. Taps on an
+/// actual text input are ignored so field-to-field focus keeps working; every
+/// other tap ends editing while still reaching the tapped control.
+private struct KeyboardDismissTapInstaller: UIViewRepresentable {
+    let onDismiss: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onDismiss: onDismiss)
+    }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView(frame: .zero)
+        view.isUserInteractionEnabled = false
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        context.coordinator.onDismiss = onDismiss
+        context.coordinator.attachWhenReady(from: uiView)
+    }
+
+    static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+        coordinator.detach()
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var onDismiss: () -> Void
+        private weak var attachedWindow: UIWindow?
+        private lazy var recognizer: UITapGestureRecognizer = {
+            let recognizer = UITapGestureRecognizer(target: self, action: #selector(handleTap))
+            recognizer.cancelsTouchesInView = false
+            recognizer.delaysTouchesBegan = false
+            recognizer.delaysTouchesEnded = false
+            recognizer.delegate = self
+            return recognizer
+        }()
+
+        init(onDismiss: @escaping () -> Void) {
+            self.onDismiss = onDismiss
+        }
+
+        func attachWhenReady(from view: UIView) {
+            DispatchQueue.main.async { [weak self, weak view] in
+                guard let self, let window = view?.window else { return }
+                guard attachedWindow !== window else { return }
+                detach()
+                window.addGestureRecognizer(recognizer)
+                attachedWindow = window
+            }
+        }
+
+        func detach() {
+            attachedWindow?.removeGestureRecognizer(recognizer)
+            attachedWindow = nil
+        }
+
+        @objc private func handleTap() {
+            attachedWindow?.endEditing(true)
+            onDismiss()
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldReceive touch: UITouch
+        ) -> Bool {
+            var touchedView: UIView? = touch.view
+            while let currentView = touchedView {
+                if currentView is UITextField
+                    || currentView is UITextView
+                    || currentView is UIControl
+                    || currentView.accessibilityIdentifier == "credentialSuggestionPanel" {
+                    return false
+                }
+                touchedView = currentView.superview
+            }
+            return true
         }
     }
 }
@@ -1689,6 +1800,8 @@ private struct CredentialKeyboardSuggestion: View {
 }
 
 private struct LabeledFormField: View {
+    @Environment(\.addEditFocusBinding) private var inheritedFocusBinding
+    @State private var focusID = UUID()
     let title: String
     @Binding var text: String
     let placeholder: String
@@ -1760,8 +1873,8 @@ private struct LabeledFormField: View {
 
     @ViewBuilder
     private var focusedInput: some View {
-        if let focusBinding, let focusValue {
-            input.focused(focusBinding, equals: focusValue)
+        if let binding = focusBinding ?? inheritedFocusBinding {
+            input.focused(binding, equals: focusValue ?? .nonCredential(focusID))
         } else {
             input
         }
@@ -1832,6 +1945,8 @@ struct AddEditVaultItemView: View {
     @State private var isSaving = false
     @State private var passwordSuggestion: String
     @State private var usernameSuggestion: String
+    @State private var notesFocusID = UUID()
+    @State private var isKeyboardVisible = false
     @FocusState private var focusedCredentialField: AddEditCredentialField?
 
     init(
@@ -1840,6 +1955,8 @@ struct AddEditVaultItemView: View {
         prefilledName: String = "",
         prefilledUsername: String = "",
         prefilledTOTPSecret: String = "",
+        prefilledType: VaultItemType = .login,
+        prefilledFolder: String = "",
         presentation: Presentation = .sheet,
         onFinish: (() -> Void)? = nil
     ) {
@@ -1855,8 +1972,8 @@ struct AddEditVaultItemView: View {
             initialValue: (initialURIs.isEmpty ? [""] : initialURIs)
                 .map { EditableWebsiteURI(value: $0) }
         )
-        _type = State(initialValue: existingItem?.type ?? .login)
-        _folder = State(initialValue: existingItem?.folder ?? "")
+        _type = State(initialValue: existingItem?.type ?? prefilledType)
+        _folder = State(initialValue: existingItem?.folder ?? prefilledFolder)
         _notes = State(initialValue: existingItem?.notes ?? "")
         _isFavorite = State(initialValue: existingItem?.isFavorite ?? false)
         _totpSecret = State(initialValue: existingItem?.totpSecret ?? prefilledTOTPSecret)
@@ -1987,10 +2104,34 @@ struct AddEditVaultItemView: View {
 
                 Section("Notes") {
                     TextEditor(text: $notes)
+                        .focused($focusedCredentialField, equals: .nonCredential(notesFocusID))
                         .frame(minHeight: 100)
                 }
 
                 customFieldsEditor
+            }
+            .environment(\.addEditFocusBinding, $focusedCredentialField)
+            .background {
+                KeyboardDismissTapInstaller {
+                    focusedCredentialField = nil
+                }
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if isKeyboardVisible, let activeCredentialField {
+                    CredentialKeyboardSuggestion(
+                        title: activeCredentialField.suggestionTitle,
+                        value: suggestion(for: activeCredentialField),
+                        onUse: { useSuggestion(for: activeCredentialField) },
+                        onCustomize: { presentGenerator(for: activeCredentialField) }
+                    )
+                    .id(activeCredentialField)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+                    .background(.bar)
+                    .overlay(alignment: .top) { Divider() }
+                    .accessibilityIdentifier("credentialSuggestionPanel")
+                }
             }
             .navigationTitle(navigationTitleText)
             .navigationBarTitleDisplayMode(.inline)
@@ -2020,23 +2161,6 @@ struct AddEditVaultItemView: View {
                     .accessibilityLabel("Save")
                     .buttonStyle(.borderedProminent)
                     .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving)
-                }
-                ToolbarItemGroup(placement: .keyboard) {
-                    CredentialKeyboardSuggestion(
-                        title: keyboardSuggestionField.suggestionTitle,
-                        value: suggestion(for: keyboardSuggestionField),
-                        onUse: {
-                            guard let focusedCredentialField else { return }
-                            useSuggestion(for: focusedCredentialField)
-                        },
-                        onCustomize: {
-                            guard let focusedCredentialField else { return }
-                            presentGenerator(for: focusedCredentialField)
-                        }
-                    )
-                    .opacity(focusedCredentialField == nil ? 0 : 1)
-                    .allowsHitTesting(focusedCredentialField != nil)
-                    .accessibilityHidden(focusedCredentialField == nil)
                 }
             }
             .sheet(isPresented: $showingGenerator) {
@@ -2089,8 +2213,16 @@ struct AddEditVaultItemView: View {
             } message: {
                 Text(totpScanError ?? "Please try again.")
             }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+                isKeyboardVisible = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+                isKeyboardVisible = false
+            }
             .onChange(of: focusedCredentialField) { oldValue, newValue in
-                guard let newValue, newValue != oldValue else { return }
+                guard let newValue,
+                      newValue.supportsGeneratorSuggestion,
+                      newValue != oldValue else { return }
                 refreshSuggestion(for: newValue)
             }
     }
@@ -2102,13 +2234,20 @@ struct AddEditVaultItemView: View {
         }
     }
 
-    private var keyboardSuggestionField: AddEditCredentialField {
-        focusedCredentialField ?? (type == .identity ? .identityUsername : .loginUsername)
+    private var activeCredentialField: AddEditCredentialField? {
+        switch focusedCredentialField {
+        case .loginUsername, .loginPassword, .identityUsername:
+            focusedCredentialField
+        case .nonCredential, nil:
+            nil
+        }
     }
 
     private func presentGenerator(for field: AddEditCredentialField) {
         focusedCredentialField = nil
         switch field {
+        case .nonCredential:
+            return
         case .loginPassword:
             showingGenerator = true
         case .loginUsername, .identityUsername:
@@ -2118,6 +2257,8 @@ struct AddEditVaultItemView: View {
 
     private func suggestion(for field: AddEditCredentialField) -> String {
         switch field {
+        case .nonCredential:
+            ""
         case .loginPassword:
             passwordSuggestion
         case .loginUsername, .identityUsername:
@@ -2127,6 +2268,8 @@ struct AddEditVaultItemView: View {
 
     private func refreshSuggestion(for field: AddEditCredentialField) {
         switch field {
+        case .nonCredential:
+            return
         case .loginPassword:
             passwordSuggestion = PasswordGenerator.password(
                 length: 20,
@@ -2141,6 +2284,8 @@ struct AddEditVaultItemView: View {
 
     private func useSuggestion(for field: AddEditCredentialField) {
         switch field {
+        case .nonCredential:
+            return
         case .loginPassword:
             password = passwordSuggestion
         case .loginUsername:
