@@ -781,6 +781,12 @@ private enum AutoFillPasswordGeneration {
         return generatedPassword(policy: value, includeSpecial: value.allowsSpecial)
     }
 
+    static func username() -> String {
+        let first = words.randomElement() ?? "silent"
+        let second = words.randomElement() ?? "orbit"
+        return "\(first).\(second).\(Int.random(in: 100...999))"
+    }
+
     private static func policy(from rules: String?) -> Policy {
         guard let rules, !rules.isEmpty else { return Policy() }
         var policy = Policy()
@@ -1247,14 +1253,29 @@ private struct AutoFillCredentialListView: View {
 
 private struct AutoFillNewLoginView: View {
     @ObservedObject var viewModel: AutoFillCredentialListViewModel
+    @State private var usernameSuggestion = AutoFillPasswordGeneration.username()
+    @State private var passwordSuggestion = AutoFillPasswordGeneration.strongPassword(rules: nil)
+    @State private var isKeyboardVisible = false
     @FocusState private var focusedField: Field?
 
-    private enum Field {
+    private enum Field: Hashable {
         case name
         case username
         case password
         case uri
         case totp
+    }
+
+    private enum SuggestionKind: Hashable {
+        case username
+        case password
+
+        var title: String {
+            switch self {
+            case .username: "Username Suggestion"
+            case .password: "Strong Password Suggestion"
+            }
+        }
     }
 
     var body: some View {
@@ -1332,6 +1353,22 @@ private struct AutoFillNewLoginView: View {
 
                 customFieldsEditor
             }
+            .scrollDismissesKeyboard(.interactively)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if isKeyboardVisible, let activeSuggestionKind {
+                    AutoFillCredentialSuggestion(
+                        title: activeSuggestionKind.title,
+                        value: suggestion(for: activeSuggestionKind),
+                        onUse: { useSuggestion(for: activeSuggestionKind) },
+                        onRegenerate: { refreshSuggestion(for: activeSuggestionKind) }
+                    )
+                    .id(activeSuggestionKind)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+                    .background(.bar)
+                    .overlay(alignment: .top) { Divider() }
+                }
+            }
             .navigationTitle("New Item")
             .toolbarTitleDisplayMode(.inline)
             .toolbar {
@@ -1356,9 +1393,59 @@ private struct AutoFillNewLoginView: View {
             } message: {
                 Text(viewModel.createError ?? "")
             }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+                isKeyboardVisible = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+                isKeyboardVisible = false
+            }
+            .onChange(of: focusedField) { oldValue, newValue in
+                guard newValue != oldValue else { return }
+                switch newValue {
+                case .username:
+                    refreshSuggestion(for: .username)
+                case .password:
+                    refreshSuggestion(for: .password)
+                case .name, .uri, .totp, nil:
+                    break
+                }
+            }
             .task {
                 focusedField = viewModel.newLoginName.isEmpty ? .name : .username
             }
+        }
+    }
+
+    private var activeSuggestionKind: SuggestionKind? {
+        switch focusedField {
+        case .username: .username
+        case .password: .password
+        case .name, .uri, .totp, nil: nil
+        }
+    }
+
+    private func suggestion(for kind: SuggestionKind) -> String {
+        switch kind {
+        case .username: usernameSuggestion
+        case .password: passwordSuggestion
+        }
+    }
+
+    private func refreshSuggestion(for kind: SuggestionKind) {
+        switch kind {
+        case .username:
+            usernameSuggestion = AutoFillPasswordGeneration.username()
+        case .password:
+            passwordSuggestion = AutoFillPasswordGeneration.strongPassword(rules: nil)
+        }
+    }
+
+    private func useSuggestion(for kind: SuggestionKind) {
+        switch kind {
+        case .username:
+            viewModel.newLoginUsername = usernameSuggestion
+        case .password:
+            viewModel.newLoginPassword = passwordSuggestion
         }
     }
 
@@ -1428,6 +1515,47 @@ private struct AutoFillNewLoginView: View {
             get: { value.wrappedValue == "true" },
             set: { value.wrappedValue = $0 ? "true" : "false" }
         )
+    }
+}
+
+private struct AutoFillCredentialSuggestion: View {
+    let title: String
+    let value: String
+    let onUse: () -> Void
+    let onRegenerate: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button(action: onUse) {
+                VStack(spacing: 1) {
+                    Text(title)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(value)
+                        .font(.callout.monospaced().weight(.medium))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+                }
+                .frame(maxWidth: .infinity)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Use \(title.lowercased())")
+            .accessibilityValue(value)
+
+            Divider()
+                .frame(height: 34)
+
+            Button(action: onRegenerate) {
+                Image(systemName: "arrow.clockwise")
+                    .frame(width: 32, height: 34)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.tint)
+            .accessibilityLabel("Generate another suggestion")
+        }
+        .frame(maxWidth: .infinity)
     }
 }
 
