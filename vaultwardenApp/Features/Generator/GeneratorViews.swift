@@ -5,6 +5,7 @@ private enum GeneratorMode: String, CaseIterable, Identifiable {
     case passphrase = "Passphrase"
     case username = "Username"
     var id: String { rawValue }
+    var localizedTitle: String { L10n.string(rawValue) }
 }
 
 struct GeneratorView: View {
@@ -28,7 +29,7 @@ struct GeneratorView: View {
             ScrollView {
                 VStack(spacing: 22) {
                     Picker("Generator type", selection: $mode) {
-                        ForEach(GeneratorMode.allCases) { Text($0.rawValue).tag($0) }
+                        ForEach(GeneratorMode.allCases) { Text($0.localizedTitle).tag($0) }
                     }
                     .pickerStyle(.segmented)
 
@@ -106,7 +107,7 @@ struct GeneratorView: View {
     private var generatedCard: some View {
         VStack(spacing: 18) {
             HStack {
-                Text(mode.rawValue)
+                Text(mode.localizedTitle)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .textCase(.uppercase)
@@ -176,7 +177,7 @@ struct GeneratorView: View {
 
     private var passphraseOptions: some View {
         VStack(spacing: 17) {
-            Stepper("Words: \(wordCount)", value: $wordCount, in: 3...8)
+            Stepper(L10n.format("Words: %lld", wordCount), value: $wordCount, in: 3...8)
             HStack {
                 Text("Separator")
                 Spacer()
@@ -204,14 +205,16 @@ struct GeneratorView: View {
     }
 
     private var strengthText: String {
-        if mode == .passphrase { return wordCount >= 5 ? "Strong" : "Good" }
-        if length >= 20 && useNumbers && useSymbols { return "Strong" }
-        if length >= 14 { return "Good" }
-        return "Weak"
+        if mode == .passphrase { return L10n.string(wordCount >= 5 ? "Strong" : "Good") }
+        if length >= 20 && useNumbers && useSymbols { return L10n.string("Strong") }
+        if length >= 14 { return L10n.string("Good") }
+        return L10n.string("Weak")
     }
 
     private var strengthColor: Color {
-        strengthText == "Strong" ? .vaultGreen : strengthText == "Good" ? .vaultYellow : .vaultRed
+        if mode == .passphrase { return wordCount >= 5 ? .vaultGreen : .vaultYellow }
+        if length >= 20 && useNumbers && useSymbols { return .vaultGreen }
+        return length >= 14 ? .vaultYellow : .vaultRed
     }
 
     private func regenerate(recordCurrentValue: Bool = false) {

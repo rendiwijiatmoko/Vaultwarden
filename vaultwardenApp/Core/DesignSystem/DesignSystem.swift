@@ -33,7 +33,7 @@ struct SectionHeader: View {
 
     var body: some View {
         HStack {
-            Text(title)
+            Text(L10n.string(title))
                 .font(.title3.bold())
             Spacer()
             if let action {
@@ -50,7 +50,11 @@ struct EmptyStateView: View {
     let message: String
 
     var body: some View {
-        ContentUnavailableView(title, systemImage: icon, description: Text(message))
+        ContentUnavailableView(
+            L10n.string(title),
+            systemImage: icon,
+            description: Text(L10n.string(message))
+        )
     }
 }
 
@@ -82,7 +86,10 @@ struct AnimatedCopyButton: View {
         Button(action: copy) {
             Group {
                 if let title {
-                    Label(copied ? "Copied" : title, systemImage: copied ? "checkmark" : "doc.on.doc")
+                    Label(
+                        copied ? L10n.string("Copied") : L10n.string(title),
+                        systemImage: copied ? "checkmark" : "doc.on.doc"
+                    )
                         .contentTransition(.symbolEffect(.replace))
                 } else {
                     Image(systemName: copied ? "checkmark" : "doc.on.doc")
@@ -92,7 +99,11 @@ struct AnimatedCopyButton: View {
             }
             .frame(maxWidth: fillsWidth ? .infinity : nil)
         }
-        .accessibilityLabel(copied ? "\(accessibilityName) copied" : "Copy \(accessibilityName)")
+        .accessibilityLabel(
+            copied
+                ? L10n.format("%@ copied", L10n.string(accessibilityName))
+                : L10n.format("Copy %@", L10n.string(accessibilityName))
+        )
     }
 
     private func copy() {

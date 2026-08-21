@@ -1,0 +1,1218 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "CFBundleDisplayName" : {
+      "comment" : "App name displayed by iOS.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaultwarden"
+          }
+        },
+        "bg" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaultwarden"
+          }
+        },
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaultwarden"
+          }
+        },
+        "ca" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaultwarden"
+          }
+        },
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaultwarden"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaultwarden"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaultwarden"
+          }
+        },
+        "el" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaultwarden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaultwarden"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaultwarden"
+          }
+        },
+        "fa" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaultwarden"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaultwarden"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaultwarden"
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaultwarden"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaultwarden"
+          }
+        },
+        "hr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaultwarden"
+          }
+        },
+        "hu" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaultwarden"
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaultwarden"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaultwarden"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaultwarden"
+          }
+        },
+        "kk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaultwarden"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaultwarden"
+          }
+        },
+        "lt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaultwarden"
+          }
+        },
+        "ms" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaultwarden"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaultwarden"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaultwarden"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaultwarden"
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaultwarden"
+          }
+        },
+        "ro" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaultwarden"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaultwarden"
+          }
+        },
+        "sk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaultwarden"
+          }
+        },
+        "sl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaultwarden"
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaultwarden"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaultwarden"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaultwarden"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaultwarden"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaultwarden"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaultwarden"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaultwarden"
+          }
+        }
+      }
+    },
+    "CFBundleName" : {
+      "comment" : "Bundle name",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "vaultwardenApp"
+          }
+        }
+      }
+    },
+    "NSCameraUsageDescription" : {
+      "comment" : "Reason shown by iOS when requesting camera access.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "امسح رموز QR للمُصادِق أو التقط صورة لإرفاقها بإرسال Vaultwarden مشفر."
+          }
+        },
+        "bg" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сканирайте QR кодове за удостоверяване или направете снимка, която да прикачите към шифрован Vaultwarden Send."
+          }
+        },
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "প্রমাণীকরণকারীর QR কোড স্ক্যান করুন অথবা এনক্রিপ্ট করা Vaultwarden Send-এ যোগ করতে ছবি তুলুন।"
+          }
+        },
+        "ca" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Escanegeu codis QR de l'autenticador o feu una foto per adjuntar-la a un Vaultwarden Send xifrat."
+          }
+        },
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Naskenujte QR kódy autentizátoru nebo pořiďte fotografii, kterou připojíte k šifrovanému Vaultwarden Sendu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scan QR-koder fra Authenticator, eller tag et billede, der skal vedhæftes en krypteret Vaultwarden Send."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scanne Authentifikator-QR-Codes oder nimm ein Foto auf, um es an einen verschlüsselten Vaultwarden Send anzuhängen."
+          }
+        },
+        "el" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Σαρώστε κωδικούς QR εφαρμογής επαλήθευσης ή τραβήξτε μια φωτογραφία για να την επισυνάψετε σε ένα κρυπτογραφημένο Vaultwarden Send."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scan authenticator QR codes or take a photo to attach to an encrypted Vaultwarden Send."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Escanea códigos QR del autenticador o haz una foto para adjuntarla a un Vaultwarden Send cifrado."
+          }
+        },
+        "fa" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "کدهای QR احرازگر را اسکن کنید یا برای پیوست به Vaultwarden Send رمزگذاری‌شده عکس بگیرید."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skannaa todennussovelluksen QR-koodeja tai ota valokuva liitettäväksi salattuun Vaultwarden Sendiin."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scannez les codes QR d’authentification ou prenez une photo à joindre à un Vaultwarden Send chiffré."
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "יש לסרוק קודי QR של מאמת או לצלם תמונה כדי לצרף אותה ל-Vaultwarden Send מוצפן."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ऑथेंटिकेटर QR कोड स्कैन करें या किसी एन्क्रिप्टेड Vaultwarden सेंड में जोड़ने के लिए फ़ोटो लें।"
+          }
+        },
+        "hr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skeniraj QR kodove autentifikatora ili snimi fotografiju za prilaganje šifriranom Vaultwarden Sendu."
+          }
+        },
+        "hu" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Olvasson be hitelesítő QR-kódokat, vagy készítsen fotót egy titkosított Vaultwarden Sendhez csatoláshoz."
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pindai kode QR autentikator atau ambil foto untuk dilampirkan ke Vaultwarden Send terenkripsi."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scansiona codici QR dell'autenticatore o scatta una foto da allegare a un Vaultwarden Send crittografato."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "認証用QRコードをスキャンするか、写真を撮影して暗号化されたVaultwarden Sendに添付します。"
+          }
+        },
+        "kk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Аутентификатор QR кодтарын сканерлеңіз немесе шифрланған Vaultwarden Send ішіне тіркеу үшін фото түсіріңіз."
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "인증 앱 QR 코드를 스캔하거나 암호화된 Vaultwarden Send에 첨부할 사진을 촬영하세요."
+          }
+        },
+        "lt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nuskaitykite tapatybės patvirtinimo QR kodus arba nufotografuokite, kad pridėtumėte prie šifruoto Vaultwarden Send."
+          }
+        },
+        "ms" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Imbas kod QR pengesah atau ambil foto untuk dilampirkan pada Vaultwarden Send disulitkan."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skann QR-koder for autentisering eller ta et bilde som kan legges ved en kryptert Vaultwarden Send."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scan QR-codes van de authenticator of maak een foto om aan een versleutelde Vaultwarden Send toe te voegen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skanuj kody QR aplikacji uwierzytelniającej lub zrób zdjęcie, aby dołączyć je do zaszyfrowanego Vaultwarden Send."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Digitalize códigos QR do autenticador ou tire uma fotografia para anexar a um Vaultwarden Send encriptado."
+          }
+        },
+        "ro" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scanați codurile QR de autentificare sau faceți o fotografie pentru a o atașa unui Send Vaultwarden criptat."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сканируйте QR-коды аутентификатора или сделайте снимок для прикрепления к зашифрованному Vaultwarden Send."
+          }
+        },
+        "sk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Naskenujte QR kódy autentifikátora alebo odfoťte obrázok a priložte ho k zašifrovanému Vaultwarden Send."
+          }
+        },
+        "sl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Optično preberite kode QR preverjevalnika ali posnemite fotografijo, da jo priložite šifriranemu Vaultwarden Send."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skanna autentiserarens QR-koder eller ta en bild som ska bifogas till en krypterad Vaultwarden Send."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "สแกนคิวอาร์โค้ดของแอปยืนยันตัวตนหรือถ่ายรูปเพื่อแนบกับ Vaultwarden Send ที่เข้ารหัส"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kimlik doğrulayıcı QR kodlarını tarayın veya şifreli bir Vaultwarden Send'e eklemek için fotoğraf çekin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Скануйте QR-коди автентифікатора або зробіть фото, щоб прикріпити його до зашифрованого відправлення Vaultwarden."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quét mã QR trình xác thực hoặc chụp ảnh để đính kèm vào một Vaultwarden Send đã mã hóa."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "扫描身份验证器二维码或拍摄照片，以附加到加密的 Vaultwarden Send。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "掃描身分驗證器QR 碼或拍攝照片，以附加到加密的 Vaultwarden Send。"
+          }
+        }
+      }
+    },
+    "NSFaceIDUsageDescription" : {
+      "comment" : "Reason shown by iOS when requesting Face ID access.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "استخدم Face ID لفتح خزنتك المشفرة والموافقة على الوصول إلى بيانات الاعتماد."
+          }
+        },
+        "bg" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Използвайте Face ID, за да отключите шифрования си трезор и да одобрите достъпа до идентификационните данни."
+          }
+        },
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "এনক্রিপ্ট করা ভল্ট আনলক ও ক্রেডেনশিয়াল অ্যাক্সেস অনুমোদন করতে Face ID ব্যবহার করুন।"
+          }
+        },
+        "ca" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Utilitzeu Face ID per desbloquejar la caixa forta xifrada i aprovar l'accés a les credencials."
+          }
+        },
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Použijte Face ID k odemknutí šifrovaného trezoru a schválení přístupu k přihlašovacím údajům."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Brug Face ID til at låse din krypterede boks op og godkende adgang til loginoplysninger."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verwende Face ID, um deinen verschlüsselten Tresor zu entsperren und den Zugriff auf Zugangsdaten zu genehmigen."
+          }
+        },
+        "el" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Χρησιμοποιήστε το Face ID για να ξεκλειδώσετε την κρυπτογραφημένη κρύπτη σας και να εγκρίνετε την πρόσβαση στα διαπιστευτήρια."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use Face ID to unlock your encrypted vault and approve credential access."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usa Face ID para desbloquear tu caja fuerte cifrada y aprobar el acceso a las credenciales."
+          }
+        },
+        "fa" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "از Face ID برای باز کردن گاوصندوق رمزگذاری‌شده و تأیید دسترسی اطلاعات ورود استفاده کنید."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avaa salattu holvisi Face ID:llä ja hyväksy kirjautumistietojen käyttö."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Utilisez Face ID pour déverrouiller votre coffre chiffré et approuver l’accès aux identifiants."
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "יש להשתמש ב-Face ID כדי לבטל את נעילת הכספת המוצפנת ולאשר גישה לאישורים."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "अपनी एन्क्रिप्टेड तिजोरी अनलॉक करने और क्रेडेंशियल एक्सेस स्वीकार करने के लिए Face ID का उपयोग करें।"
+          }
+        },
+        "hr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Koristi Face ID za otključavanje šifriranog trezora i odobravanje pristupa vjerodajnicama."
+          }
+        },
+        "hu" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Használja a Face ID-t a titkosított széf feloldásához és a hitelesítő adatokhoz való hozzáférés jóváhagyásához."
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gunakan Face ID untuk membuka brankas terenkripsi dan menyetujui akses kredensial."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usa Face ID per sbloccare la cassaforte crittografata e approvare l'accesso alle credenziali."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Face IDを使って暗号化された保管庫をロック解除し、資格情報へのアクセスを承認します。"
+          }
+        },
+        "kk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Шифрланған қойманы ашып, тіркелгі деректеріне кіруді мақұлдау үшін Face ID пайдаланыңыз."
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Face ID로 암호화된 볼트를 잠금 해제하고 자격 증명 접근을 승인하세요."
+          }
+        },
+        "lt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Naudokite Face ID šifruotai saugyklai atrakinti ir prieigai prie prisijungimo duomenų patvirtinti."
+          }
+        },
+        "ms" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gunakan Face ID untuk membuka peti besi disulitkan dan meluluskan akses kelayakan."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bruk Face ID til å låse opp det krypterte hvelvet og godkjenne tilgang til legitimasjon."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gebruik Face ID om je versleutelde kluis te ontgrendelen en toegang tot inloggegevens goed te keuren."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Użyj Face ID, aby odblokować zaszyfrowany sejf i zatwierdzić dostęp do danych logowania."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Utilize o Face ID para desbloquear o cofre encriptado e aprovar o acesso às credenciais."
+          }
+        },
+        "ro" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Utilizați Face ID pentru a debloca seiful criptat și a aproba accesul la datele de autentificare."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Используйте Face ID, чтобы разблокировать зашифрованное хранилище и одобрить доступ к учётным данным."
+          }
+        },
+        "sk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Použite Face ID na odomknutie zašifrovaného trezoru a schválenie prístupu k prihlasovacím údajom."
+          }
+        },
+        "sl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uporabite Face ID za odklepanje šifriranega trezorja in odobritev dostopa do poverilnic."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Använd Face ID för att låsa upp ditt krypterade valv och godkänna åtkomst till inloggningsuppgifter."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ใช้ Face ID เพื่อปลดล็อกตู้นิรภัยที่เข้ารหัสและอนุมัติการเข้าถึงข้อมูลประจำตัว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Şifreli kasanızın kilidini açmak ve kimlik bilgisi erişimini onaylamak için Face ID kullanın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Використовуйте Face ID, щоб розблокувати зашифроване сховище й схвалити доступ до облікових даних."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dùng Face ID để mở khóa kho đã mã hóa và phê duyệt quyền truy cập thông tin xác thực."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用 Face ID 解锁加密密码库并批准凭据访问。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用 Face ID 解鎖加密密碼庫並批准登入資訊存取。"
+          }
+        }
+      }
+    },
+    "NSLocalNetworkUsageDescription" : {
+      "comment" : "Reason shown by iOS when requesting local network access.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "اتصل بخادم Vaultwarden المستضاف ذاتيًا على الشبكة المحلية."
+          }
+        },
+        "bg" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Свържете се със своя собствен сървър на Vaultwarden в локалната мрежа."
+          }
+        },
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "স্থানীয় নেটওয়ার্কে আপনার নিজস্ব হোস্ট করা Vaultwarden সার্ভারের সঙ্গে সংযুক্ত হন।"
+          }
+        },
+        "ca" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connecteu-vos al vostre servidor Vaultwarden autoallotjat de la xarxa local."
+          }
+        },
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Připojte se ke svému serveru Vaultwarden v místní síti."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opret forbindelse til din egen Vaultwarden-server på det lokale netværk."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verbinde dich mit deinem selbst gehosteten Vaultwarden-Server im lokalen Netzwerk."
+          }
+        },
+        "el" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Συνδεθείτε στον αυτοφιλοξενούμενο διακομιστή Vaultwarden στο τοπικό δίκτυο."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connect to your self-hosted Vaultwarden server on the local network."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conéctate a tu servidor Vaultwarden autoalojado en la red local."
+          }
+        },
+        "fa" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "در شبکه محلی به سرور Vaultwarden میزبانی‌شده شخصی خود متصل شوید."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yhdistä paikallisessa verkossa olevaan itse ylläpitämääsi Vaultwarden-palvelimeen."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connectez-vous à votre serveur Vaultwarden auto-hébergé sur le réseau local."
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "התחברות לשרת Vaultwarden באירוח העצמי שלכם ברשת המקומית."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "लोकल नेटवर्क पर अपने सेल्फ़-होस्टेड Vaultwarden सर्वर से कनेक्ट करें।"
+          }
+        },
+        "hr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Poveži se sa svojim Vaultwarden poslužiteljem na lokalnoj mreži."
+          }
+        },
+        "hu" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Csatlakozás a saját üzemeltetésű Vaultwarden-szerverhez a helyi hálózaton."
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hubungkan ke server Vaultwarden milik Anda di jaringan lokal."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connettiti al server Vaultwarden self-hosted sulla rete locale."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ローカルネットワーク上のセルフホストVaultwardenサーバーに接続します。"
+          }
+        },
+        "kk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Жергілікті желідегі өз Vaultwarden серверіңізге қосылыңыз."
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "로컬 네트워크의 자체 호스팅 Vaultwarden 서버에 연결하세요."
+          }
+        },
+        "lt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prisijunkite prie savo Vaultwarden serverio vietiniame tinkle."
+          }
+        },
+        "ms" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sambung ke pelayan Vaultwarden hos sendiri pada rangkaian setempat."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Koble til den selvdriftede Vaultwarden-serveren på lokalnettverket."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Maak verbinding met je zelfgehoste Vaultwarden-server op het lokale netwerk."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Połącz się z samodzielnie hostowanym serwerem Vaultwarden w sieci lokalnej."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ligue ao seu servidor Vaultwarden autoalojado na rede local."
+          }
+        },
+        "ro" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conectați-vă la serverul Vaultwarden găzduit de dvs. în rețeaua locală."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подключитесь к собственному серверу Vaultwarden в локальной сети."
+          }
+        },
+        "sk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pripojte sa k vlastnému serveru Vaultwarden v lokálnej sieti."
+          }
+        },
+        "sl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Povežite se s svojim strežnikom Vaultwarden v lokalnem omrežju."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anslut till din egen Vaultwarden-server i det lokala nätverket."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เชื่อมต่อกับเซิร์ฟเวอร์ Vaultwarden ที่คุณโฮสต์เองบนเครือข่ายท้องถิ่น"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yerel ağdaki kendi barındırdığınız Vaultwarden sunucusuna bağlanın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Підключіться до власного сервера Vaultwarden у локальній мережі."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kết nối với máy chủ Vaultwarden tự lưu trữ của bạn trên mạng cục bộ."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "连接到本地网络中您自行托管的 Vaultwarden 服务器。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "連線到本機網路中您自行托管的 Vaultwarden 伺服器。"
+          }
+        }
+      }
+    },
+    "NSPhotoLibraryUsageDescription" : {
+      "comment" : "Reason shown by iOS when requesting photo library access.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "اختر صورة لإرفاقها بإرسال Vaultwarden مشفر."
+          }
+        },
+        "bg" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Изберете снимка, която да прикачите към шифрован Vaultwarden Send."
+          }
+        },
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "এনক্রিপ্ট করা Vaultwarden Send-এ যোগ করতে একটি ছবি বেছে নিন।"
+          }
+        },
+        "ca" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seleccioneu una foto per adjuntar-la a un Vaultwarden Send xifrat."
+          }
+        },
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vyberte fotografii, kterou připojíte k šifrovanému Vaultwarden Sendu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vælg et billede, der skal vedhæftes en krypteret Vaultwarden Send."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wähle ein Foto aus, das an einen verschlüsselten Vaultwarden Send angehängt werden soll."
+          }
+        },
+        "el" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Επιλέξτε μια φωτογραφία για επισύναψη σε κρυπτογραφημένο Vaultwarden Send."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select a photo to attach to an encrypted Vaultwarden Send."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Selecciona una foto para adjuntarla a un Vaultwarden Send cifrado."
+          }
+        },
+        "fa" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "عکسی برای پیوست به Vaultwarden Send رمزگذاری‌شده انتخاب کنید."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Valitse valokuva liitettäväksi salattuun Vaultwarden Sendiin."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sélectionnez une photo à joindre à un Vaultwarden Send chiffré."
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "יש לבחור תמונה כדי לצרף אותה ל-Vaultwarden Send מוצפן."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "किसी एन्क्रिप्टेड Vaultwarden सेंड में जोड़ने के लिए फ़ोटो चुनें।"
+          }
+        },
+        "hr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Odaberi fotografiju za prilaganje šifriranom Vaultwarden Sendu."
+          }
+        },
+        "hu" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Válasszon fotót egy titkosított Vaultwarden Sendhez csatoláshoz."
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pilih foto untuk dilampirkan ke Vaultwarden Send terenkripsi."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seleziona una foto da allegare a un Vaultwarden Send crittografato."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暗号化されたVaultwarden Sendに添付する写真を選択してください。"
+          }
+        },
+        "kk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Шифрланған Vaultwarden Send ішіне тіркеу үшін фото таңдаңыз."
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "암호화된 Vaultwarden Send에 첨부할 사진을 선택하세요."
+          }
+        },
+        "lt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pasirinkite nuotrauką, kurią pridėsite prie šifruoto Vaultwarden Send."
+          }
+        },
+        "ms" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pilih foto untuk dilampirkan pada Vaultwarden Send disulitkan."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Velg et bilde som skal legges ved en kryptert Vaultwarden Send."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Selecteer een foto om aan een versleutelde Vaultwarden Send toe te voegen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wybierz zdjęcie, aby dołączyć je do zaszyfrowanego Vaultwarden Send."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Selecione uma fotografia para anexar a um Vaultwarden Send encriptado."
+          }
+        },
+        "ro" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Selectați o fotografie pentru a o atașa unui Send Vaultwarden criptat."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выберите снимок для прикрепления к зашифрованному Vaultwarden Send."
+          }
+        },
+        "sk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vyberte fotku a priložte ju k zašifrovanému Vaultwarden Send."
+          }
+        },
+        "sl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Izberite fotografijo, da jo priložite šifriranemu Vaultwarden Send."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Välj en bild som ska bifogas till en krypterad Vaultwarden Send."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เลือกรูปภาพเพื่อแนบกับ Vaultwarden Send ที่เข้ารหัส"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Şifreli bir Vaultwarden Send'e eklemek için bir fotoğraf seçin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Виберіть фото, щоб прикріпити його до зашифрованого відправлення Vaultwarden."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chọn ảnh để đính kèm vào một Vaultwarden Send đã mã hóa."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择一张照片以附加到加密的 Vaultwarden Send。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選擇一張照片以附加到加密的 Vaultwarden Send。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

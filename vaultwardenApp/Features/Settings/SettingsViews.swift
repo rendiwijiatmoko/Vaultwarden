@@ -39,12 +39,12 @@ struct SettingsView: View {
                             color: .vaultCyan,
                             title: "Sync",
                             subtitle: store.pendingMutationCount > 0
-                                ? "\(store.pendingMutationCount) encrypted change\(store.pendingMutationCount == 1 ? "" : "s") queued"
+                                ? L10n.format("%lld encrypted changes queued", store.pendingMutationCount)
                                 : store.lastSync.formatted(.relative(presentation: .named))
                         )
                     }
                     NavigationLink { AppearanceSettingsView() } label: {
-                        SettingsRow(icon: "paintpalette.fill", color: .vaultOrange, title: "Appearance", subtitle: store.settings.theme.rawValue)
+                        SettingsRow(icon: "paintpalette.fill", color: .vaultOrange, title: "Appearance", subtitle: store.settings.theme.localizedTitle)
                     }
                     NavigationLink { DataToolsView() } label: {
                         SettingsRow(icon: "externaldrive.fill", color: .vaultYellow, title: "Data & Tools", subtitle: "Import, export and local cache")
@@ -87,9 +87,9 @@ private struct SettingsRow: View {
                 .frame(width: 32, height: 32)
                 .background(color.gradient, in: RoundedRectangle(cornerRadius: 8))
             VStack(alignment: .leading, spacing: 2) {
-                Text(title)
+                Text(L10n.string(title))
                     .foregroundStyle(.primary)
-                Text(subtitle)
+                Text(L10n.string(subtitle))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -310,7 +310,7 @@ private struct SecuritySettingsView: View {
                 Toggle("Unlock with biometrics", isOn: $store.settings.biometricUnlock)
                 Toggle("Device passcode fallback", isOn: $store.settings.devicePasscodeFallback)
                 Picker("Vault timeout", selection: $store.settings.vaultTimeout) {
-                    ForEach(VaultTimeout.allCases) { Text($0.rawValue).tag($0) }
+                    ForEach(VaultTimeout.allCases) { Text($0.localizedTitle).tag($0) }
                 }
             }
             Section("Sensitive Actions") {
@@ -383,7 +383,7 @@ private struct AppearanceSettingsView: View {
         Form {
             Section {
                 Picker("Theme", selection: $store.settings.theme) {
-                    ForEach(AppTheme.allCases) { Text($0.rawValue).tag($0) }
+                    ForEach(AppTheme.allCases) { Text($0.localizedTitle).tag($0) }
                 }
                 Toggle("Show website icons", isOn: $store.settings.showFavicons)
                 Toggle("Haptic feedback", isOn: $store.settings.haptics)
@@ -482,7 +482,12 @@ private struct DataToolsView: View {
                 guard let pendingImportData else { throw VaultArchiveError.invalidArchive }
                 let summary = try await store.importEncryptedVault(data: pendingImportData, password: password)
                 self.pendingImportData = nil
-                statusMessage = "Imported \(summary.importedItems) items and \(summary.importedFolders) folders. \(summary.failedItems) items failed."
+                statusMessage = L10n.format(
+                    "Imported %lld items and %lld folders. %lld items failed.",
+                    summary.importedItems,
+                    summary.importedFolders,
+                    summary.failedItems
+                )
             }
             transferMode = nil
         } catch {
@@ -497,7 +502,7 @@ private enum VaultTransferMode: String, Identifiable {
     case export
 
     var id: String { rawValue }
-    var title: String { self == .export ? "Export Encrypted Vault" : "Import Encrypted Vault" }
+    var title: String { L10n.string(self == .export ? "Export Encrypted Vault" : "Import Encrypted Vault") }
 }
 
 private struct VaultTransferPasswordSheet: View {

@@ -30,7 +30,7 @@ See `ARCHITECTURE.md` for dependency and security boundaries. Release/legal gate
 - Encrypted text/file Sends, password protection, sharing, download, and attachment decryption.
 - Biometric/device authentication, automatic timed lock, and master-password recovery.
 - Password-protected AES-256-GCM vault archives for personal non-passkey items.
-- English/Indonesian localization foundation and privacy manifests for both executables.
+- English/Indonesian localization for the main app and AutoFill extension, plus privacy manifests for both executables.
 
 ## Test
 

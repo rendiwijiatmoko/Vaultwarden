@@ -103,7 +103,10 @@ struct PendingLoginRequestsView: View {
             case .approve:
                 Alert(
                     title: Text("Approve Login Request?"),
-                    message: Text("This gives \(confirmation.request.deviceType) access to your encrypted vault. Only continue if you started this login."),
+                    message: Text(L10n.format(
+                        "This gives %@ access to your encrypted vault. Only continue if you started this login.",
+                        confirmation.request.deviceType
+                    )),
                     primaryButton: .default(Text("Approve")) {
                         respond(to: confirmation.request, approved: true)
                     },
@@ -112,7 +115,10 @@ struct PendingLoginRequestsView: View {
             case .reject:
                 Alert(
                     title: Text("Reject Login Request?"),
-                    message: Text("The pending request from \(confirmation.request.deviceType) will be denied."),
+                    message: Text(L10n.format(
+                        "The pending request from %@ will be denied.",
+                        confirmation.request.deviceType
+                    )),
                     primaryButton: .destructive(Text("Reject")) {
                         respond(to: confirmation.request, approved: false)
                     },

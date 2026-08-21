@@ -15,7 +15,7 @@ nonisolated enum AutoFillURIMatchType: UInt8, Codable, Hashable, Sendable {
     static let defaultChoices: [Self] = [.baseDomain, .host, .exact, .never]
 
     var title: String {
-        switch self {
+        let key: String = switch self {
         case .baseDomain: "Base Domain"
         case .host: "Host"
         case .startsWith: "Starts With"
@@ -23,6 +23,7 @@ nonisolated enum AutoFillURIMatchType: UInt8, Codable, Hashable, Sendable {
         case .regularExpression: "Regular Expression"
         case .never: "Never"
         }
+        return L10n.string(key)
     }
 }
 
@@ -42,13 +43,14 @@ nonisolated enum AutoFillCredentialMatch: Int, Hashable, Sendable, Comparable {
     static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
 
     var title: String {
-        switch self {
+        let key: String = switch self {
         case .baseDomain: "Base Domain"
         case .regularExpression: "Regular Expression"
         case .host: "Host"
         case .startsWith: "Starts With"
         case .exact: "Exact"
         }
+        return L10n.string(key)
     }
 }
 
@@ -386,12 +388,12 @@ nonisolated enum AutoFillSharedVaultError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .appGroupUnavailable: "The shared AutoFill container is unavailable."
-        case .vaultUnavailable: "Open the main app and sync your vault before using AutoFill."
-        case .invalidVaultKey: "The shared vault key is invalid. Sign in again from the main app."
-        case .invalidPayload: "The shared AutoFill vault could not be decrypted. Sync from the main app."
-        case .authenticationFailed: "Biometric or device-passcode authentication was not completed."
-        case let .keychain(status): "Keychain could not unlock AutoFill (error \(status))."
+        case .appGroupUnavailable: L10n.string("The shared AutoFill container is unavailable.")
+        case .vaultUnavailable: L10n.string("Open the main app and sync your vault before using AutoFill.")
+        case .invalidVaultKey: L10n.string("The shared vault key is invalid. Sign in again from the main app.")
+        case .invalidPayload: L10n.string("The shared AutoFill vault could not be decrypted. Sync from the main app.")
+        case .authenticationFailed: L10n.string("Biometric or device-passcode authentication was not completed.")
+        case let .keychain(status): L10n.format("Keychain could not unlock AutoFill (error %d).", status)
         }
     }
 }
@@ -500,8 +502,8 @@ nonisolated enum AutoFillSharedVault {
             throw AutoFillSharedVaultError.vaultUnavailable
         }
         let context = LAContext()
-        context.localizedCancelTitle = "Cancel"
-        context.localizedFallbackTitle = "Use Device Passcode"
+        context.localizedCancelTitle = L10n.string("Cancel")
+        context.localizedFallbackTitle = L10n.string("Use Device Passcode")
         guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: nil),
               try await context.evaluatePolicy(
                 .deviceOwnerAuthentication,

@@ -123,11 +123,11 @@ final class AppStore: ObservableObject {
 
     func title(for filter: VaultFilter) -> String {
         switch filter {
-        case let .category(category): category.rawValue
-        case .favorites: "Favorites"
-        case .unfoldered: "Unfoldered"
+        case let .category(category): category.localizedTitle
+        case .favorites: L10n.string("Favorites")
+        case .unfoldered: L10n.string("Unfoldered")
         case let .folder(name): name
-        case let .collection(identifier): collection(withID: identifier)?.name ?? "Collection"
+        case let .collection(identifier): collection(withID: identifier)?.name ?? L10n.string("Collection")
         case let .organization(name): name
         }
     }

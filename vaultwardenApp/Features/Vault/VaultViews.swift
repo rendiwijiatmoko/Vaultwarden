@@ -8,23 +8,22 @@ struct VaultSyncStatusText: View {
 
     private var appearance: (text: String, color: Color) {
         if store.isSyncing {
-            return ("Syncing encrypted vault…", .vaultBlue)
+            return (L10n.string("Syncing encrypted vault…"), .vaultBlue)
         }
         if store.pendingMutationCount > 0 {
-            let suffix = store.pendingMutationCount == 1 ? "" : "s"
             return (
-                "\(store.pendingMutationCount) encrypted change\(suffix) queued",
+                L10n.format("%lld encrypted changes queued", store.pendingMutationCount),
                 .vaultOrange
             )
         }
         if store.lastSyncError != nil {
-            return ("Sync failed · Pull to retry", .vaultRed)
+            return (L10n.string("Sync failed · Pull to retry"), .vaultRed)
         }
         if store.lastSyncUsedOfflineCache {
-            return ("Showing offline vault · Pull to retry", .vaultYellow)
+            return (L10n.string("Showing offline vault · Pull to retry"), .vaultYellow)
         }
         return (
-            "Synced \(store.lastSync.formatted(.relative(presentation: .named)))",
+            L10n.format("Synced %@", store.lastSync.formatted(.relative(presentation: .named))),
             .vaultGreen
         )
     }
@@ -63,12 +62,13 @@ private enum VaultSortOrder: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 
     var title: String {
-        switch self {
+        let key: String = switch self {
         case .nameAscending: "Name (A–Z)"
         case .nameDescending: "Name (Z–A)"
         case .newestFirst: "Newest First"
         case .oldestFirst: "Oldest First"
         }
+        return L10n.string(key)
     }
 
     var icon: String {
@@ -161,12 +161,12 @@ struct VaultCollectionView: View {
 
     private var subtitle: String {
         if editMode.isEditing {
-            return "\(selection.count) Selected"
+            return L10n.format("%lld selected", selection.count)
         }
         if category == .security {
-            return "\(liveItems.count) Recommendations"
+            return L10n.format("%lld recommendations", liveItems.count)
         }
-        return "\(liveItems.count) Item\(liveItems.count == 1 ? "" : "s")"
+        return L10n.format("%lld items", liveItems.count)
     }
 
     var body: some View {
@@ -176,10 +176,10 @@ struct VaultCollectionView: View {
             if displayedItems.isEmpty, category != .security {
                 EmptyStateView(
                     icon: searchText.isEmpty ? (category?.icon ?? "folder") : "magnifyingglass",
-                    title: searchText.isEmpty ? "Nothing here" : "No Results",
+                    title: L10n.string(searchText.isEmpty ? "Nothing here" : "No Results"),
                     message: searchText.isEmpty
-                        ? "Items in this section will appear here."
-                        : "No vault items match “\(searchText)”."
+                        ? L10n.string("Items in this section will appear here.")
+                        : L10n.format("No vault items match “%@”.", searchText)
                 )
             } else if editMode.isEditing {
                 // Multi-select for bulk actions.
@@ -221,7 +221,7 @@ struct VaultCollectionView: View {
         .modifier(
             AdaptiveCollectionSearch(
                 text: searchTextBinding,
-                prompt: "Search \(title.lowercased())",
+                prompt: L10n.format("Search %@", title.lowercased()),
                 isEnabled: !usesColumnSelection,
                 isEditing: editMode.isEditing
             )
@@ -390,10 +390,10 @@ struct VaultCollectionView: View {
             Section {
                 EmptyStateView(
                     icon: searchText.isEmpty ? "checkmark.shield.fill" : "magnifyingglass",
-                    title: searchText.isEmpty ? "No Recommendations" : "No Results",
+                    title: L10n.string(searchText.isEmpty ? "No Recommendations" : "No Results"),
                     message: searchText.isEmpty
-                        ? "No security issues were found in your active vault."
-                        : "No security recommendations match “\(searchText)”."
+                        ? L10n.string("No security issues were found in your active vault.")
+                        : L10n.format("No security recommendations match “%@”.", searchText)
                 )
                 .frame(maxWidth: .infinity, minHeight: 220)
                 .listRowBackground(Color.clear)
@@ -567,35 +567,35 @@ struct VaultCollectionView: View {
     }
 
     private var rowAlertTitle: String {
-        guard let item = pendingRowItem else { return "Vault Item" }
+        guard let item = pendingRowItem else { return L10n.string("Vault Item") }
         switch pendingRowAction {
         case .some(.delete(_)):
-            return item.isDeleted ? "Delete permanently?" : "Delete item?"
+            return L10n.string(item.isDeleted ? "Delete permanently?" : "Delete item?")
         case .some(.archive(_)):
-            if item.isDeleted { return "Restore item?" }
-            return item.isArchived ? "Unarchive item?" : "Archive item?"
+            if item.isDeleted { return L10n.string("Restore item?") }
+            return L10n.string(item.isArchived ? "Unarchive item?" : "Archive item?")
         case nil:
-            return "Vault Item"
+            return L10n.string("Vault Item")
         }
     }
 
     private var rowDeleteActionTitle: String {
-        pendingRowItem?.isDeleted == true ? "Delete Permanently" : "Delete"
+        L10n.string(pendingRowItem?.isDeleted == true ? "Delete Permanently" : "Delete")
     }
 
     private var rowArchiveActionTitle: String {
-        guard let item = pendingRowItem else { return "Continue" }
-        if item.isDeleted { return "Restore" }
-        return item.isArchived ? "Unarchive" : "Archive"
+        guard let item = pendingRowItem else { return L10n.string("Continue") }
+        if item.isDeleted { return L10n.string("Restore") }
+        return L10n.string(item.isArchived ? "Unarchive" : "Archive")
     }
 
     private var rowAlertMessage: String {
         guard let item = pendingRowItem else { return "" }
         switch pendingRowAction {
         case .some(.delete(_)):
-            return item.isDeleted ? "This cannot be undone." : "You can restore this item later from Deleted."
+            return L10n.string(item.isDeleted ? "This cannot be undone." : "You can restore this item later from Deleted.")
         case .some(.archive(_)):
-            return "This action applies to \(item.name)."
+            return L10n.format("This action applies to %@.", item.name)
         case nil:
             return ""
         }
@@ -636,9 +636,9 @@ struct VaultCollectionView: View {
     }
 
     private var bulkSecondaryTitle: String {
-        if category == .deleted { return "Restore" }
-        if category == .archived { return "Unarchive" }
-        return "Archive"
+        if category == .deleted { return L10n.string("Restore") }
+        if category == .archived { return L10n.string("Unarchive") }
+        return L10n.string("Archive")
     }
 
     private var bulkSecondaryIcon: String {
@@ -682,16 +682,16 @@ struct VaultCollectionView: View {
     }
 
     private var deleteConfirmationTitle: String {
-        pendingDeletion.allSatisfy(\.isDeleted)
+        L10n.string(pendingDeletion.allSatisfy(\.isDeleted)
             ? "Delete permanently?"
-            : "Delete selected items?"
+            : "Delete selected items?")
     }
 
     private var archiveConfirmationTitle: String {
-        let suffix = pendingArchive.count == 1 ? "item" : "selected items"
-        if pendingArchive.allSatisfy(\.isDeleted) { return "Restore \(suffix)?" }
-        if pendingArchive.allSatisfy(\.isArchived) { return "Unarchive \(suffix)?" }
-        return "Archive \(suffix)?"
+        let target = pendingArchive.count == 1 ? L10n.string("item") : L10n.string("selected items")
+        if pendingArchive.allSatisfy(\.isDeleted) { return L10n.format("Restore %@?", target) }
+        if pendingArchive.allSatisfy(\.isArchived) { return L10n.format("Unarchive %@?", target) }
+        return L10n.format("Archive %@?", target)
     }
 
     @ViewBuilder
@@ -726,13 +726,13 @@ struct VaultCollectionView: View {
     }
 
     private var archiveConfirmationActionTitle: String {
-        if pendingArchive.allSatisfy(\.isDeleted) { return "Restore" }
-        if pendingArchive.allSatisfy(\.isArchived) { return "Unarchive" }
-        return "Archive"
+        if pendingArchive.allSatisfy(\.isDeleted) { return L10n.string("Restore") }
+        if pendingArchive.allSatisfy(\.isArchived) { return L10n.string("Unarchive") }
+        return L10n.string("Archive")
     }
 
     private func archiveConfirmationMessage() -> some View {
-        Text("This action applies to \(pendingArchive.count) selected item\(pendingArchive.count == 1 ? "" : "s").")
+        Text(L10n.format("This action applies to %lld selected items.", pendingArchive.count))
     }
 
     private var bulkDeleteConfirmationBinding: Binding<Bool> {
@@ -1015,7 +1015,7 @@ struct VaultItemDetailView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(item.name)
                                     .font(.title2.bold())
-                                Text(item.type.rawValue)
+                                Text(item.type.localizedTitle)
                                     .foregroundStyle(.secondary)
                             }
                         }
@@ -1053,11 +1053,14 @@ struct VaultItemDetailView: View {
                                         .padding(.top, 2)
 
                                     VStack(alignment: .leading, spacing: 6) {
-                                        Text("\(item.passkeyCount) Passkey\(item.passkeyCount == 1 ? "" : "s") Stored")
+                                        Text(L10n.format("%lld passkeys stored", item.passkeyCount))
                                             .font(.headline)
                                             .foregroundStyle(.primary)
 
-                                        Text("Passkeys are a secure way to sign in using \(BiometricAuthenticator.displayName) or your device passcode. They provide stronger phishing resistance than traditional passwords.")
+                                        Text(L10n.format(
+                                            "Passkeys are a secure way to sign in using %@ or your device passcode. They provide stronger phishing resistance than traditional passwords.",
+                                            BiometricAuthenticator.displayName
+                                        ))
                                             .font(.subheadline)
                                             .foregroundStyle(.secondary)
                                             .fixedSize(horizontal: false, vertical: true)
@@ -1224,7 +1227,7 @@ struct VaultItemDetailView: View {
                     if !item.risks.isEmpty {
                         Section("Security") {
                             ForEach(Array(item.risks), id: \.self) { risk in
-                                Label(risk.rawValue, systemImage: "exclamationmark.triangle.fill")
+                                Label(risk.localizedTitle, systemImage: "exclamationmark.triangle.fill")
                                     .foregroundStyle(Color.vaultRed)
                             }
                         }
@@ -1271,8 +1274,8 @@ struct VaultItemDetailView: View {
                         }
                     } footer: {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("Created \((item.createdAt ?? item.updatedAt).formatted(date: .abbreviated, time: .shortened))")
-                            Text("Last edited \(item.updatedAt.formatted(date: .abbreviated, time: .shortened))")
+                            Text(L10n.format("Created %@", (item.createdAt ?? item.updatedAt).formatted(date: .abbreviated, time: .shortened)))
+                            Text(L10n.format("Last edited %@", item.updatedAt.formatted(date: .abbreviated, time: .shortened)))
                         }
                         .textCase(nil)
                     }
@@ -1369,7 +1372,10 @@ private struct PasswordBreachFooter: View {
                 Label("Not found in the known breached-password data set.", systemImage: "checkmark.shield.fill")
                     .foregroundStyle(Color.vaultGreen)
             case let .exposed(count):
-                Label("Found \(count.formatted()) times. Change this password as soon as possible.", systemImage: "exclamationmark.triangle.fill")
+                Label(
+                    L10n.format("Found %@ times. Change this password as soon as possible.", count.formatted()),
+                    systemImage: "exclamationmark.triangle.fill"
+                )
                     .foregroundStyle(Color.vaultRed)
             case .failed:
                 Label("The check could not be completed. Try again when online.", systemImage: "wifi.exclamationmark")
@@ -1402,10 +1408,11 @@ private struct DetailValueRow: View {
     let title: String
     let value: String
     var canCopy = true
+    var localizesTitle = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text(title)
+            Text(localizesTitle ? L10n.string(title) : title)
                 .font(.caption)
                 .foregroundStyle(.secondary)
             HStack {
@@ -1413,7 +1420,10 @@ private struct DetailValueRow: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)
                 if canCopy {
-                    AnimatedCopyButton(value: value, accessibilityName: title)
+                    AnimatedCopyButton(
+                        value: value,
+                        accessibilityName: localizesTitle ? L10n.string(title) : title
+                    )
                         .buttonStyle(.borderless)
                 }
             }
@@ -1440,15 +1450,23 @@ private struct CustomFieldDetailRow: View {
                     .foregroundStyle(field.value == "true" ? Color.vaultGreen : .secondary)
             }
         case .hidden:
-            SecretFieldRow(title: field.name, value: resolvedValue, revealed: revealed) {
-                revealed.toggle()
-            }
+            SecretFieldRow(
+                title: field.name,
+                value: resolvedValue,
+                revealed: revealed,
+                toggleReveal: { revealed.toggle() },
+                localizesTitle: false
+            )
         case .linked where field.value == "password":
-            SecretFieldRow(title: field.name, value: resolvedValue, revealed: revealed) {
-                revealed.toggle()
-            }
+            SecretFieldRow(
+                title: field.name,
+                value: resolvedValue,
+                revealed: revealed,
+                toggleReveal: { revealed.toggle() },
+                localizesTitle: false
+            )
         case .text, .linked:
-            DetailValueRow(title: field.name, value: resolvedValue)
+            DetailValueRow(title: field.name, value: resolvedValue, localizesTitle: false)
         }
     }
 }
@@ -1459,10 +1477,11 @@ private struct SecretFieldRow: View {
     let revealed: Bool
     var copyValue: String? = nil
     var toggleReveal: (() -> Void)?
+    var localizesTitle = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text(title)
+            Text(localizesTitle ? L10n.string(title) : title)
                 .font(.caption)
                 .foregroundStyle(.secondary)
             HStack {
@@ -1476,7 +1495,10 @@ private struct SecretFieldRow: View {
                     }
                     .buttonStyle(.borderless)
                 }
-                AnimatedCopyButton(value: copyValue ?? value, accessibilityName: title)
+                AnimatedCopyButton(
+                    value: copyValue ?? value,
+                    accessibilityName: localizesTitle ? L10n.string(title) : title
+                )
                     .buttonStyle(.borderless)
             }
         }
@@ -1508,7 +1530,11 @@ private struct TOTPCodeView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(copied ? "Verification code copied" : "Copy verification code \(code)")
+            .accessibilityLabel(
+                copied
+                    ? L10n.string("Verification code copied")
+                    : L10n.format("Copy verification code %@", code)
+            )
         }
     }
 
@@ -1592,7 +1618,7 @@ private struct TOTPItemRow: View {
                 .font(.body.monospacedDigit().weight(.semibold))
                 .foregroundStyle(isSelected ? Color.white : Color.primary)
                 .contentTransition(.numericText())
-                .accessibilityLabel("Code \(code)")
+                .accessibilityLabel(L10n.format("Code %@", code))
         }
     }
 }
@@ -1632,7 +1658,7 @@ private struct TOTPCircularTimer: View {
         }
         .frame(width: 28, height: 28)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Code refreshes in \(secondsRemaining) seconds")
+        .accessibilityLabel(L10n.format("Code refreshes in %lld seconds", secondsRemaining))
     }
 }
 
@@ -1781,7 +1807,7 @@ private struct CredentialKeyboardSuggestion: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Use \(title.lowercased())")
+            .accessibilityLabel(L10n.format("Use %@", L10n.string(title).lowercased()))
             .accessibilityValue(value)
 
             Divider()
@@ -1863,7 +1889,12 @@ private struct LabeledFormField: View {
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.borderless)
-                    .accessibilityLabel(isRevealed ? "Hide \(title)" : "Show \(title)")
+                    .accessibilityLabel(
+                        L10n.format(
+                            isRevealed ? "Hide %@" : "Show %@",
+                            L10n.string(title)
+                        )
+                    )
                 }
             }
         }
@@ -1883,9 +1914,9 @@ private struct LabeledFormField: View {
     @ViewBuilder
     private var input: some View {
         if isSecure && !isRevealed {
-            SecureField(placeholder, text: $text)
+            SecureField(L10n.string(placeholder), text: $text)
         } else {
-            TextField(placeholder, text: $text)
+            TextField(L10n.string(placeholder), text: $text)
         }
     }
 }
@@ -2004,11 +2035,11 @@ struct AddEditVaultItemView: View {
                     if existingItem == nil {
                         Picker("Type", selection: $type) {
                             ForEach(VaultItemType.allCases.filter { $0 != .sshKey }) {
-                                Text($0.rawValue).tag($0)
+                                Text($0.localizedTitle).tag($0)
                             }
                         }
                     } else {
-                        LabeledContent("Type", value: type.rawValue)
+                        LabeledContent("Type", value: type.localizedTitle)
                     }
                     LabeledFormField("Name", text: $name, placeholder: "Enter item name", textContentType: .name)
                     Toggle("Favorite", isOn: $isFavorite)
@@ -2230,7 +2261,7 @@ struct AddEditVaultItemView: View {
     private var navigationTitleText: String {
         switch presentation {
         case .inline: ""
-        case .sheet: existingID == nil ? "New Item" : "Edit Item"
+        case .sheet: L10n.string(existingID == nil ? "New Item" : "Edit Item")
         }
     }
 
@@ -2440,11 +2471,11 @@ struct AddEditVaultItemView: View {
                         Menu {
                             Picker("Field type", selection: $field.type) {
                                 ForEach(VaultCustomFieldType.allCases) { type in
-                                    Label(type.rawValue, systemImage: type.icon).tag(type)
+                                    Label(type.localizedTitle, systemImage: type.icon).tag(type)
                                 }
                             }
                         } label: {
-                            Text(field.type.rawValue)
+                            Text(field.type.localizedTitle)
                                 .font(.caption.weight(.semibold))
                         }
                     }

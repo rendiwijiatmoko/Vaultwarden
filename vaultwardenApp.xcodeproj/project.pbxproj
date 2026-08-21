@@ -12,6 +12,9 @@
 		A1B2C3D4E5F6000000000012 /* ../vaultwardenApp/Core/Autofill/AutoFillSharedVault.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000013 /* ../vaultwardenApp/Core/Autofill/AutoFillSharedVault.swift */; };
 		A1B2C3D4E5F6000000000014 /* ../vaultwardenApp/Core/Autofill/AutoFillPasskeySupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000015 /* ../vaultwardenApp/Core/Autofill/AutoFillPasskeySupport.swift */; };
 		A1B2C3D4E5F6000000000016 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000017 /* PrivacyInfo.xcprivacy */; };
+		A1B2C3D4E5F6000000000018 /* ../vaultwardenApp/Core/Localization/Localization.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000019 /* ../vaultwardenApp/Core/Localization/Localization.swift */; };
+		A1B2C3D4E5F600000000001A /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F600000000001B /* Localizable.xcstrings */; };
+		A1B2C3D4E5F600000000001C /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F600000000001D /* InfoPlist.xcstrings */; };
 		B17A2D010000000000000001 /* BitwardenSdk in Frameworks */ = {isa = PBXBuildFile; productRef = B17A2D030000000000000003 /* BitwardenSdk */; };
 		B17A2D010000000000000004 /* BitwardenSdk in Frameworks */ = {isa = PBXBuildFile; productRef = B17A2D030000000000000003 /* BitwardenSdk */; };
 /* End PBXBuildFile section */
@@ -56,6 +59,9 @@
 		A1B2C3D4E5F6000000000013 /* ../vaultwardenApp/Core/Autofill/AutoFillSharedVault.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../vaultwardenApp/Core/Autofill/AutoFillSharedVault.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000000000015 /* ../vaultwardenApp/Core/Autofill/AutoFillPasskeySupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../vaultwardenApp/Core/Autofill/AutoFillPasskeySupport.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000000000017 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		A1B2C3D4E5F6000000000019 /* ../vaultwardenApp/Core/Localization/Localization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../vaultwardenApp/Core/Localization/Localization.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F600000000001B /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		A1B2C3D4E5F600000000001D /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 		D00000000000000000000001 /* vaultwardenAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = vaultwardenAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -138,6 +144,9 @@
 				A1B2C3D4E5F6000000000002 /* CredentialProviderViewController.swift */,
 				A1B2C3D4E5F6000000000013 /* ../vaultwardenApp/Core/Autofill/AutoFillSharedVault.swift */,
 				A1B2C3D4E5F6000000000015 /* ../vaultwardenApp/Core/Autofill/AutoFillPasskeySupport.swift */,
+				A1B2C3D4E5F6000000000019 /* ../vaultwardenApp/Core/Localization/Localization.swift */,
+				A1B2C3D4E5F600000000001B /* Localizable.xcstrings */,
+				A1B2C3D4E5F600000000001D /* InfoPlist.xcstrings */,
 				A1B2C3D4E5F6000000000005 /* Info.plist */,
 				A1B2C3D4E5F6000000000006 /* VaultAutoFillExtension.entitlements */,
 				A1B2C3D4E5F6000000000017 /* PrivacyInfo.xcprivacy */,
@@ -243,7 +252,44 @@
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				en,
+				ar,
+				bn,
+				bg,
+				ca,
+				hr,
+				cs,
+				da,
+				nl,
+				fi,
+				fr,
+				de,
+				el,
+				he,
+				hi,
+				hu,
 				id,
+				it,
+				ja,
+				kk,
+				ko,
+				lt,
+				ms,
+				nb,
+				fa,
+				pl,
+				pt,
+				ro,
+				ru,
+				"zh-Hans",
+				sk,
+				sl,
+				es,
+				sv,
+				th,
+				"zh-Hant",
+				tr,
+				uk,
+				vi,
 				Base,
 			);
 			mainGroup = 24CE3C6C302863650023BAC2;
@@ -275,6 +321,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A1B2C3D4E5F600000000001A /* Localizable.xcstrings in Resources */,
+				A1B2C3D4E5F600000000001C /* InfoPlist.xcstrings in Resources */,
 				A1B2C3D4E5F6000000000016 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -303,6 +351,7 @@
 				A1B2C3D4E5F6000000000001 /* CredentialProviderViewController.swift in Sources */,
 				A1B2C3D4E5F6000000000012 /* ../vaultwardenApp/Core/Autofill/AutoFillSharedVault.swift in Sources */,
 				A1B2C3D4E5F6000000000014 /* ../vaultwardenApp/Core/Autofill/AutoFillPasskeySupport.swift in Sources */,
+				A1B2C3D4E5F6000000000018 /* ../vaultwardenApp/Core/Localization/Localization.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -453,11 +502,11 @@
 		24CE3C81302863660023BAC2 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = VaultwardenIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = vaultwardenApp/vaultwardenApp.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 12;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = 5KQGTJX2K7;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -477,10 +526,10 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = xyz.0xmwehehe.vaultwardenApp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -493,11 +542,11 @@
 		24CE3C82302863660023BAC2 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = VaultwardenIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = vaultwardenApp/vaultwardenApp.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 12;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = 5KQGTJX2K7;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -517,10 +566,10 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = xyz.0xmwehehe.vaultwardenApp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -536,7 +585,7 @@
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_ENTITLEMENTS = VaultAutoFillExtension/VaultAutoFillExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 12;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = 5KQGTJX2K7;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = VaultAutoFillExtension/Info.plist;
@@ -547,10 +596,11 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = xyz.0xmwehehe.vaultwardenApp.autofill;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -565,7 +615,7 @@
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_ENTITLEMENTS = VaultAutoFillExtension/VaultAutoFillExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 12;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = 5KQGTJX2K7;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = VaultAutoFillExtension/Info.plist;
@@ -576,10 +626,11 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = xyz.0xmwehehe.vaultwardenApp.autofill;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;

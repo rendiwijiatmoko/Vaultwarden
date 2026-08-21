@@ -5,12 +5,13 @@ import SwiftUI
 
 enum BiometricAuthenticator {
     static var displayName: String {
-        switch currentType {
+        let key: String = switch currentType {
         case .faceID: "Face ID"
         case .touchID: "Touch ID"
         case .opticID: "Optic ID"
         default: "Biometrics"
         }
+        return L10n.string(key)
     }
 
     static var systemImage: String {
@@ -31,7 +32,7 @@ enum BiometricAuthenticator {
 
     static func authenticate(reason: String, allowPasscode: Bool = false) async -> Bool {
         let context = LAContext()
-        context.localizedCancelTitle = "Cancel"
+        context.localizedCancelTitle = L10n.string("Cancel")
         let policy: LAPolicy = allowPasscode ? .deviceOwnerAuthentication : .deviceOwnerAuthenticationWithBiometrics
         var error: NSError?
         guard context.canEvaluatePolicy(policy, error: &error) else { return false }
@@ -215,7 +216,9 @@ struct LockView: View {
             } label: {
                 HStack {
                     Label(
-                        biometricFailed ? "Try \(BiometricAuthenticator.displayName) or Device Passcode" : "Unlock",
+                        biometricFailed
+                            ? L10n.format("Try %@ or Device Passcode", BiometricAuthenticator.displayName)
+                            : L10n.string("Unlock"),
                         systemImage: biometricFailed ? "lock.open.fill" : BiometricAuthenticator.systemImage
                     )
                 }
@@ -227,7 +230,10 @@ struct LockView: View {
 
             if biometricFailed, !isPrivacyShield {
                 Text(store.lastUnlockError
-                     ?? "\(BiometricAuthenticator.displayName) was not completed. Try again using biometrics or the device passcode, or unlock with your master password.")
+                     ?? L10n.format(
+                        "%@ was not completed. Try again using biometrics or the device passcode, or unlock with your master password.",
+                        BiometricAuthenticator.displayName
+                     ))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -343,7 +349,7 @@ private struct MasterPasswordUnlockView: View {
                             Task { await unlockWithBiometrics() }
                         } label: {
                             Label(
-                                "Use \(BiometricAuthenticator.displayName) To Unlock",
+                                L10n.format("Use %@ To Unlock", BiometricAuthenticator.displayName),
                                 systemImage: BiometricAuthenticator.systemImage
                             )
                                 .frame(maxWidth: .infinity)
@@ -392,7 +398,7 @@ private struct MasterPasswordUnlockView: View {
 
     private var accountDescription: String {
         let server = URL(string: store.settings.serverURL)?.host ?? store.settings.serverURL
-        return "Logged in as \(store.settings.email) on \(server)."
+        return L10n.format("Logged in as %@ on %@.", store.settings.email, server)
     }
 
     private func unlockWithMasterPassword() async {
@@ -420,7 +426,8 @@ private struct MasterPasswordUnlockView: View {
         if success {
             dismiss()
         } else {
-            errorMessage = store.lastUnlockError ?? "\(BiometricAuthenticator.displayName) could not unlock the vault."
+            errorMessage = store.lastUnlockError
+                ?? L10n.format("%@ could not unlock the vault.", BiometricAuthenticator.displayName)
         }
     }
 }

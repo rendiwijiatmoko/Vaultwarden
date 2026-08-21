@@ -79,7 +79,7 @@ struct OnboardingView: View {
                         .foregroundStyle(Color.vaultBlue)
                 }
                 Spacer()
-                Text("\(step.rawValue + 1) of \(OnboardingStep.allCases.count)")
+                Text(L10n.format("%lld of %lld", step.rawValue + 1, OnboardingStep.allCases.count))
                     .font(.caption.monospacedDigit().weight(.semibold))
                     .foregroundStyle(.secondary)
             }
@@ -187,7 +187,10 @@ struct OnboardingView: View {
                 OnboardingToggleRow(
                     icon: BiometricAuthenticator.systemImage,
                     title: "Unlock with biometrics",
-                    message: "Use \(BiometricAuthenticator.displayName) instead of typing the master password every time.",
+                    message: L10n.format(
+                        "Use %@ instead of typing the master password every time.",
+                        BiometricAuthenticator.displayName
+                    ),
                     isOn: $biometricUnlock
                 )
 
@@ -299,12 +302,13 @@ struct OnboardingView: View {
     }
 
     private var primaryButtonTitle: String {
-        switch step {
+        let key: String = switch step {
         case .welcome: "Get Started"
         case .account: isConnecting ? "Connecting…" : "Connect & Continue"
         case .security: "Continue"
         case .autofill: "Open My Vault"
         }
+        return L10n.string(key)
     }
 
     private var accountIsValid: Bool {
@@ -378,10 +382,10 @@ private struct OnboardingHero: View {
                 .frame(width: 66, height: 66)
                 .background(color.gradient, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
 
-            Text(title)
+            Text(L10n.string(title))
                 .font(.largeTitle.bold())
 
-            Text(message)
+            Text(L10n.string(message))
                 .font(.title3)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -403,8 +407,8 @@ private struct OnboardingFeatureRow: View {
                 .frame(width: 40, height: 40)
                 .background(color.gradient, in: Circle())
             VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.headline)
-                Text(message)
+                Text(L10n.string(title)).font(.headline)
+                Text(L10n.string(message))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -425,14 +429,14 @@ private struct OnboardingInputField: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(title)
+            Text(L10n.string(title))
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Group {
                 if isSecure {
-                    SecureField(placeholder, text: $text)
+                    SecureField(L10n.string(placeholder), text: $text)
                 } else {
-                    TextField(placeholder, text: $text)
+                    TextField(L10n.string(placeholder), text: $text)
                 }
             }
             .keyboardType(keyboardType)
@@ -458,8 +462,8 @@ private struct OnboardingToggleRow: View {
                     .foregroundStyle(Color.vaultBlue)
                     .frame(width: 30)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(title).font(.body.weight(.semibold))
-                    Text(message)
+                    Text(L10n.string(title)).font(.body.weight(.semibold))
+                    Text(L10n.string(message))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -481,7 +485,7 @@ private struct OnboardingInstruction: View {
                 .foregroundStyle(.white)
                 .frame(width: 30, height: 30)
                 .background(Color.vaultBlue.gradient, in: Circle())
-            Text(text)
+            Text(L10n.string(text))
                 .font(.body.weight(.medium))
             Spacer(minLength: 0)
         }

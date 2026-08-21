@@ -9,6 +9,7 @@ nonisolated enum VaultItemType: String, CaseIterable, Codable, Identifiable, Sen
     case sshKey = "SSH Key"
 
     var id: String { rawValue }
+    var localizedTitle: String { L10n.string(rawValue) }
 
     var icon: String {
         switch self {
@@ -26,6 +27,8 @@ nonisolated enum VaultRisk: String, Codable, CaseIterable, Sendable {
     case reused = "Reused password"
     case exposed = "Exposed password"
     case unsecured = "Unsecured website"
+
+    var localizedTitle: String { L10n.string(rawValue) }
 }
 
 nonisolated enum VaultCustomFieldType: String, CaseIterable, Codable, Identifiable, Sendable {
@@ -35,6 +38,7 @@ nonisolated enum VaultCustomFieldType: String, CaseIterable, Codable, Identifiab
     case linked = "Linked"
 
     var id: String { rawValue }
+    var localizedTitle: String { L10n.string(rawValue) }
 
     var icon: String {
         switch self {
@@ -64,7 +68,7 @@ nonisolated struct CardDetails: Hashable, Codable, Sendable {
     var validFromYear = ""
 
     var expirationDisplay: String {
-        guard !expirationMonth.isEmpty || !expirationYear.isEmpty else { return "Not set" }
+        guard !expirationMonth.isEmpty || !expirationYear.isEmpty else { return L10n.string("Not set") }
         return [expirationMonth, expirationYear].filter { !$0.isEmpty }.joined(separator: "/")
     }
 
@@ -167,7 +171,7 @@ nonisolated struct VaultItem: Identifiable, Hashable, Codable, Sendable {
         if type == .identity, let identity, !identity.fullName.isEmpty { return identity.fullName }
         if !username.isEmpty { return username }
         if !uri.isEmpty { return uri }
-        return type.rawValue
+        return type.localizedTitle
     }
 }
 
@@ -192,6 +196,7 @@ enum VaultCategory: String, CaseIterable, Identifiable {
     case deleted = "Deleted"
 
     var id: String { rawValue }
+    var localizedTitle: String { L10n.string(rawValue) }
 
     var icon: String {
         switch self {
@@ -234,6 +239,7 @@ nonisolated enum SendKind: String, CaseIterable, Identifiable, Codable, Sendable
     case text = "Text"
     case file = "File"
     var id: String { rawValue }
+    var localizedTitle: String { L10n.string(rawValue) }
     var icon: String { self == .text ? "text.alignleft" : "doc.fill" }
 }
 
@@ -268,6 +274,7 @@ enum AppTheme: String, CaseIterable, Identifiable, Codable {
     case light = "Light"
     case dark = "Dark"
     var id: String { rawValue }
+    var localizedTitle: String { L10n.string(rawValue) }
 }
 
 enum VaultTimeout: String, CaseIterable, Identifiable, Codable {
@@ -277,6 +284,7 @@ enum VaultTimeout: String, CaseIterable, Identifiable, Codable {
     case fifteenMinutes = "15 minutes"
     case never = "Never"
     var id: String { rawValue }
+    var localizedTitle: String { L10n.string(rawValue) }
 
     var timeInterval: TimeInterval? {
         switch self {

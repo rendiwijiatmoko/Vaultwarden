@@ -105,10 +105,10 @@ struct RootSplitView: View {
 
             VaultColumnPlaceholder(
                 icon: "checkmark.rectangle.stack.fill",
-                title: "\(count) Item\(count == 1 ? "" : "s") Selected",
+                title: L10n.format("%lld items selected", count),
                 message: count == 0
-                    ? "Select one or more items from the list to use bulk actions."
-                    : "Use the bottom toolbar to apply an action to every selected item."
+                    ? L10n.string("Select one or more items from the list to use bulk actions.")
+                    : L10n.string("Use the bottom toolbar to apply an action to every selected item.")
             )
         } else if let itemID = store.selectedItemID {
             // Without an explicit identity the reveal-password toggles stay
@@ -164,15 +164,15 @@ struct RootSplitView: View {
         case .unfoldered:
             return .init(icon: filter.icon, title: "No Item Selected", message: "Choose an unfoldered item to view its saved details.")
         case let .folder(name):
-            return .init(icon: filter.icon, title: "No Item Selected", message: "Choose an item from \(name) to view its saved details.")
+            return .init(icon: filter.icon, title: "No Item Selected", message: L10n.format("Choose an item from %@ to view its saved details.", name))
         case .collection, .organization:
-            return .init(icon: filter.icon, title: "No Shared Item Selected", message: "Choose an item from \(store.title(for: filter)) to view its shared details.")
+            return .init(icon: filter.icon, title: "No Shared Item Selected", message: L10n.format("Choose an item from %@ to view its shared details.", store.title(for: filter)))
         }
     }
 
     private var regularSearchPrompt: String {
-        guard let filter = store.selectedFilter else { return "Search" }
-        return "Search \(store.title(for: filter).lowercased())"
+        guard let filter = store.selectedFilter else { return L10n.string("Search") }
+        return L10n.format("Search %@", store.title(for: filter).lowercased())
     }
 
     private func updateRegularSelection(_ selection: Set<UUID>, _ isEditing: Bool) {
@@ -326,7 +326,7 @@ struct VaultHomeView: View {
             Text("Items in this folder will keep their assignment.")
         }
         .confirmationDialog(
-            folderPendingDeletion.map { "Delete \($0.name)?" } ?? "Delete Folder?",
+            folderPendingDeletion.map { L10n.format("Delete %@?", $0.name) } ?? L10n.string("Delete Folder?"),
             isPresented: deleteFolderBinding,
             titleVisibility: .visible
         ) {
@@ -402,7 +402,7 @@ struct VaultHomeView: View {
                     withAnimation(.smooth(duration: 0.3)) { personalFoldersExpanded.toggle() }
                 } label: {
                     HStack {
-                        Text("Personal Folders (\(store.folders.count + 1))")
+                        Text(L10n.format("Personal Folders (%lld)", store.folders.count + 1))
                             .font(.title3.bold())
                             .foregroundStyle(.primary)
                         Spacer()
@@ -414,10 +414,15 @@ struct VaultHomeView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(
-                    "Personal Folders, \(store.folders.count + 1), \(personalFoldersExpanded ? "expanded" : "collapsed")"
-                )
-                .accessibilityHint("Double tap to \(personalFoldersExpanded ? "collapse" : "expand")")
+                .accessibilityLabel(L10n.format(
+                    "Personal Folders, %lld, %@",
+                    store.folders.count + 1,
+                    L10n.string(personalFoldersExpanded ? "expanded" : "collapsed")
+                ))
+                .accessibilityHint(L10n.format(
+                    "Double tap to %@",
+                    L10n.string(personalFoldersExpanded ? "collapse" : "expand")
+                ))
             }
 
             if personalFoldersExpanded {
@@ -494,7 +499,10 @@ struct VaultHomeView: View {
 
     private var hiddenItemsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            collapsibleHeader("Hidden Items (\(VaultFilter.hiddenCategories.count))", isExpanded: $hiddenItemsExpanded)
+            collapsibleHeader(
+                L10n.format("Hidden Items (%lld)", VaultFilter.hiddenCategories.count),
+                isExpanded: $hiddenItemsExpanded
+            )
 
             if hiddenItemsExpanded {
                 VStack(spacing: 0) {
@@ -503,7 +511,7 @@ struct VaultHomeView: View {
                         sectionLink(filter) {
                             FolderRow(
                                 icon: filter.icon,
-                                name: category.rawValue,
+                                name: category.localizedTitle,
                                 count: store.count(for: filter),
                                 color: filter.color,
                                 isSelected: isSelected(filter)
@@ -568,8 +576,15 @@ struct VaultHomeView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(title), \(isExpanded.wrappedValue ? "expanded" : "collapsed")")
-        .accessibilityHint("Double tap to \(isExpanded.wrappedValue ? "collapse" : "expand")")
+        .accessibilityLabel(L10n.format(
+            "%@, %@",
+            L10n.string(title),
+            L10n.string(isExpanded.wrappedValue ? "expanded" : "collapsed")
+        ))
+        .accessibilityHint(L10n.format(
+            "Double tap to %@",
+            L10n.string(isExpanded.wrappedValue ? "collapse" : "expand")
+        ))
     }
 
     // MARK: Activation
@@ -616,7 +631,7 @@ struct VaultHomeView: View {
             EmptyStateView(
                 icon: "magnifyingglass",
                 title: "No Results",
-                message: "No vault items match “\(trimmedQuery)”."
+                message: L10n.format("No vault items match “%@”.", trimmedQuery)
             )
         } else {
             List(results) { item in
@@ -754,7 +769,7 @@ private struct CategoryCard: View {
     var body: some View {
         DashboardCard(
             icon: category.icon,
-            title: category.rawValue,
+            title: category.localizedTitle,
             count: count,
             color: category.color,
             isSelected: isSelected

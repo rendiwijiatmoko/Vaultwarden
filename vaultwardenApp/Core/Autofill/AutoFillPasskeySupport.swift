@@ -12,7 +12,7 @@ nonisolated enum AutoFillPasskeyError: LocalizedError {
     case registrationNotSaved
 
     var errorDescription: String? {
-        switch self {
+        let key: String = switch self {
         case .unavailable: "This passkey is unavailable. Open Vaultwarden and sync again."
         case .credentialNotFound: "The requested passkey was not found in the synced vault."
         case .invalidCryptoContext: "The passkey crypto state is incomplete. Sign in and sync again."
@@ -25,6 +25,7 @@ nonisolated enum AutoFillPasskeyError: LocalizedError {
         case .registrationNotSaved:
             "The new passkey could not be saved to Vaultwarden."
         }
+        return L10n.string(key)
     }
 }
 
@@ -304,12 +305,13 @@ nonisolated enum AutoFillNewCustomFieldType: UInt8, CaseIterable, Identifiable, 
     var id: UInt8 { rawValue }
 
     var title: String {
-        switch self {
+        let key: String = switch self {
         case .text: "Text"
         case .hidden: "Hidden"
         case .boolean: "Boolean"
         case .linked: "Linked"
         }
+        return L10n.string(key)
     }
 
     var icon: String {
@@ -348,12 +350,12 @@ nonisolated enum AutoFillCreateLoginError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .unavailable: "Creating passwords is unavailable. Open Vaultwarden and sync once."
-        case .invalidInput: "Enter a name and password before saving."
-        case .sessionExpired: "Your session expired. Open Vaultwarden and sync before creating a password."
-        case .invalidResponse: "Vaultwarden returned an invalid response."
+        case .unavailable: L10n.string("Creating passwords is unavailable. Open Vaultwarden and sync once.")
+        case .invalidInput: L10n.string("Enter a name and password before saving.")
+        case .sessionExpired: L10n.string("Your session expired. Open Vaultwarden and sync before creating a password.")
+        case .invalidResponse: L10n.string("Vaultwarden returned an invalid response.")
         case let .serverRejected(status, message):
-            message ?? "Vaultwarden rejected the new password (HTTP \(status))."
+            message ?? L10n.format("Vaultwarden rejected the new password (HTTP %lld).", status)
         }
     }
 }

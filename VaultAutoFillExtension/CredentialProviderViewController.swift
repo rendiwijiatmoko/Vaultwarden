@@ -24,7 +24,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     private var pendingGeneratePasswordsRequest: ASGeneratePasswordsRequest?
     private var passkeyRequestParameters: ASPasskeyCredentialRequestParameters?
     private var unlockedVault: AutoFillUnlockedVault?
-    private var accountDisplayName = "Vaultwarden account"
+    private var accountDisplayName = L10n.string("Vaultwarden account")
     private var pendingUnlockReason: String?
     private var isUnlockingVault = false
     private var isViewPresented = false
@@ -67,7 +67,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         mode = .configuration
         pendingRequest = nil
         serviceIdentifiers = []
-        unlockVault(reason: "Enable Vaultwarden as your password provider")
+        unlockVault(reason: L10n.string("Enable Vaultwarden as your password provider"))
     }
 
     override func prepareCredentialList(for serviceIdentifiers: [ASCredentialServiceIdentifier]) {
@@ -94,7 +94,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         pendingRequest = request
         passkeyRequestParameters = nil
         serviceIdentifiers = [identity.relyingPartyIdentifier]
-        unlockVault(reason: "Authenticate to create this passkey")
+        unlockVault(reason: L10n.string("Authenticate to create this passkey"))
     }
 
     @available(iOSApplicationExtension 26.2, *)
@@ -113,7 +113,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         pendingGeneratePasswordsRequest = nil
         passkeyRequestParameters = nil
         serviceIdentifiers = [savePasswordRequest.serviceIdentifier.identifier]
-        unlockVault(reason: "Authenticate to save this password")
+        unlockVault(reason: L10n.string("Authenticate to save this password"))
     }
 
     @available(iOSApplicationExtension 26.2, *)
@@ -135,7 +135,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         loadViewIfNeeded()
         viewModel.generatedPasswords = AutoFillPasswordGeneration.options(for: generatePasswordsRequest)
         viewModel.state = .passwordGeneration(
-            "Choose a generated password that follows this website’s password rules."
+            L10n.string("Choose a generated password that follows this website’s password rules.")
         )
     }
 
@@ -160,7 +160,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
             cancelRequest(code: .credentialIdentityNotFound)
             return
         }
-        unlockVault(reason: "Authenticate to fill this credential")
+        unlockVault(reason: L10n.string("Authenticate to fill this credential"))
     }
 
     override func prepareInterfaceToProvideCredential(
@@ -170,7 +170,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         pendingRequest = nil
         passkeyRequestParameters = nil
         serviceIdentifiers = [credentialIdentity.serviceIdentifier.identifier]
-        unlockVault(reason: "Authenticate to choose a password")
+        unlockVault(reason: L10n.string("Authenticate to choose a password"))
     }
 
     override func provideCredentialWithoutUserInteraction(for credentialRequest: any ASCredentialRequest) {
@@ -192,19 +192,20 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         pendingRequest = nil
         if mode != .passkey { passkeyRequestParameters = nil }
         self.serviceIdentifiers = serviceIdentifiers.map(\.identifier)
-        let reason = switch mode {
+        let reasonKey: String = switch mode {
         case .oneTimeCode: "Authenticate to choose a verification code"
         case .passkey: "Authenticate to choose a passkey"
         case .passkeyRegistration: "Authenticate to create this passkey"
         case .passwordSave: "Authenticate to save this password"
         default: "Authenticate to choose a password"
         }
+        let reason = L10n.string(reasonKey)
         unlockVault(reason: reason)
     }
 
     private func unlockVault(reason: String) {
         loadViewIfNeeded()
-        showLoading(message: "Unlocking encrypted AutoFill vault…")
+        showLoading(message: L10n.string("Unlocking encrypted AutoFill vault…"))
         pendingUnlockReason = reason
         startPendingUnlockIfPossible()
     }
@@ -216,7 +217,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
               let reason = pendingUnlockReason else { return }
         pendingUnlockReason = nil
         isUnlockingVault = true
-        viewModel.state = .loading("Unlocking encrypted AutoFill vault…")
+        viewModel.state = .loading(L10n.string("Unlocking encrypted AutoFill vault…"))
         Task {
             defer { isUnlockingVault = false }
             do {
@@ -253,9 +254,9 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
 
     private func showAuthenticationRetry(reason: String) {
         viewModel.state = .retry(
-            "Authenticate with Face ID or your device passcode to open the encrypted vault."
+            L10n.string("Authenticate with Face ID or your device passcode to open the encrypted vault.")
         )
-        viewModel.primaryActionTitle = "Unlock with Face ID"
+        viewModel.primaryActionTitle = L10n.string("Unlock with Face ID")
         viewModel.onPrimaryAction = { [weak self] in
             guard let self else { return }
             self.pendingUnlockReason = reason
@@ -344,7 +345,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         updateAccountAvatar(payload)
         viewModel.folders = payload.folders ?? []
         viewModel.state = .passwordSave(
-            "Review the credential before saving it to your encrypted Vaultwarden vault."
+            L10n.string("Review the credential before saving it to your encrypted Vaultwarden vault.")
         )
         viewModel.beginCreate(
             suggestedURI: request.serviceIdentifier.identifier,
@@ -368,12 +369,12 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         viewModel.registrationRelyingParty = identity.relyingPartyIdentifier
         viewModel.registrationUserName = identity.userName
         viewModel.state = .passkeyRegistration(
-            "A new Login item will be encrypted and saved to your Vaultwarden vault."
+            L10n.string("A new Login item will be encrypted and saved to your Vaultwarden vault.")
         )
-        viewModel.primaryActionTitle = "Create Passkey"
+        viewModel.primaryActionTitle = L10n.string("Create Passkey")
         viewModel.onPrimaryAction = { [weak self] in
             guard let self else { return }
-            self.viewModel.state = .loading("Creating and saving passkey…")
+            self.viewModel.state = .loading(L10n.string("Creating and saving passkey…"))
             Task { await self.registerPasskey(request: request, unlocked: unlocked) }
         }
     }
@@ -412,10 +413,12 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
 
     private func showConfiguration(_ payload: AutoFillVaultPayload) {
         let passkeyCount = payload.passkeys?.count ?? 0
-        viewModel.state = .configuration(
-            "\(payload.credentials.count) credentials and \(passkeyCount) passkeys are ready. Finish setup to enable passkey, password, and verification-code suggestions."
-        )
-        viewModel.primaryActionTitle = "Finish Setup"
+        viewModel.state = .configuration(L10n.format(
+            "%lld credentials and %lld passkeys are ready. Finish setup to enable passkey, password, and verification-code suggestions.",
+            payload.credentials.count,
+            passkeyCount
+        ))
+        viewModel.primaryActionTitle = L10n.string("Finish Setup")
         viewModel.onPrimaryAction = { [weak self] in
             guard let self else { return }
             Task {
@@ -532,29 +535,30 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     }
 
     private var requestMessage: String {
-        let target = serviceIdentifiers.first?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let quotedTarget = target.flatMap { $0.isEmpty ? nil : "“\($0)”" }
+        let trimmedTarget = serviceIdentifiers.first?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let target = trimmedTarget?.isEmpty == false ? trimmedTarget : nil
         return switch mode {
         case .oneTimeCode:
-            quotedTarget.map { "Choose a verification code for \($0)." }
-                ?? "Choose a verification code."
+            target.map { L10n.format("Choose a verification code for “%@”.", $0) }
+                ?? L10n.string("Choose a verification code.")
         case .passkey:
-            quotedTarget.map { "Choose a passkey for \($0)." }
-                ?? "Choose a passkey."
+            target.map { L10n.format("Choose a passkey for “%@”.", $0) }
+                ?? L10n.string("Choose a passkey.")
         case .passkeyRegistration:
-            quotedTarget.map { "Create a passkey for \($0)." }
-                ?? "Create a passkey."
+            target.map { L10n.format("Create a passkey for “%@”.", $0) }
+                ?? L10n.string("Create a passkey.")
         case .passwordSave:
-            quotedTarget.map { "Save a password for \($0)." }
-                ?? "Save this password."
+            target.map { L10n.format("Save a password for “%@”.", $0) }
+                ?? L10n.string("Save this password.")
         case .passwordGeneration:
-            quotedTarget.map { "Generate a password for \($0)." }
-                ?? "Generate a password."
+            target.map { L10n.format("Generate a password for “%@”.", $0) }
+                ?? L10n.string("Generate a password.")
         case .password:
-            quotedTarget.map { "Choose a password for \($0)." }
-                ?? "Choose a password."
+            target.map { L10n.format("Choose a password for “%@”.", $0) }
+                ?? L10n.string("Choose a password.")
         case .configuration:
-            "Set up Vaultwarden AutoFill."
+            L10n.string("Set up Vaultwarden AutoFill.")
         }
     }
 
@@ -569,10 +573,10 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     private func showAccountInformation() {
         let alert = UIAlertController(
             title: accountDisplayName,
-            message: "Credentials are loaded from this encrypted Vaultwarden account.",
+            message: L10n.string("Credentials are loaded from this encrypted Vaultwarden account."),
             preferredStyle: .actionSheet
         )
-        alert.addAction(UIAlertAction(title: "Done", style: .cancel))
+        alert.addAction(UIAlertAction(title: L10n.string("Done"), style: .cancel))
         if let popover = alert.popoverPresentationController {
             popover.sourceView = view
             popover.sourceRect = CGRect(x: view.bounds.maxX - 44, y: 44, width: 1, height: 1)
@@ -889,7 +893,7 @@ private enum AutoFillPasswordGeneration {
 
 @MainActor
 private final class AutoFillCredentialListViewModel: ObservableObject {
-    @Published var state: AutoFillCredentialListState = .loading("Preparing AutoFill…")
+    @Published var state: AutoFillCredentialListState = .loading(L10n.string("Preparing AutoFill…"))
     @Published var credentials: [AutoFillCredentialRecord] = []
     @Published var serviceIdentifiers: [String] = []
     @Published var defaultURIMatchType: AutoFillURIMatchType = .baseDomain
@@ -897,12 +901,12 @@ private final class AutoFillCredentialListViewModel: ObservableObject {
     @Published var websiteIconServerURL: URL?
     @Published var searchText = ""
     @Published var avatarInitial = "V"
-    @Published var accountDisplayName = "Vaultwarden account"
+    @Published var accountDisplayName = L10n.string("Vaultwarden account")
     @Published var registrationRelyingParty = ""
     @Published var registrationUserName = ""
     @Published var generatedPasswords: [AutoFillGeneratedPasswordOption] = []
     @Published var kind: AutoFillCredentialListKind = .password
-    @Published var primaryActionTitle = "Continue"
+    @Published var primaryActionTitle = L10n.string("Continue")
     @Published var isPresentingCreate = false
     @Published var isSavingNewLogin = false
     @Published var newLoginName = ""
@@ -980,9 +984,9 @@ private final class AutoFillCredentialListViewModel: ObservableObject {
 
     var noMatchMessage: String {
         if let requestTarget {
-            return "No saved credential matches “\(requestTarget)” using its URI match rules. Use Search below to find another item."
+            return L10n.format("No saved credential matches “%@” using its URI match rules. Use Search below to find another item.", requestTarget)
         }
-        return "No matching credential was detected. Use Search below to find another item."
+        return L10n.string("No matching credential was detected. Use Search below to find another item.")
     }
 
     var showsCredentialList: Bool {
@@ -1541,7 +1545,7 @@ private struct AutoFillCredentialSuggestion: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Use \(title.lowercased())")
+            .accessibilityLabel(L10n.format("Use %@", L10n.string(title).lowercased()))
             .accessibilityValue(value)
 
             Divider()

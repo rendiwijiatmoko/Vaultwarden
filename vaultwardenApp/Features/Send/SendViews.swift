@@ -80,22 +80,23 @@ struct SendView: View {
     }
 
     private var swipeAlertTitle: String {
-        switch pendingSwipeAction {
+        let key: String = switch pendingSwipeAction {
         case .some(.delete(_)): "Delete Send?"
         case .some(.changeStatus(_)): pendingSwipeSend?.isDisabled == true ? "Activate Send?" : "Deactivate Send?"
         case nil: "Send"
         }
+        return L10n.string(key)
     }
 
     private var swipeAlertMessage: String {
         guard let send = pendingSwipeSend else { return "" }
         switch pendingSwipeAction {
         case .some(.delete(_)):
-            return "This permanently deletes \(send.name) and disables its shared link."
+            return L10n.format("This permanently deletes %@ and disables its shared link.", send.name)
         case .some(.changeStatus(_)):
             return send.isDisabled
-                ? "The shared link for \(send.name) will become available again if it has not expired."
-                : "The shared link for \(send.name) will stop working until you activate it again."
+                ? L10n.format("The shared link for %@ will become available again if it has not expired.", send.name)
+                : L10n.format("The shared link for %@ will stop working until you activate it again.", send.name)
         case nil:
             return ""
         }
@@ -187,7 +188,7 @@ private struct SendRow: View {
                 Text(send.name)
                     .font(.body.weight(.semibold))
                 HStack(spacing: 5) {
-                    Text(send.kind.rawValue)
+                    Text(send.kind.localizedTitle)
                     Text("•")
                     Text(statusText(for: send))
                 }
@@ -205,11 +206,11 @@ private struct SendRow: View {
     }
 
     private func statusText(for send: SendItem) -> String {
-        if send.isExpired { return "Expired" }
+        if send.isExpired { return L10n.string("Expired") }
         if let expiresAt = send.expiresAt {
-            return "Expires \(expiresAt.formatted(.relative(presentation: .named)))"
+            return L10n.format("Expires %@", expiresAt.formatted(.relative(presentation: .named)))
         }
-        return "Deletes \(send.deletesAt.formatted(.relative(presentation: .named)))"
+        return L10n.format("Deletes %@", send.deletesAt.formatted(.relative(presentation: .named)))
     }
 }
 
@@ -269,7 +270,7 @@ struct SendDetailView: View {
                     }
 
                     Section("Details") {
-                        LabeledContent("Type", value: send.kind.rawValue)
+                        LabeledContent("Type", value: send.kind.localizedTitle)
                         LabeledContent("Access count", value: "\(send.accessCount)")
                         if let maximum = send.maximumAccessCount {
                             LabeledContent("Maximum accesses", value: "\(maximum)")
@@ -429,8 +430,8 @@ struct CreateSendView: View {
             Form {
                 Section {
                     Picker("Type", selection: $kind) {
-                        Label(SendKind.text.rawValue, systemImage: SendKind.text.icon).tag(SendKind.text)
-                        Label(SendKind.file.rawValue, systemImage: SendKind.file.icon).tag(SendKind.file)
+                        Label(SendKind.text.localizedTitle, systemImage: SendKind.text.icon).tag(SendKind.text)
+                        Label(SendKind.file.localizedTitle, systemImage: SendKind.file.icon).tag(SendKind.file)
                     }
                     .pickerStyle(.segmented)
                     .disabled(editingSend != nil)
@@ -508,7 +509,7 @@ struct CreateSendView: View {
                     }
                     if let maximumExpirationDays = deletionPeriod.maximumExpirationDays {
                         Stepper(
-                            "Expires in \(expirationDays) \(expirationDays == 1 ? "day" : "days")",
+                            L10n.format("Expires in %lld days", expirationDays),
                             value: $expirationDays,
                             in: 1...maximumExpirationDays
                         )
@@ -517,7 +518,7 @@ struct CreateSendView: View {
                     }
                     Toggle("Limit access count", isOn: $limitAccesses)
                     if limitAccesses {
-                        Stepper("Maximum: \(maximumAccesses)", value: $maximumAccesses, in: 1...100)
+                        Stepper(L10n.format("Maximum: %lld", maximumAccesses), value: $maximumAccesses, in: 1...100)
                     }
                 }
 
@@ -631,11 +632,11 @@ struct CreateSendView: View {
 
     private var sendIntegrationMessage: String {
         if editingSend != nil {
-            return "Changes are encrypted on this device, saved to Vaultwarden, then synced back."
+            return L10n.string("Changes are encrypted on this device, saved to Vaultwarden, then synced back.")
         }
         return kind == .file
-            ? "The file is encrypted on this device before any bytes are uploaded. File creation requires a live server connection."
-            : "Text Sends are encrypted locally and can be queued securely when offline."
+            ? L10n.string("The file is encrypted on this device before any bytes are uploaded. File creation requires a live server connection.")
+            : L10n.string("Text Sends are encrypted locally and can be queued securely when offline.")
     }
 
     private func save() async {
@@ -685,7 +686,7 @@ struct CreateSendView: View {
     }
 
     private var passwordPrompt: String {
-        editingSend?.passwordProtected == true ? "New password (optional)" : "Send password"
+        L10n.string(editingSend?.passwordProtected == true ? "New password (optional)" : "Send password")
     }
 
     private func cancel() {
@@ -785,7 +786,7 @@ private enum SendDeletionPeriod: Int, CaseIterable, Identifiable {
     var timeInterval: TimeInterval { TimeInterval(rawValue) }
 
     var title: String {
-        switch self {
+        let key: String = switch self {
         case .oneHour: "1 hour"
         case .oneDay: "1 day"
         case .twoDays: "2 days"
@@ -793,6 +794,7 @@ private enum SendDeletionPeriod: Int, CaseIterable, Identifiable {
         case .sevenDays: "7 days"
         case .thirtyDays: "30 days"
         }
+        return L10n.string(key)
     }
 
     var maximumExpirationDays: Int? {
@@ -819,7 +821,7 @@ private struct SendFileSourceLabel: View {
         VStack(spacing: 5) {
             Image(systemName: systemImage)
                 .font(.body.weight(.semibold))
-            Text(title)
+            Text(L10n.string(title))
                 .font(.caption)
         }
         .frame(maxWidth: .infinity, minHeight: 42)
@@ -838,11 +840,12 @@ private nonisolated enum SendFileSelectionError: LocalizedError {
     case tooLarge
 
     var errorDescription: String? {
-        switch self {
+        let key: String = switch self {
         case .unavailable: "The selected file could not be read. Please select it again."
         case .folderNotSupported: "Choose a single file instead of a folder."
         case .tooLarge: "The selected file is larger than the 100 MB limit."
         }
+        return L10n.string(key)
     }
 }
 
