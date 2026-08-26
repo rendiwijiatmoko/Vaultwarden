@@ -9,7 +9,7 @@ nonisolated final class EmptySDKTokenProvider: ClientManagedTokens, @unchecked S
 /// crypto initialization, even when the caller only needs to unwrap a vault key.
 /// This repository is intentionally ephemeral because generator history and other
 /// SDK-owned local data are not persisted by this app yet.
-nonisolated actor EphemeralLocalUserDataKeyRepository: LocalUserDataKeyStateRepository {
+actor EphemeralLocalUserDataKeyRepository: LocalUserDataKeyStateRepository {
     private var values: [String: LocalUserDataKeyState] = [:]
 
     func get(id: String) async throws -> LocalUserDataKeyState? {

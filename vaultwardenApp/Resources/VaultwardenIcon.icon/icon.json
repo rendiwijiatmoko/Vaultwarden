@@ -14,7 +14,6 @@
     {
       "blend-mode" : "normal",
       "blur-material" : 0.5,
-      "hidden" : false,
       "layers" : [
         {
           "fill-specializations" : [
@@ -24,7 +23,7 @@
             {
               "appearance" : "dark",
               "value" : {
-                "solid" : "srgb:0.12157,0.36078,0.87843,1.00000"
+                "solid" : "extended-srgb:0.00000,0.53333,1.00000,1.00000"
               }
             }
           ],
@@ -47,7 +46,7 @@
             {
               "appearance" : "dark",
               "value" : {
-                "solid" : "srgb:0.12157,0.36078,0.87843,1.00000"
+                "solid" : "extended-srgb:0.00000,0.53333,1.00000,1.00000"
               }
             }
           ],
@@ -65,7 +64,7 @@
       ],
       "lighting-specializations" : [
         {
-          "value" : "individual"
+          "value" : "combined"
         },
         {
           "appearance" : "dark",

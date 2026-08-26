@@ -745,7 +745,7 @@ private extension String {
 }
 
 @available(iOS 17.0, *)
-private nonisolated actor PasskeyRegistrationStore: Fido2CredentialStore {
+private actor PasskeyRegistrationStore: Fido2CredentialStore {
     struct SavedCredential: Sendable {
         let context: EncryptionContext
         let identifier: String
@@ -947,7 +947,7 @@ private nonisolated final class PasskeyTokenProvider: ClientManagedTokens, @unch
     func getAccessToken() async -> String? { nil }
 }
 
-private nonisolated actor PasskeyLocalUserDataRepository: LocalUserDataKeyStateRepository {
+private actor PasskeyLocalUserDataRepository: LocalUserDataKeyStateRepository {
     private var values: [String: LocalUserDataKeyState] = [:]
 
     func get(id: String) async throws -> LocalUserDataKeyState? { values[id] }
