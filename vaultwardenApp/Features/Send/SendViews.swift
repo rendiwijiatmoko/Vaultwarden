@@ -46,9 +46,11 @@ struct SendView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }
+                        .tint(nil)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { showingCreate = true } label: { Image(systemName: "plus") }
+                        .tint(nil)
                 }
             }
             .sheet(isPresented: $showingCreate) { CreateSendView() }
@@ -327,6 +329,7 @@ struct SendDetailView: View {
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button("Edit") { showingEdit = true }
+                            .tint(nil)
                     }
                 }
                 .sheet(isPresented: $showingEdit) {
@@ -588,13 +591,17 @@ struct CreateSendView: View {
             .navigationTitle(editingSend == nil ? "New Send" : "Edit Send")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { cancel() } }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { cancel() }
+                        .tint(nil)
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
                         Task { await save() }
                     } label: {
                         if isCreating { ProgressView() } else { Text(editingSend == nil ? "Create" : "Save") }
                     }
+                    .tint(nil)
                     .disabled(!canSave || isCreating)
                 }
             }

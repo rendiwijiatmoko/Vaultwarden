@@ -114,7 +114,7 @@ struct VaultCollectionView: View {
     @State private var showingArchiveConfirmation = false
     @State private var pendingRowAction: VaultRowAction?
     @State private var showingRowAlert = false
-    @State private var sortOrder: VaultSortOrder = .nameAscending
+    @State private var sortOrder: VaultSortOrder = .newestFirst
 
     init(
         filter: VaultFilter,
@@ -232,6 +232,7 @@ struct VaultCollectionView: View {
                     Button(hasSelectedAllVisibleItems(in: displayedItems) ? "Deselect All" : "Select All") {
                         withAnimation(.snappy) { toggleSelectAll(in: displayedItems) }
                     }
+                    .tint(nil)
                 }
             }
 
@@ -246,11 +247,13 @@ struct VaultCollectionView: View {
 
             ToolbarItem(placement: .topBarTrailing) {
                 selectionModeButton
+                    .tint(nil)
             }
 
             if !editMode.isEditing {
                 ToolbarItem(placement: .bottomBar) {
                     sortMenu
+                        .tint(nil)
                 }
 
                 ToolbarSpacer(.flexible, placement: .bottomBar)
@@ -264,6 +267,7 @@ struct VaultCollectionView: View {
 
                 ToolbarItem(placement: .bottomBar) {
                     addItemButton
+                        .tint(nil)
                 }
             }
 
@@ -276,6 +280,7 @@ struct VaultCollectionView: View {
                         Label(bulkSecondaryTitle, systemImage: bulkSecondaryIcon)
                     }
                     .disabled(selection.isEmpty)
+                    .tint(nil)
                     .confirmationDialog(
                         archiveConfirmationTitle,
                         isPresented: bulkArchiveConfirmationBinding,
@@ -293,6 +298,7 @@ struct VaultCollectionView: View {
                         Label("Delete", systemImage: "trash")
                     }
                     .disabled(selection.isEmpty)
+                    .tint(nil)
                     .confirmationDialog(
                         deleteConfirmationTitle,
                         isPresented: bulkDeleteConfirmationBinding,
@@ -1290,6 +1296,7 @@ struct VaultItemDetailView: View {
                             Button("Edit") {
                                 withAnimation(.snappy) { isEditing = true }
                             }
+                            .tint(nil)
                         }
                     }
                 }
@@ -2175,6 +2182,7 @@ struct AddEditVaultItemView: View {
                         }
                     }
                     .accessibilityLabel("Cancel")
+                    .tint(nil)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
@@ -2191,6 +2199,7 @@ struct AddEditVaultItemView: View {
                     }
                     .accessibilityLabel("Save")
                     .buttonStyle(.borderedProminent)
+                    .tint(nil)
                     .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving)
                 }
             }
@@ -2229,6 +2238,7 @@ struct AddEditVaultItemView: View {
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) {
                             Button("Cancel") { showingTOTPScanner = false }
+                                .tint(nil)
                         }
                     }
                 }

@@ -68,6 +68,7 @@ struct SettingsView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }
+                        .tint(nil)
                 }
             }
         }
@@ -532,6 +533,7 @@ private struct VaultTransferPasswordSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .tint(nil)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(mode == .export ? "Export" : "Import") {
@@ -541,6 +543,7 @@ private struct VaultTransferPasswordSheet: View {
                             isWorking = false
                         }
                     }
+                    .tint(nil)
                     .disabled(isWorking || password.count < 12 || (mode == .export && password != confirmation))
                 }
             }

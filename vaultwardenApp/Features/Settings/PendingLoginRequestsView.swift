@@ -94,6 +94,7 @@ struct PendingLoginRequestsView: View {
                     }
                 }
                 .disabled(isLoading)
+                .tint(nil)
                 .accessibilityLabel("Refresh login requests")
             }
         }

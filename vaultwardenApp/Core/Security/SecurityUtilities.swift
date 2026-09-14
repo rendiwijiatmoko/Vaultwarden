@@ -381,6 +381,7 @@ private struct MasterPasswordUnlockView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .tint(nil)
                 }
             }
         }

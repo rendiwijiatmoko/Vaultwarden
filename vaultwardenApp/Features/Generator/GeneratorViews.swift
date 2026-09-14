@@ -75,6 +75,7 @@ struct GeneratorView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }
+                        .tint(nil)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -83,6 +84,7 @@ struct GeneratorView: View {
                     } label: {
                         Label("History", systemImage: "clock.arrow.circlepath")
                     }
+                    .tint(nil)
                 }
             }
             .onAppear { regenerate() }
@@ -320,12 +322,14 @@ private struct GeneratorHistoryView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
+                        .tint(nil)
                 }
                 if !records.isEmpty {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button(role: .destructive) { confirmClear = true } label: {
                             Image(systemName: "trash")
                         }
+                        .tint(nil)
                         .accessibilityLabel("Clear generator history")
                         .confirmationDialog(
                             "Clear generator history?",
@@ -413,7 +417,12 @@ struct QuickPasswordGeneratorView: View {
             .background(Color.vaultBackground)
             .navigationTitle("Generate Password")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .tint(nil)
+                }
+            }
             .onChange(of: length) { _, _ in regenerate() }
             .onChange(of: useUppercase) { _, _ in regenerate() }
             .onChange(of: useNumbers) { _, _ in regenerate() }
@@ -471,6 +480,7 @@ struct QuickUsernameGeneratorView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .tint(nil)
                 }
             }
         }

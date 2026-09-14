@@ -724,6 +724,7 @@ struct VaultHomeView: View {
                     ProfileAvatarView(email: store.settings.email)
                 }
                 .buttonStyle(.plain)
+                .tint(nil)
                 .accessibilityLabel("Account and settings")
                 .matchedTransitionSource(id: HomeTransition.settings, in: transitions)
             }
@@ -741,6 +742,7 @@ struct VaultHomeView: View {
             } label: {
                 Image(systemName: "ellipsis")
             }
+            .tint(nil)
             .accessibilityLabel("Tools")
             .matchedTransitionSource(id: HomeTransition.tools, in: transitions)
         }
@@ -765,6 +767,7 @@ struct VaultHomeView: View {
                 Button { showingAddItem = true } label: {
                     Image(systemName: "plus")
                 }
+                .tint(nil)
                 .accessibilityLabel("Add vault item")
                 .matchedTransitionSource(id: HomeTransition.addItem, in: transitions)
             }
@@ -775,6 +778,7 @@ struct VaultHomeView: View {
         Button { showingAddFolder = true } label: {
             Image(systemName: "folder.badge.plus")
         }
+        .tint(nil)
         .accessibilityLabel("Create folder")
     }
 
