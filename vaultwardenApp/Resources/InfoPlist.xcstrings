@@ -253,6 +253,9 @@
         }
       }
     },
+    "New Password" : {
+
+    },
     "NSCameraUsageDescription" : {
       "comment" : "Reason shown by iOS when requesting camera access.",
       "extractionState" : "manual",
@@ -1212,6 +1215,12 @@
           }
         }
       }
+    },
+    "Search" : {
+
+    },
+    "Verification Codes" : {
+
     }
   },
   "version" : "1.0"

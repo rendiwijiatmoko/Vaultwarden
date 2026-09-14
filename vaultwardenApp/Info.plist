@@ -58,6 +58,33 @@
 		<key>UISceneConfigurations</key>
 		<dict/>
 	</dict>
+	<key>UIApplicationShortcutItems</key>
+	<array>
+		<dict>
+			<key>UIApplicationShortcutItemIconSymbolName</key>
+			<string>key.fill</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>New Password</string>
+			<key>UIApplicationShortcutItemType</key>
+			<string>xyz.0xmwehehe.vaultwardenApp.quickAction.newPassword</string>
+		</dict>
+		<dict>
+			<key>UIApplicationShortcutItemIconSymbolName</key>
+			<string>magnifyingglass</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>Search</string>
+			<key>UIApplicationShortcutItemType</key>
+			<string>xyz.0xmwehehe.vaultwardenApp.quickAction.search</string>
+		</dict>
+		<dict>
+			<key>UIApplicationShortcutItemIconSymbolName</key>
+			<string>lock.rotation</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>Verification Codes</string>
+			<key>UIApplicationShortcutItemType</key>
+			<string>xyz.0xmwehehe.vaultwardenApp.quickAction.verificationCodes</string>
+		</dict>
+	</array>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UIBackgroundModes</key>

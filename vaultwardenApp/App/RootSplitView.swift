@@ -8,13 +8,18 @@ import SwiftUI
 /// "Login". Only the container and the way a card is activated differ.
 struct RootSplitView: View {
     @EnvironmentObject private var store: AppStore
+    @EnvironmentObject private var quickActions: HomeQuickActionRouter
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var path = NavigationPath()
+    @State private var compactSearchText = ""
     @State private var regularSearchText = ""
     @State private var regularBulkSelection = Set<UUID>()
     @State private var isRegularBulkSelecting = false
+    @State private var showingQuickActionPassword = false
+    @FocusState private var compactSearchFocused: Bool
+    @FocusState private var regularSearchFocused: Bool
 
     var body: some View {
         Group {
@@ -25,6 +30,8 @@ struct RootSplitView: View {
             }
         }
         .task { selectDefaultSectionIfNeeded() }
+        .task(id: quickActions.pendingAction) { handlePendingQuickActionIfPossible() }
+        .onChange(of: store.isLocked) { _, _ in handlePendingQuickActionIfPossible() }
         .onChange(of: horizontalSizeClass) { _, newValue in
             // A window resize or rotation swaps containers entirely. Carry the
             // user's place across instead of dumping them back at the root.
@@ -34,11 +41,17 @@ struct RootSplitView: View {
                 selectDefaultSectionIfNeeded()
             }
         }
+        .sheet(isPresented: $showingQuickActionPassword) {
+            AddEditVaultItemView(prefilledType: .login)
+                .environmentObject(store)
+        }
     }
 
     private var compactStack: some View {
         NavigationStack(path: $path) {
-            VaultHomeView(style: .dashboard)
+            VaultHomeView(style: .dashboard, searchText: $compactSearchText)
+                .searchable(text: $compactSearchText, prompt: "Search")
+                .searchFocused($compactSearchFocused)
                 .navigationDestination(for: VaultFilter.self) { filter in
                     VaultCollectionView(filter: filter, usesColumnSelection: false)
                         // Mirrors the stack position into shared state so the
@@ -61,7 +74,7 @@ struct RootSplitView: View {
 
     private var regularSplit: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            VaultHomeView(style: .sidebar)
+            VaultHomeView(style: .sidebar, searchText: $regularSearchText)
         } content: {
             if let filter = store.selectedFilter {
                 // Fresh identity per section, otherwise the list's search text
@@ -90,6 +103,7 @@ struct RootSplitView: View {
                     placement: .toolbar,
                     prompt: regularSearchPrompt
                 )
+                .searchFocused($regularSearchFocused)
         }
         .navigationSplitViewStyle(.balanced)
         .onChange(of: store.selectedFilter) { _, _ in
@@ -189,6 +203,49 @@ struct RootSplitView: View {
         guard horizontalSizeClass == .regular, store.selectedFilter == nil else { return }
         store.selectedFilter = .login
     }
+
+    private func handlePendingQuickActionIfPossible() {
+        guard !store.isLocked, let action = quickActions.pendingAction else { return }
+
+        switch action {
+        case .newPassword:
+            showingQuickActionPassword = true
+        case .search:
+            store.selectedItemID = nil
+            if horizontalSizeClass == .compact {
+                store.selectedFilter = nil
+                path = NavigationPath()
+                compactSearchText = ""
+                focusSearchAfterNavigationChange(compact: true)
+            } else {
+                selectDefaultSectionIfNeeded()
+                regularSearchText = ""
+                focusSearchAfterNavigationChange(compact: false)
+            }
+        case .verificationCodes:
+            let filter = VaultFilter.category(.codes)
+            store.selectedItemID = nil
+            store.selectedFilter = filter
+            if horizontalSizeClass == .compact {
+                var destination = NavigationPath()
+                destination.append(filter)
+                path = destination
+            }
+        }
+
+        quickActions.consume(action)
+    }
+
+    private func focusSearchAfterNavigationChange(compact: Bool) {
+        Task { @MainActor in
+            await Task.yield()
+            if compact {
+                compactSearchFocused = true
+            } else {
+                regularSearchFocused = true
+            }
+        }
+    }
 }
 
 private struct VaultColumnPlaceholder: View {
@@ -228,10 +285,10 @@ struct VaultHomeView: View {
     /// in a split view column does not reliably report the window's size class,
     /// and guessing wrong here would render links that have no destination.
     let style: VaultHomeStyle
+    @Binding var searchText: String
 
     @EnvironmentObject private var store: AppStore
 
-    @State private var searchText = ""
     @State private var showingSettings = false
     @State private var showingGenerator = false
     @State private var showingSend = false
@@ -274,7 +331,6 @@ struct VaultHomeView: View {
         .background(Color.vaultBackground)
         .navigationTitle(style == .sidebar ? "" : "Vault")
         .navigationBarTitleDisplayMode(style == .sidebar ? .inline : .large)
-        .modifier(SearchableWhenEnabled(isEnabled: style == .dashboard, text: $searchText))
         .toolbar { toolbarContent }
         .sheet(isPresented: $showingSettings) {
             SettingsView()
@@ -741,22 +797,6 @@ private enum HomeTransition {
     static let settings = "home.settings"
     static let tools = "home.tools"
     static let addItem = "home.addItem"
-}
-
-/// `.searchable` can't be applied conditionally inline, and the sidebar must
-/// not have one — its `DefaultToolbarItem(kind: .search)` would appear too.
-private struct SearchableWhenEnabled: ViewModifier {
-    let isEnabled: Bool
-    @Binding var text: String
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if isEnabled {
-            content.searchable(text: $text, prompt: "Search")
-        } else {
-            content
-        }
-    }
 }
 
 // MARK: - Dashboard building blocks
