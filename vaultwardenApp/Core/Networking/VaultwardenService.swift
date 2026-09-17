@@ -4,7 +4,12 @@ import Foundation
 /// Network/crypto boundary. UI code receives only an opaque Keychain reference, never bearer tokens or keys.
 nonisolated protocol VaultwardenService: Sendable {
     func discover(serverURL: URL) async throws -> ServerConfiguration
-    func login(serverURL: URL, email: String, masterPassword: String) async throws -> AuthenticatedSession
+    func login(
+        serverURL: URL,
+        email: String,
+        masterPassword: String,
+        twoFactorCode: String?
+    ) async throws -> AuthenticatedSession
     func pendingLoginRequests(session: AuthenticatedSession) async throws -> [PendingLoginRequest]
     func respondToLoginRequest(
         _ request: PendingLoginRequest,
@@ -134,7 +139,7 @@ enum VaultwardenServiceError: LocalizedError {
         case .invalidResponse: "The server returned an invalid response."
         case let .serverRejected(status, message):
             message ?? "The server rejected the request (HTTP \(status))."
-        case .twoFactorRequired: "This account requires two-step login. Support for the second factor is the next integration step."
+        case .twoFactorRequired: "Enter the 6-digit verification code from your authenticator app."
         case .sessionExpired: "The session has expired. Please sign in again."
         case .vaultLocked: "Unlock the vault before syncing."
         case let .invalidTokenResponse(field):
@@ -184,7 +189,12 @@ struct DefaultVaultwardenService: VaultwardenService {
         return ServerConfiguration(serverURL: baseURL, version: configuration?.version)
     }
 
-    func login(serverURL: URL, email: String, masterPassword: String) async throws -> AuthenticatedSession {
+    func login(
+        serverURL: URL,
+        email: String,
+        masterPassword: String,
+        twoFactorCode: String?
+    ) async throws -> AuthenticatedSession {
         let baseURL = try validatedBaseURL(serverURL)
         let normalizedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !normalizedEmail.isEmpty, !masterPassword.isEmpty else {
@@ -201,7 +211,8 @@ struct DefaultVaultwardenService: VaultwardenService {
         let token = try await requestPasswordToken(
             baseURL: baseURL,
             email: normalizedEmail,
-            authenticationHash: authenticationHash
+            authenticationHash: authenticationHash,
+            twoFactorCode: twoFactorCode
         )
 
         guard let userID = token.userID else {
@@ -1386,11 +1397,12 @@ struct DefaultVaultwardenService: VaultwardenService {
     private func requestPasswordToken(
         baseURL: URL,
         email: String,
-        authenticationHash: String
+        authenticationHash: String,
+        twoFactorCode: String?
     ) async throws -> IdentityTokenResponseDTO {
         var request = URLRequest(url: endpoint(baseURL, path: "identity/connect/token"))
         request.httpMethod = "POST"
-        request.httpBody = FormURLEncoder.encode([
+        var fields = [
             ("scope", "api offline_access"),
             ("client_id", "mobile"),
             ("deeplinkScheme", "https"),
@@ -1400,7 +1412,13 @@ struct DefaultVaultwardenService: VaultwardenService {
             ("grant_type", "password"),
             ("username", email),
             ("password", authenticationHash)
-        ])
+        ]
+        if let twoFactorCode, !twoFactorCode.isEmpty {
+            fields.append(("twoFactorProvider", "0"))
+            fields.append(("twoFactorToken", twoFactorCode))
+            fields.append(("twoFactorRemember", "0"))
+        }
+        request.httpBody = FormURLEncoder.encode(fields)
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         applyCommonHeaders(to: &request)
         let (data, response) = try await httpClient.data(for: request)

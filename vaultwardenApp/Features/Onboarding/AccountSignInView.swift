@@ -7,6 +7,8 @@ struct AccountSignInView: View {
     @State private var serverURL = ""
     @State private var email = ""
     @State private var masterPassword = ""
+    @State private var verificationCode = ""
+    @State private var requiresTwoFactor = false
     @State private var errorMessage: String?
     @State private var isConnecting = false
 
@@ -14,6 +16,7 @@ struct AccountSignInView: View {
         !serverURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !masterPassword.isEmpty
+            && (!requiresTwoFactor || verificationCode.count == 6)
             && !isConnecting
     }
 
@@ -44,6 +47,20 @@ struct AccountSignInView: View {
                         .autocorrectionDisabled()
                     SecureField("Master Password", text: $masterPassword)
                         .textContentType(.password)
+                }
+
+                if requiresTwoFactor {
+                    Section("Two-step login") {
+                        TextField("6-digit verification code", text: $verificationCode)
+                            .keyboardType(.numberPad)
+                            .textContentType(.oneTimeCode)
+                            .onChange(of: verificationCode) { _, newValue in
+                                verificationCode = String(newValue.filter(\.isNumber).prefix(6))
+                            }
+                        Text("Enter the code from your authenticator app.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 if let errorMessage {
@@ -84,18 +101,24 @@ struct AccountSignInView: View {
         errorMessage = nil
         isConnecting = true
         Task {
-            defer {
-                masterPassword = ""
-                isConnecting = false
-            }
+            defer { isConnecting = false }
             do {
                 try await store.connect(
                     serverURL: serverURL,
                     email: email,
-                    masterPassword: masterPassword
+                    masterPassword: masterPassword,
+                    twoFactorCode: requiresTwoFactor ? verificationCode : nil
                 )
+                masterPassword = ""
+                verificationCode = ""
             } catch {
-                errorMessage = error.localizedDescription
+                if case VaultwardenServiceError.twoFactorRequired = error {
+                    requiresTwoFactor = true
+                    verificationCode = ""
+                    errorMessage = nil
+                } else {
+                    errorMessage = error.localizedDescription
+                }
             }
         }
     }

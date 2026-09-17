@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>xyz.0xmwehehe.vaultwardenApp.sync-refresh</string>
+	</array>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
@@ -18,10 +22,6 @@
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
-	<key>CFBundleVersion</key>
-	<string>$(CURRENT_PROJECT_VERSION)</string>
-	<key>ITSAppUsesNonExemptEncryption</key>
-	<false/>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -35,22 +35,22 @@
 			</array>
 		</dict>
 	</array>
-	<key>LSRequiresIPhoneOS</key>
-	<true/>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.productivity</string>
-	<key>BGTaskSchedulerPermittedIdentifiers</key>
-	<array>
-		<string>xyz.0xmwehehe.vaultwardenApp.sync-refresh</string>
-	</array>
-	<key>NSFaceIDUsageDescription</key>
-	<string>Use Face ID to unlock your encrypted vault and approve credential access.</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Scan authenticator QR codes or take a photo to attach to an encrypted Vaultwarden Send.</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Select a photo to attach to an encrypted Vaultwarden Send.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Use Face ID to unlock your encrypted vault and approve credential access.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Connect to your self-hosted Vaultwarden server on the local network.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Select a photo to attach to an encrypted Vaultwarden Send.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

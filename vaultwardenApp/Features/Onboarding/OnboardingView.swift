@@ -17,6 +17,8 @@ struct OnboardingView: View {
     @State private var serverURL = ""
     @State private var email = ""
     @State private var masterPassword = ""
+    @State private var verificationCode = ""
+    @State private var requiresTwoFactor = false
     @State private var biometricUnlock = true
     @State private var requireBiometricForFill = true
     @State private var allowPasscodeFallback = false
@@ -26,7 +28,7 @@ struct OnboardingView: View {
     @FocusState private var focusedField: AccountField?
 
     private enum AccountField: Hashable {
-        case server, email, password
+        case server, email, password, verificationCode
     }
 
     var body: some View {
@@ -154,6 +156,23 @@ struct OnboardingView: View {
                     isSecure: true
                 )
                 .focused($focusedField, equals: .password)
+
+                if requiresTwoFactor {
+                    Divider()
+
+                    OnboardingInputField(
+                        title: "Verification Code",
+                        placeholder: "6-digit code",
+                        text: $verificationCode,
+                        keyboardType: .numberPad,
+                        textContentType: .oneTimeCode,
+                        isSecure: false
+                    )
+                    .focused($focusedField, equals: .verificationCode)
+                    .onChange(of: verificationCode) { _, newValue in
+                        verificationCode = String(newValue.filter(\.isNumber).prefix(6))
+                    }
+                }
             }
             .padding(.horizontal, 16)
             .background(Color.vaultCard, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
@@ -317,6 +336,7 @@ struct OnboardingView: View {
             && components.host?.isEmpty == false
             && email.contains("@")
             && !masterPassword.isEmpty
+            && (!requiresTwoFactor || verificationCode.count == 6)
     }
 
     private func advance() {
@@ -333,14 +353,22 @@ struct OnboardingView: View {
                     try await store.connect(
                         serverURL: serverURL,
                         email: email,
-                        masterPassword: masterPassword
+                        masterPassword: masterPassword,
+                        twoFactorCode: requiresTwoFactor ? verificationCode : nil
                     )
                     masterPassword = ""
                     isConnecting = false
                     move(to: .security)
                 } catch {
                     isConnecting = false
-                    connectionError = error.localizedDescription
+                    if case VaultwardenServiceError.twoFactorRequired = error {
+                        requiresTwoFactor = true
+                        verificationCode = ""
+                        connectionError = nil
+                        focusedField = .verificationCode
+                    } else {
+                        connectionError = error.localizedDescription
+                    }
                 }
             }
         case .security:

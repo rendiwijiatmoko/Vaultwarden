@@ -448,7 +448,12 @@ final class AppStore: ObservableObject {
         }
     }
 
-    func connect(serverURL: String, email: String, masterPassword: String) async throws {
+    func connect(
+        serverURL: String,
+        email: String,
+        masterPassword: String,
+        twoFactorCode: String? = nil
+    ) async throws {
         guard let url = URL(string: serverURL.trimmingCharacters(in: .whitespacesAndNewlines)) else {
             throw VaultwardenServiceError.invalidServerURL
         }
@@ -456,7 +461,8 @@ final class AppStore: ObservableObject {
         let session = try await vaultwardenService.login(
             serverURL: url,
             email: normalizedEmail,
-            masterPassword: masterPassword
+            masterPassword: masterPassword,
+            twoFactorCode: twoFactorCode
         )
         isSyncing = true
         defer { isSyncing = false }
