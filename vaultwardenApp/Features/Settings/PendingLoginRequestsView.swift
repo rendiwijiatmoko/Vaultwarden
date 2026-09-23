@@ -80,10 +80,10 @@ struct PendingLoginRequestsView: View {
             }
         }
         .navigationTitle("Login Requests")
-        .toolbarTitleDisplayMode(.inlineLarge)
+        .vaultToolbarTitleDisplayMode(.inlineLarge)
         .refreshable { await loadRequests() }
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: .vaultTrailing) {
                 Button {
                     Task { await loadRequests() }
                 } label: {

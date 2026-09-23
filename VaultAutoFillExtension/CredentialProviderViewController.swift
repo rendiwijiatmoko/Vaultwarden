@@ -1,7 +1,22 @@
 import AuthenticationServices
+import Combine
 import LocalAuthentication
 import SwiftUI
+#if os(macOS)
+import AppKit
+private typealias AutoFillHostingController = NSHostingController
+private typealias AutoFillImage = NSImage
+private enum AutoFillKeyboardType { case `default`, URL }
+private enum AutoFillCapitalization { case never, characters }
+private typealias AutoFillTextContentType = NSTextContentType
+#else
 import UIKit
+private typealias AutoFillHostingController = UIHostingController
+private typealias AutoFillImage = UIImage
+private typealias AutoFillKeyboardType = UIKeyboardType
+private typealias AutoFillCapitalization = TextInputAutocapitalization
+private typealias AutoFillTextContentType = UITextContentType
+#endif
 
 final class CredentialProviderViewController: ASCredentialProviderViewController {
     private enum RequestMode {
@@ -15,13 +30,15 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     }
 
     private let viewModel = AutoFillCredentialListViewModel()
-    private var hostingController: UIHostingController<AutoFillCredentialListView>?
+    private var hostingController: AutoFillHostingController<AutoFillCredentialListView>?
     private var mode: RequestMode = .password
     private var serviceIdentifiers: [String] = []
     private var credentials: [AutoFillCredentialRecord] = []
     private var pendingRequest: (any ASCredentialRequest)?
+    #if os(iOS)
     private var pendingSavePasswordRequest: ASSavePasswordRequest?
     private var pendingGeneratePasswordsRequest: ASGeneratePasswordsRequest?
+    #endif
     private var passkeyRequestParameters: ASPasskeyCredentialRequestParameters?
     private var unlockedVault: AutoFillUnlockedVault?
     private var accountDisplayName = L10n.string("Vaultwarden account")
@@ -36,8 +53,42 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         configureView()
     }
 
+    #if os(macOS)
+    override func loadView() {
+        view = NSView(frame: NSRect(x: 0, y: 0, width: 620, height: 560))
+        preferredContentSize = NSSize(width: 620, height: 560)
+    }
+
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        didPresentView()
+    }
+
+    override func viewDidDisappear() {
+        super.viewDidDisappear()
+        didDismissView()
+    }
+    #else
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        didPresentView()
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        didDismissView()
+    }
+    #endif
+
+    private func ensureViewLoaded() {
+        #if os(macOS)
+        _ = view
+        #else
+        loadViewIfNeeded()
+        #endif
+    }
+
+    private func didPresentView() {
         isViewPresented = true
         isAuthenticationPresentationReady = false
         presentationGeneration += 1
@@ -50,14 +101,14 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
             guard let self,
                   self.isViewPresented,
                   self.presentationGeneration == generation,
-                  self.viewIfLoaded?.window != nil else { return }
+                  self.isViewLoaded,
+                  self.view.window != nil else { return }
             self.isAuthenticationPresentationReady = true
             self.startPendingUnlockIfPossible()
         }
     }
 
-    override func viewDidDisappear(_ animated: Bool) {
-        super.viewDidDisappear(animated)
+    private func didDismissView() {
         isViewPresented = false
         isAuthenticationPresentationReady = false
         presentationGeneration += 1
@@ -97,6 +148,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         unlockVault(reason: L10n.string("Authenticate to create this passkey"))
     }
 
+    #if os(iOS)
     @available(iOSApplicationExtension 26.2, *)
     override func performWithoutUserInteractionIfPossible(
         savePasswordRequest: ASSavePasswordRequest
@@ -132,12 +184,14 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         pendingGeneratePasswordsRequest = generatePasswordsRequest
         passkeyRequestParameters = nil
         serviceIdentifiers = [generatePasswordsRequest.serviceIdentifier.identifier]
-        loadViewIfNeeded()
+        ensureViewLoaded()
         viewModel.generatedPasswords = AutoFillPasswordGeneration.options(for: generatePasswordsRequest)
         viewModel.state = .passwordGeneration(
             L10n.string("Choose a generated password that follows this website’s password rules.")
         )
     }
+
+    #endif
 
     override func prepareOneTimeCodeCredentialList(for serviceIdentifiers: [ASCredentialServiceIdentifier]) {
         prepareList(mode: .oneTimeCode, serviceIdentifiers: serviceIdentifiers)
@@ -190,6 +244,8 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     ) {
         self.mode = mode
         pendingRequest = nil
+        viewModel.searchText = ""
+        viewModel.showsAllCredentials = false
         if mode != .passkey { passkeyRequestParameters = nil }
         self.serviceIdentifiers = serviceIdentifiers.map(\.identifier)
         let reasonKey: String = switch mode {
@@ -204,7 +260,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     }
 
     private func unlockVault(reason: String) {
-        loadViewIfNeeded()
+        ensureViewLoaded()
         showLoading(message: L10n.string("Unlocking encrypted AutoFill vault…"))
         pendingUnlockReason = reason
         startPendingUnlockIfPossible()
@@ -253,10 +309,17 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     }
 
     private func showAuthenticationRetry(reason: String) {
+        #if os(macOS)
+        viewModel.state = .retry(
+            L10n.string("Authenticate with Touch ID or your Mac password to open the encrypted vault.")
+        )
+        viewModel.primaryActionTitle = L10n.string("Unlock Vault")
+        #else
         viewModel.state = .retry(
             L10n.string("Authenticate with Face ID or your device passcode to open the encrypted vault.")
         )
         viewModel.primaryActionTitle = L10n.string("Unlock with Face ID")
+        #endif
         viewModel.onPrimaryAction = { [weak self] in
             guard let self else { return }
             self.pendingUnlockReason = reason
@@ -266,11 +329,13 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
 
     private func handleUnlocked(_ unlocked: AutoFillUnlockedVault) {
         let payload = unlocked.payload
+        #if os(iOS)
         if mode == .passwordSave,
            let request = pendingSavePasswordRequest {
             showPasswordSave(request: request, payload: payload)
             return
         }
+        #endif
         if mode == .passkeyRegistration,
            let request = pendingRequest as? ASPasskeyCredentialRequest {
             showPasskeyRegistration(request: request, payload: payload, unlocked: unlocked)
@@ -337,6 +402,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         viewModel.state = .credentials(requestMessage)
     }
 
+    #if os(iOS)
     @available(iOSApplicationExtension 26.2, *)
     private func showPasswordSave(
         request: ASSavePasswordRequest,
@@ -354,6 +420,8 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
             password: request.credential.password
         )
     }
+
+    #endif
 
     @available(iOSApplicationExtension 17.0, *)
     private func showPasskeyRegistration(
@@ -571,6 +639,14 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     }
 
     private func showAccountInformation() {
+        #if os(macOS)
+        guard let window = view.window else { return }
+        let alert = NSAlert()
+        alert.messageText = accountDisplayName
+        alert.informativeText = L10n.string("Credentials are loaded from this encrypted Vaultwarden account.")
+        alert.addButton(withTitle: L10n.string("Done"))
+        alert.beginSheetModal(for: window)
+        #else
         let alert = UIAlertController(
             title: accountDisplayName,
             message: L10n.string("Credentials are loaded from this encrypted Vaultwarden account."),
@@ -582,6 +658,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
             popover.sourceRect = CGRect(x: view.bounds.maxX - 44, y: 44, width: 1, height: 1)
         }
         present(alert, animated: true)
+        #endif
     }
 
     private func saveNewLogin(_ input: AutoFillNewLoginInput) async throws -> AutoFillCredentialRecord {
@@ -619,7 +696,9 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         viewModel.onCancel = { [weak self] in self?.cancelRequest(code: .userCanceled) }
         viewModel.onAdd = { [weak self] in
             guard let self else { return }
+            #if os(iOS)
             self.pendingSavePasswordRequest = nil
+            #endif
             self.viewModel.beginCreate(suggestedURI: self.serviceIdentifiers.first ?? "")
         }
         viewModel.onAccount = { [weak self] in self?.showAccountInformation() }
@@ -630,19 +709,24 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         }
         viewModel.onDidSaveNewLogin = { [weak self] record in
             guard let self else { return }
+            #if os(iOS)
             if self.pendingSavePasswordRequest != nil {
                 self.extensionContext.completeSavePasswordRequest(completionHandler: nil)
-            } else {
-                self.provide(record)
+                return
             }
+            #endif
+            self.provide(record)
         }
         viewModel.onCancelCreate = { [weak self] in
             guard let self else { return }
             self.viewModel.isPresentingCreate = false
+            #if os(iOS)
             if self.pendingSavePasswordRequest != nil {
                 self.cancelRequest(code: .userCanceled)
             }
+            #endif
         }
+        #if os(iOS)
         viewModel.onSelectGeneratedPassword = { [weak self] option in
             guard let self else { return }
             self.extensionContext.completeGeneratePasswordRequest(
@@ -656,10 +740,14 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
             self.viewModel.generatedPasswords = AutoFillPasswordGeneration.options(for: request)
         }
 
-        let hostingController = UIHostingController(
+        #endif
+
+        let hostingController = AutoFillHostingController(
             rootView: AutoFillCredentialListView(viewModel: viewModel)
         )
+        #if os(iOS)
         hostingController.view.backgroundColor = .clear
+        #endif
         hostingController.view.translatesAutoresizingMaskIntoConstraints = false
         addChild(hostingController)
         view.addSubview(hostingController.view)
@@ -669,7 +757,9 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
             hostingController.view.topAnchor.constraint(equalTo: view.topAnchor),
             hostingController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
+        #if os(iOS)
         hostingController.didMove(toParent: self)
+        #endif
         self.hostingController = hostingController
     }
 
@@ -706,6 +796,7 @@ private enum AutoFillCredentialListState {
     case error(String)
 }
 
+#if os(iOS)
 @available(iOSApplicationExtension 26.2, *)
 private struct AutoFillGeneratedPasswordOption: Identifiable {
     let id = UUID()
@@ -718,6 +809,8 @@ private struct AutoFillGeneratedPasswordOption: Identifiable {
 
     var title: String { generatedPassword.localizedName }
 }
+
+#endif
 
 @available(iOSApplicationExtension 26.2, *)
 private enum AutoFillPasswordGeneration {
@@ -747,6 +840,7 @@ private enum AutoFillPasswordGeneration {
         "solar", "summit", "thunder", "violet", "willow", "zephyr"
     ]
 
+    #if os(iOS)
     static func results(for request: ASGeneratePasswordsRequest) -> [ASGeneratedPassword] {
         options(for: request).map(\.generatedPassword)
     }
@@ -779,6 +873,8 @@ private enum AutoFillPasswordGeneration {
         }
         return values
     }
+
+    #endif
 
     static func strongPassword(rules: String?) -> String {
         let value = policy(from: rules)
@@ -900,11 +996,14 @@ private final class AutoFillCredentialListViewModel: ObservableObject {
     @Published var showsWebsiteIcons = true
     @Published var websiteIconServerURL: URL?
     @Published var searchText = ""
+    @Published var showsAllCredentials = false
     @Published var avatarInitial = "V"
     @Published var accountDisplayName = L10n.string("Vaultwarden account")
     @Published var registrationRelyingParty = ""
     @Published var registrationUserName = ""
+    #if os(iOS)
     @Published var generatedPasswords: [AutoFillGeneratedPasswordOption] = []
+    #endif
     @Published var kind: AutoFillCredentialListKind = .password
     @Published var primaryActionTitle = L10n.string("Continue")
     @Published var isPresentingCreate = false
@@ -928,8 +1027,10 @@ private final class AutoFillCredentialListViewModel: ObservableObject {
     var onSelect: (AutoFillCredentialRecord) -> Void = { _ in }
     var onDidSaveNewLogin: (AutoFillCredentialRecord) -> Void = { _ in }
     var onCancelCreate: () -> Void = {}
+    #if os(iOS)
     var onSelectGeneratedPassword: (AutoFillGeneratedPasswordOption) -> Void = { _ in }
     var onRegeneratePasswords: () -> Void = {}
+    #endif
     var onSaveNewLogin: (AutoFillNewLoginInput) async throws -> AutoFillCredentialRecord = { _ in
         throw AutoFillCreateLoginError.unavailable
     }
@@ -937,7 +1038,7 @@ private final class AutoFillCredentialListViewModel: ObservableObject {
     var filteredCredentials: [AutoFillCredentialRecord] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         if query.isEmpty {
-            guard hasRequestContext else { return credentials }
+            guard hasRequestContext, !showsAllCredentials else { return credentials }
             return credentials
                 .filter {
                     $0.bestMatch(
@@ -984,9 +1085,9 @@ private final class AutoFillCredentialListViewModel: ObservableObject {
 
     var noMatchMessage: String {
         if let requestTarget {
-            return L10n.format("No saved credential matches “%@” using its URI match rules. Use Search below to find another item.", requestTarget)
+            return L10n.format("No saved credential matches “%@” using its URI match rules. Search or show all items to find another credential.", requestTarget)
         }
-        return L10n.string("No matching credential was detected. Use Search below to find another item.")
+        return L10n.string("No matching credential was detected. Search or show all items to find another credential.")
     }
 
     var showsCredentialList: Bool {
@@ -1070,6 +1171,78 @@ private struct AutoFillCredentialListView: View {
     @ObservedObject var viewModel: AutoFillCredentialListViewModel
 
     var body: some View {
+        #if os(macOS)
+        // Safari hosts this view inside its own sheet, without an app toolbar.
+        // Keep navigation and dismissal inside the hosted content itself.
+        VStack(spacing: 0) {
+            HStack(alignment: .top, spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Vaultwarden").font(.headline)
+                    Text(viewModel.subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                Button(action: viewModel.onCancel) {
+                    Label("Close", systemImage: "xmark")
+                }
+                .keyboardShortcut(.cancelAction)
+                .accessibilityLabel("Close AutoFill")
+            }
+            .padding(16)
+
+            if viewModel.showsCredentialList {
+                VStack(spacing: 10) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                        TextField("Search all available credentials", text: $viewModel.searchText)
+                            .textFieldStyle(.plain)
+                            .accessibilityLabel("Search credentials")
+                        if !viewModel.searchText.isEmpty {
+                            Button { viewModel.searchText = "" } label: {
+                                Image(systemName: "xmark.circle.fill")
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Clear search")
+                        }
+                    }
+                    .padding(10)
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                    if viewModel.hasRequestContext && !viewModel.credentials.isEmpty {
+                        Picker("Show credentials", selection: $viewModel.showsAllCredentials) {
+                            Text("Suggested").tag(false)
+                            Text("All Items").tag(true)
+                        }
+                        .pickerStyle(.segmented)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
+            }
+            Divider()
+            Group {
+                if viewModel.showsCredentialList { credentialList }
+                else { statusContent }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if viewModel.showsCredentialList && viewModel.kind == .password {
+                Divider()
+                HStack {
+                    Button(action: viewModel.onAdd) {
+                        Label("New Password", systemImage: "plus")
+                    }
+                    Spacer()
+                }
+                .padding(16)
+            }
+        }
+        .frame(minWidth: 480, minHeight: 420)
+        .sheet(isPresented: $viewModel.isPresentingCreate) {
+            AutoFillNewLoginView(viewModel: viewModel)
+                .frame(minWidth: 500, minHeight: 560)
+        }
+        #else
         NavigationStack {
             Group {
                 if viewModel.showsCredentialList {
@@ -1087,9 +1260,9 @@ private struct AutoFillCredentialListView: View {
             }
             .navigationTitle("Vaultwarden")
             .navigationSubtitle(viewModel.subtitle)
-            .toolbarTitleDisplayMode(.inline)
+            .autoFillInlineToolbarTitle()
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItem(placement: .cancellationAction) {
                     Button(action: viewModel.onCancel) {
                         Image(systemName: "xmark")
                     }
@@ -1097,20 +1270,29 @@ private struct AutoFillCredentialListView: View {
                 }
 
                 if viewModel.showsCredentialList {
-                    ToolbarItem(placement: .topBarTrailing) {
+                    ToolbarItem(placement: .primaryAction) {
                         Button(action: viewModel.onAdd) {
                             Image(systemName: "plus")
                         }
                         .accessibilityLabel("Create new password")
                     }
 
+                    #if os(iOS)
                     DefaultToolbarItem(kind: .search, placement: .bottomBar)
+                    #endif
                 }
             }
         }
         .sheet(isPresented: $viewModel.isPresentingCreate) {
             AutoFillNewLoginView(viewModel: viewModel)
+                #if os(macOS)
+                .frame(minWidth: 500, minHeight: 560)
+                #endif
         }
+        #if os(macOS)
+        .frame(minWidth: 480, minHeight: 420)
+        #endif
+        #endif
     }
 
     @ViewBuilder
@@ -1122,14 +1304,17 @@ private struct AutoFillCredentialListView: View {
                 ContentUnavailableView(
                     "No Credentials",
                     systemImage: "key.slash",
-                    description: Text("No compatible credentials are available in the encrypted AutoFill vault.")
+                    description: Text("No compatible credentials are available. Open Vaultwarden and sync your vault, then try AutoFill again.")
                 )
             } else {
-                ContentUnavailableView(
-                    "No Matching Credentials",
-                    systemImage: "magnifyingglass",
-                    description: Text(viewModel.noMatchMessage)
-                )
+                ContentUnavailableView {
+                    Label("No Matching Credentials", systemImage: "magnifyingglass")
+                } description: {
+                    Text(viewModel.noMatchMessage)
+                } actions: {
+                    Button("Show All Items") { viewModel.showsAllCredentials = true }
+                        .buttonStyle(.bordered)
+                }
             }
         } else {
             List {
@@ -1149,7 +1334,9 @@ private struct AutoFillCredentialListView: View {
                         .alignmentGuide(.listRowSeparatorLeading) { _ in 55 }
                     }
                 }
+                #if os(iOS)
                 .listSectionSeparator(.hidden, edges: .top)
+                #endif
             }
             .listStyle(.plain)
         }
@@ -1167,7 +1354,11 @@ private struct AutoFillCredentialListView: View {
             }
         case let .retry(message):
             ContentUnavailableView {
+                #if os(macOS)
+                Label("Unlock AutoFill", systemImage: "touchid")
+                #else
                 Label("Unlock AutoFill", systemImage: "faceid")
+                #endif
             } description: {
                 Text(message)
             } actions: {
@@ -1208,7 +1399,11 @@ private struct AutoFillCredentialListView: View {
                 Text(message)
             }
         case .passwordGeneration:
+            #if os(iOS)
             generatedPasswordChoices
+            #else
+            EmptyView()
+            #endif
         case let .error(message):
             ContentUnavailableView {
                 Label("AutoFill Unavailable", systemImage: "exclamationmark.triangle.fill")
@@ -1220,6 +1415,7 @@ private struct AutoFillCredentialListView: View {
         }
     }
 
+    #if os(iOS)
     private var generatedPasswordChoices: some View {
         List {
             Section {
@@ -1253,13 +1449,18 @@ private struct AutoFillCredentialListView: View {
         }
         .listStyle(.insetGrouped)
     }
+    #endif
 }
 
 private struct AutoFillNewLoginView: View {
     @ObservedObject var viewModel: AutoFillCredentialListViewModel
     @State private var usernameSuggestion = AutoFillPasswordGeneration.username()
     @State private var passwordSuggestion = AutoFillPasswordGeneration.strongPassword(rules: nil)
+    #if os(macOS)
+    @State private var isKeyboardVisible = true
+    #else
     @State private var isKeyboardVisible = false
+    #endif
     @FocusState private var focusedField: Field?
 
     private enum Field: Hashable {
@@ -1357,7 +1558,26 @@ private struct AutoFillNewLoginView: View {
 
                 customFieldsEditor
             }
+            #if os(iOS)
             .scrollDismissesKeyboard(.interactively)
+            #else
+            .formStyle(.grouped)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                HStack {
+                    Button("Cancel", action: viewModel.onCancelCreate)
+                        .keyboardShortcut(.cancelAction)
+                        .disabled(viewModel.isSavingNewLogin)
+                    Spacer()
+                    Text("New Password").font(.headline)
+                    Spacer()
+                    Button("Save") { Task { await viewModel.saveNewLogin() } }
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(!viewModel.canSaveNewLogin)
+                }
+                .padding(16)
+                .background(.bar)
+            }
+            #endif
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if isKeyboardVisible, let activeSuggestionKind {
                     AutoFillCredentialSuggestion(
@@ -1374,7 +1594,8 @@ private struct AutoFillNewLoginView: View {
                 }
             }
             .navigationTitle("New Item")
-            .toolbarTitleDisplayMode(.inline)
+            .autoFillInlineToolbarTitle()
+            #if os(iOS)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel", action: viewModel.onCancelCreate)
@@ -1388,6 +1609,7 @@ private struct AutoFillNewLoginView: View {
                     .disabled(!viewModel.canSaveNewLogin)
                 }
             }
+            #endif
             .interactiveDismissDisabled(viewModel.isSavingNewLogin)
             .alert("Couldn’t Save Password", isPresented: Binding(
                 get: { viewModel.createError != nil },
@@ -1397,12 +1619,14 @@ private struct AutoFillNewLoginView: View {
             } message: {
                 Text(viewModel.createError ?? "")
             }
+            #if os(iOS)
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
                 isKeyboardVisible = true
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
                 isKeyboardVisible = false
             }
+            #endif
             .onChange(of: focusedField) { oldValue, newValue in
                 guard newValue != oldValue else { return }
                 switch newValue {
@@ -1568,9 +1792,9 @@ private struct AutoFillLabeledFormField: View {
     @Binding var text: String
     let placeholder: String
     let isSecure: Bool
-    let keyboardType: UIKeyboardType
-    let textContentType: UITextContentType?
-    let capitalization: TextInputAutocapitalization?
+    let keyboardType: AutoFillKeyboardType
+    let textContentType: AutoFillTextContentType?
+    let capitalization: AutoFillCapitalization?
     let autocorrectionDisabled: Bool
 
     init(
@@ -1578,9 +1802,9 @@ private struct AutoFillLabeledFormField: View {
         text: Binding<String>,
         placeholder: String = "",
         isSecure: Bool = false,
-        keyboardType: UIKeyboardType = .default,
-        textContentType: UITextContentType? = nil,
-        capitalization: TextInputAutocapitalization? = nil,
+        keyboardType: AutoFillKeyboardType = .default,
+        textContentType: AutoFillTextContentType? = nil,
+        capitalization: AutoFillCapitalization? = nil,
         autocorrectionDisabled: Bool = false
     ) {
         self.title = title
@@ -1606,9 +1830,11 @@ private struct AutoFillLabeledFormField: View {
                 }
             }
             .font(.body)
-            .keyboardType(keyboardType)
             .textContentType(textContentType)
+            #if os(iOS)
+            .keyboardType(keyboardType)
             .textInputAutocapitalization(capitalization)
+            #endif
             .autocorrectionDisabled(autocorrectionDisabled)
         }
         .padding(.vertical, 2)
@@ -1667,7 +1893,7 @@ private struct AutoFillCredentialThumbnail: View {
     let kind: AutoFillCredentialListKind
     let showsWebsiteIcon: Bool
     let serverURL: URL?
-    @State private var image: UIImage?
+    @State private var image: AutoFillImage?
 
     private let size: CGFloat = 42
 
@@ -1678,7 +1904,7 @@ private struct AutoFillCredentialThumbnail: View {
     var body: some View {
         Group {
             if showsWebsiteIcon, let image {
-                Image(uiImage: image)
+                thumbnailImage(image)
                     .resizable()
                     .scaledToFit()
                     .padding(size * 0.12)
@@ -1706,9 +1932,17 @@ private struct AutoFillCredentialThumbnail: View {
                     website: website,
                     serverURL: serverURL
                   ) else { return }
-            image = UIImage(data: data)
+            image = AutoFillImage(data: data)
         }
         .accessibilityHidden(true)
+    }
+
+    private func thumbnailImage(_ image: AutoFillImage) -> Image {
+        #if os(macOS)
+        Image(nsImage: image)
+        #else
+        Image(uiImage: image)
+        #endif
     }
 
     private var initial: String {
@@ -1722,5 +1956,16 @@ private struct AutoFillCredentialThumbnail: View {
         case .oneTimeCode: Color(red: 0.95, green: 0.66, blue: 0.08)
         case .passkey: Color(red: 0.12, green: 0.68, blue: 0.36)
         }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func autoFillInlineToolbarTitle() -> some View {
+        #if os(iOS)
+        toolbarTitleDisplayMode(.inline)
+        #else
+        self
+        #endif
     }
 }

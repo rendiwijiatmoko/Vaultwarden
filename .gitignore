@@ -9,3 +9,7 @@ xcuserdata/
 DerivedData/
 build/
 
+# Generated native Bitwarden SDK and its build/download cache
+.build/
+Packages/BitwardenSdk/
+Packages/.BitwardenSdk.*/

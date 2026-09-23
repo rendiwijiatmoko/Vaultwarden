@@ -31,6 +31,7 @@ nonisolated enum LocalAccountDataPurger {
             for accessGroup in [nil, AutoFillSharedVault.keychainAccessGroup] as [String?] {
                 var query: [String: Any] = [
                     kSecClass as String: kSecClassGenericPassword,
+            kSecUseDataProtectionKeychain as String: true,
                     kSecAttrService as String: service
                 ]
                 if let accessGroup { query[kSecAttrAccessGroup as String] = accessGroup }

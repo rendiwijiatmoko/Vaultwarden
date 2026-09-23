@@ -1,5 +1,9 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#else
 import UIKit
+#endif
 
 extension Color {
     static let vaultBlue = Color(red: 0.12, green: 0.36, blue: 0.88)
@@ -8,8 +12,13 @@ extension Color {
     static let vaultCyan = Color(red: 0.12, green: 0.62, blue: 0.78)
     static let vaultRed = Color(red: 0.92, green: 0.22, blue: 0.24)
     static let vaultOrange = Color(red: 0.95, green: 0.48, blue: 0.08)
+    #if os(macOS)
+    static let vaultBackground = Color(nsColor: .windowBackgroundColor)
+    static let vaultCard = Color(nsColor: .controlBackgroundColor)
+    #else
     static let vaultBackground = Color(uiColor: .systemGroupedBackground)
     static let vaultCard = Color(uiColor: .secondarySystemGroupedBackground)
+    #endif
 }
 
 struct VaultIcon: View {
@@ -60,13 +69,30 @@ struct EmptyStateView: View {
 
 enum Clipboard {
     static func copy(_ value: String) {
-        UIPasteboard.general.string = value
+        #if os(macOS)
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(value, forType: .string)
+        // Ask clipboard managers to avoid retaining a copied secret.
+        pasteboard.setData(Data(), forType: NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType"))
+        let changeCount = pasteboard.changeCount
+        #else
+        let pasteboard = UIPasteboard.general
+        pasteboard.setItems([["public.utf8-plain-text": value]], options: [
+            .localOnly: true, .expirationDate: Date().addingTimeInterval(30)
+        ])
         UINotificationFeedbackGenerator().notificationOccurred(.success)
+        let changeCount = pasteboard.changeCount
+        #endif
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(30))
-            if UIPasteboard.general.string == value {
-                UIPasteboard.general.string = ""
-            }
+            // Never erase content copied afterwards, including the same text.
+            guard pasteboard.changeCount == changeCount else { return }
+            #if os(macOS)
+            pasteboard.clearContents()
+            #else
+            pasteboard.items = []
+            #endif
         }
     }
 }

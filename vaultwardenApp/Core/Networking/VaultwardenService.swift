@@ -161,6 +161,7 @@ struct DefaultVaultwardenService: VaultwardenService {
     private let payloadDecoder: any VaultPayloadDecoder
     private let cacheStore: any VaultCacheStore
     private let keyMemory: VaultKeyMemory
+    private let unlockPresentationAllowed: @MainActor @Sendable () -> Bool
 
     init(
         httpClient: any HTTPClient = URLSessionHTTPClient(),
@@ -168,7 +169,8 @@ struct DefaultVaultwardenService: VaultwardenService {
         sessionStore: any SessionStore = KeychainSessionStore(),
         payloadDecoder: any VaultPayloadDecoder = BitwardenVaultPayloadDecoder(),
         cacheStore: any VaultCacheStore = EncryptedVaultCacheStore(),
-        keyMemory: VaultKeyMemory = VaultKeyMemory()
+        keyMemory: VaultKeyMemory = VaultKeyMemory(),
+        unlockPresentationAllowed: @escaping @MainActor @Sendable () -> Bool = { UnlockPresentationPolicy.isAllowed }
     ) {
         self.httpClient = httpClient
         self.cryptoProvider = cryptoProvider
@@ -176,6 +178,7 @@ struct DefaultVaultwardenService: VaultwardenService {
         self.payloadDecoder = payloadDecoder
         self.cacheStore = cacheStore
         self.keyMemory = keyMemory
+        self.unlockPresentationAllowed = unlockPresentationAllowed
     }
 
     func discover(serverURL: URL) async throws -> ServerConfiguration {
@@ -937,10 +940,15 @@ struct DefaultVaultwardenService: VaultwardenService {
 
     func unlock(session: AuthenticatedSession) async throws {
         if await keyMemory.load(reference: session.tokenReference) != nil { return }
-        let key = try sessionStore.loadVaultKey(
-            reference: session.tokenReference,
-            reason: "Unlock your encrypted vault"
-        )
+        // Recheck after the actor hop, immediately before Keychain can present
+        // Touch ID. A queued unlock must not steal focus from another app.
+        let key = try await MainActor.run {
+            guard unlockPresentationAllowed(), !Task.isCancelled else { throw CancellationError() }
+            return try sessionStore.loadVaultKey(
+                reference: session.tokenReference,
+                reason: "Unlock your encrypted vault"
+            )
+        }
         guard key.count == 64 else { throw VaultCryptoError.invalidUserKey }
         await keyMemory.store(key, reference: session.tokenReference)
     }
@@ -1357,7 +1365,7 @@ struct DefaultVaultwardenService: VaultwardenService {
         request.httpMethod = "POST"
         request.httpBody = FormURLEncoder.encode([
             ("grant_type", "refresh_token"),
-            ("client_id", "mobile"),
+            ("client_id", ClientPlatform.clientID),
             ("refresh_token", refreshToken)
         ])
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
@@ -1404,11 +1412,11 @@ struct DefaultVaultwardenService: VaultwardenService {
         request.httpMethod = "POST"
         var fields = [
             ("scope", "api offline_access"),
-            ("client_id", "mobile"),
+            ("client_id", ClientPlatform.clientID),
             ("deeplinkScheme", "https"),
-            ("deviceType", "1"),
+            ("deviceType", ClientPlatform.deviceType),
             ("deviceIdentifier", deviceIdentifier),
-            ("deviceName", "iPhone"),
+            ("deviceName", ClientPlatform.deviceName),
             ("grant_type", "password"),
             ("username", email),
             ("password", authenticationHash)
@@ -1473,7 +1481,7 @@ struct DefaultVaultwardenService: VaultwardenService {
 
     private func applyCommonHeaders(to request: inout URLRequest) {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("vaultwardenApp/iOS", forHTTPHeaderField: "User-Agent")
+        request.setValue(ClientPlatform.userAgent, forHTTPHeaderField: "User-Agent")
     }
 
     private func validate(response: HTTPURLResponse, data: Data) throws {

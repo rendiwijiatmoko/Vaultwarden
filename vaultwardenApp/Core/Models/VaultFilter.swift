@@ -9,6 +9,7 @@ import SwiftUI
 /// directly, which is what makes the same view tree collapse into a stack on
 /// iPhone and expand into a sidebar layout on iPad.
 enum VaultFilter: Hashable, Identifiable {
+    case all
     case category(VaultCategory)
     case favorites
     case unfoldered
@@ -22,6 +23,7 @@ enum VaultFilter: Hashable, Identifiable {
     var id: String {
         switch self {
         case let .category(category): "category:\(category.rawValue)"
+        case .all: "all"
         case .favorites: "favorites"
         case .unfoldered: "unfoldered"
         case let .folder(name): "folder:\(name)"
@@ -59,6 +61,7 @@ enum VaultFilter: Hashable, Identifiable {
     var icon: String {
         switch self {
         case let .category(category): category.icon
+        case .all: "key.fill"
         case .favorites: "star.fill"
         case .unfoldered: "questionmark.folder.fill"
         case .folder: "folder.fill"
@@ -69,6 +72,7 @@ enum VaultFilter: Hashable, Identifiable {
     var color: Color {
         switch self {
         case let .category(category): category.color
+        case .all: .blue
         case .favorites: .vaultYellow
         case .unfoldered: .secondary
         case .folder: .vaultBlue

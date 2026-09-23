@@ -1,6 +1,107 @@
 import AuthenticationServices
 import SwiftUI
 import UniformTypeIdentifiers
+#if os(macOS)
+import AppKit
+#endif
+
+#if os(macOS)
+/// Shown by the native Settings scene and the standard Command-comma shortcut.
+struct MacSettingsView: View {
+    @EnvironmentObject private var store: AppStore
+    @Environment(\.openWindow) private var openWindow
+    @State private var selectedTab = Tab.account
+
+    private enum Tab: Hashable {
+        case account, security, autoFill, sync, appearance, data, about
+
+        var requiresUnlockedVault: Bool {
+            self == .security || self == .sync || self == .data
+        }
+    }
+
+    private var canManageVault: Bool {
+        store.isAuthenticated && !store.isLocked
+    }
+
+    var body: some View {
+        settingsTabs
+            .frame(width: 680, height: 580)
+            .preferredColorScheme(preferredColorScheme)
+            .onChange(of: canManageVault) { _, canManage in
+                if !canManage && selectedTab.requiresUnlockedVault {
+                    selectedTab = .account
+                }
+            }
+    }
+
+    private var preferredColorScheme: ColorScheme? {
+        switch store.settings.theme {
+        case .system: nil
+        case .light: .light
+        case .dark: .dark
+        }
+    }
+
+    private var settingsTabs: some View {
+        TabView(selection: $selectedTab) {
+            NavigationStack {
+                if canManageVault {
+                    AccountServerSettingsView()
+                } else {
+                    accountAccessView
+                }
+            }
+            .tabItem { Label("Account", systemImage: "person.crop.circle") }
+            .tag(Tab.account)
+            if canManageVault {
+                SecuritySettingsView()
+                    .tabItem { Label("Security", systemImage: "lock.shield") }
+                    .tag(Tab.security)
+            }
+            AutoFillSettingsView(canManageVault: canManageVault)
+                .tabItem { Label("AutoFill", systemImage: "rectangle.and.pencil.and.ellipsis") }
+                .tag(Tab.autoFill)
+            if canManageVault {
+                SyncSettingsView()
+                    .tabItem { Label("Sync", systemImage: "arrow.triangle.2.circlepath") }
+                    .tag(Tab.sync)
+            }
+            AppearanceSettingsView()
+                .tabItem { Label("Appearance", systemImage: "paintpalette") }
+                .tag(Tab.appearance)
+            if canManageVault {
+                DataToolsView()
+                    .tabItem { Label("Data", systemImage: "externaldrive") }
+                    .tag(Tab.data)
+            }
+            NavigationStack { AboutView() }
+                .tabItem { Label("About", systemImage: "info.circle") }
+                .tag(Tab.about)
+        }
+        .formStyle(.grouped)
+    }
+
+    private var accountAccessView: some View {
+        Form {
+            Section("Account") {
+                LabeledContent("Status") {
+                    Text(store.isAuthenticated ? "Vault Locked" : "Signed out")
+                }
+                Text(store.isAuthenticated
+                     ? "Unlock your vault to manage account, security, sync, and data settings."
+                     : "Sign in to manage account, security, sync, and data settings.")
+                    .foregroundStyle(.secondary)
+                Button(store.isAuthenticated ? "Open Vault" : "Sign In") {
+                    openWindow(id: "vault")
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .navigationTitle("Account")
+    }
+}
+#endif
 
 struct SettingsView: View {
     @EnvironmentObject private var store: AppStore
@@ -64,7 +165,7 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
-            .navigationBarTitleDisplayMode(.large)
+            .vaultNavigationTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }
@@ -72,6 +173,8 @@ struct SettingsView: View {
                 }
             }
         }
+        .formStyle(.grouped)
+        .vaultSheetSize(width: 620, height: 620)
     }
 }
 
@@ -117,15 +220,20 @@ private struct AccountServerSettingsView: View {
         Form {
             Section("Account") {
                 TextField("Email", text: $store.settings.email)
-                    .keyboardType(.emailAddress)
-                    .textInputAutocapitalization(.never)
+                    .vaultKeyboardType(.emailAddress)
+                    .vaultTextInputAutocapitalization(.never)
                 LabeledContent("Status", value: store.isAuthenticated ? "Authenticated" : "Signed out")
                 LabeledContent("Organizations", value: "\(store.organizations.count)")
             }
+            #if os(macOS)
+            Section {
+                NavigationLink("Approve Login Requests") { PendingLoginRequestsView() }
+            }
+            #endif
             Section("Vaultwarden Server") {
                 TextField("https://vault.example.com", text: $store.settings.serverURL)
-                    .keyboardType(.URL)
-                    .textInputAutocapitalization(.never)
+                    .vaultKeyboardType(.URL)
+                    .vaultTextInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                 Button {
                     testState = .testing
@@ -165,7 +273,7 @@ private struct AccountServerSettingsView: View {
             }
         }
         .navigationTitle("Account & Server")
-        .navigationBarTitleDisplayMode(.inline)
+        .vaultNavigationTitleDisplayMode(.inline)
         .alert("Log Out and Delete Local Data?", isPresented: $confirmLogout) {
             Button("Cancel", role: .cancel) {}
             Button("Log Out", role: .destructive) {
@@ -183,6 +291,7 @@ private struct AccountServerSettingsView: View {
 
 private struct AutoFillSettingsView: View {
     @EnvironmentObject private var store: AppStore
+    var canManageVault = true
     @State private var statusMessage: String?
     @State private var providerEnabled = false
     @State private var publishedCredentialCount = 0
@@ -208,16 +317,18 @@ private struct AutoFillSettingsView: View {
                 LabeledContent("Passkeys") { Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.vaultGreen) }
             }
 
-            Section {
-                Picker("Default URI match detection", selection: defaultURIMatchDetection) {
-                    ForEach(AutoFillURIMatchType.defaultChoices, id: \.self) { type in
-                        Text(type.title).tag(type)
+            if canManageVault {
+                Section {
+                    Picker("Default URI match detection", selection: defaultURIMatchDetection) {
+                        ForEach(AutoFillURIMatchType.defaultChoices, id: \.self) { type in
+                            Text(type.title).tag(type)
+                        }
                     }
+                } header: {
+                    Text("URI Match Detection")
+                } footer: {
+                    Text("Used when a login URI does not define its own match rule. Per-item URI settings always take priority.")
                 }
-            } header: {
-                Text("URI Match Detection")
-            } footer: {
-                Text("Used when a login URI does not define its own match rule. Per-item URI settings always take priority.")
             }
 
             Section("Protection") {
@@ -231,22 +342,34 @@ private struct AutoFillSettingsView: View {
             }
 
             Section("Provider Status") {
+                #if os(macOS)
+                LabeledContent("Enabled in macOS", value: providerEnabled ? "Yes" : "No")
+                #else
                 LabeledContent("Enabled in iOS", value: providerEnabled ? "Yes" : "No")
-                LabeledContent("Published credentials", value: "\(publishedCredentialCount)")
-                if let publishedAt {
-                    LabeledContent("Last published", value: publishedAt.formatted(date: .abbreviated, time: .shortened))
-                }
-                Button {
-                    Task {
-                        await store.sync()
-                        await refreshProviderStatus()
+                #endif
+                if canManageVault {
+                    LabeledContent("Published credentials", value: "\(publishedCredentialCount)")
+                    if let publishedAt {
+                        LabeledContent("Last published", value: publishedAt.formatted(date: .abbreviated, time: .shortened))
                     }
-                } label: {
-                    if store.isSyncing {
-                        HStack { ProgressView(); Text("Publishing…") }
-                    } else {
-                        Label("Refresh Shared Credentials", systemImage: "arrow.triangle.2.circlepath")
+                    Button {
+                        Task {
+                            guard store.isAuthenticated && !store.isLocked else { return }
+                            await store.sync()
+                            await refreshProviderStatus()
+                        }
+                    } label: {
+                        if store.isSyncing {
+                            HStack { ProgressView(); Text("Publishing…") }
+                        } else {
+                            Label("Refresh Shared Credentials", systemImage: "arrow.triangle.2.circlepath")
+                        }
                     }
+                    .disabled(store.isSyncing)
+                } else {
+                    Text("Sign in and unlock your vault to sync credentials for AutoFill.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -254,11 +377,11 @@ private struct AutoFillSettingsView: View {
                 Button {
                     ASSettingsHelper.openCredentialProviderAppSettings { error in
                         Task { @MainActor in
-                            statusMessage = error == nil ? "Opened Passwords & Codes settings." : error?.localizedDescription
+                            statusMessage = error == nil ? "Opened AutoFill settings." : error?.localizedDescription
                         }
                     }
                 } label: {
-                    Label("Open Passwords & Codes Settings", systemImage: "arrow.up.forward.app")
+                    Label("Open AutoFill Settings", systemImage: "arrow.up.forward.app")
                 }
 
                 Button {
@@ -276,13 +399,13 @@ private struct AutoFillSettingsView: View {
             }
 
             Section {
-                Label("After enabling Vaultwarden in Passwords & Codes, sync this app once so iOS can refresh domain suggestions.", systemImage: "info.circle")
+                Label("After enabling Vaultwarden as an AutoFill provider, sync this app once to refresh domain suggestions.", systemImage: "info.circle")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
         .navigationTitle("AutoFill")
-        .navigationBarTitleDisplayMode(.inline)
+        .vaultNavigationTitleDisplayMode(.inline)
         .task { await refreshProviderStatus() }
     }
 
@@ -309,7 +432,11 @@ private struct SecuritySettingsView: View {
         Form {
             Section("Unlock") {
                 Toggle("Unlock with biometrics", isOn: $store.settings.biometricUnlock)
+                #if os(macOS)
+                Toggle("Mac login password fallback", isOn: $store.settings.devicePasscodeFallback)
+                #else
                 Toggle("Device passcode fallback", isOn: $store.settings.devicePasscodeFallback)
+                #endif
                 Picker("Vault timeout", selection: $store.settings.vaultTimeout) {
                     ForEach(VaultTimeout.allCases) { Text($0.localizedTitle).tag($0) }
                 }
@@ -331,7 +458,7 @@ private struct SecuritySettingsView: View {
             }
         }
         .navigationTitle("Security")
-        .navigationBarTitleDisplayMode(.inline)
+        .vaultNavigationTitleDisplayMode(.inline)
     }
 }
 
@@ -367,13 +494,19 @@ private struct SyncSettingsView: View {
                 Toggle("Background refresh", isOn: $store.settings.backgroundRefresh)
             }
             Section {
+                #if os(macOS)
+                Text("Offline changes are encrypted on this Mac and retried automatically. Background refresh can upload prepared encrypted changes while Vaultwarden is running, including while its window is in the background. Refresh stops when you quit the app.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                #else
                 Text("Offline changes are stored in a device-only AES-GCM queue, replayed with exponential backoff, and revision-rebased before retry. Background refresh can upload prepared encrypted writes without unlocking the vault.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                #endif
             }
         }
         .navigationTitle("Sync")
-        .navigationBarTitleDisplayMode(.inline)
+        .vaultNavigationTitleDisplayMode(.inline)
     }
 }
 
@@ -387,11 +520,13 @@ private struct AppearanceSettingsView: View {
                     ForEach(AppTheme.allCases) { Text($0.localizedTitle).tag($0) }
                 }
                 Toggle("Show website icons", isOn: $store.settings.showFavicons)
+                #if os(iOS)
                 Toggle("Haptic feedback", isOn: $store.settings.haptics)
+                #endif
             }
         }
         .navigationTitle("Appearance")
-        .navigationBarTitleDisplayMode(.inline)
+        .vaultNavigationTitleDisplayMode(.inline)
     }
 }
 
@@ -414,6 +549,13 @@ private struct DataToolsView: View {
                     Label("Export Encrypted Vault", systemImage: "lock.doc")
                 }
                 if let exportedArchive {
+                    #if os(macOS)
+                    Button {
+                        saveArchive(exportedArchive)
+                    } label: {
+                        Label("Save Encrypted Archive…", systemImage: "square.and.arrow.down")
+                    }
+                    #endif
                     ShareLink(item: exportedArchive) {
                         Label("Save or Share Last Export", systemImage: "square.and.arrow.up")
                     }
@@ -434,7 +576,7 @@ private struct DataToolsView: View {
             }
         }
         .navigationTitle("Data & Tools")
-        .navigationBarTitleDisplayMode(.inline)
+        .vaultNavigationTitleDisplayMode(.inline)
         .fileImporter(isPresented: $isImportingFile, allowedContentTypes: [.data]) { result in
             do {
                 let url = try result.get()
@@ -478,7 +620,11 @@ private struct DataToolsView: View {
             switch mode {
             case .export:
                 exportedArchive = try await store.exportEncryptedVault(password: password)
+                #if os(macOS)
+                statusMessage = "Encrypted archive is ready. Choose Save Encrypted Archive to keep a copy."
+                #else
                 statusMessage = "Encrypted archive is ready. Use Save or Share Last Export to store it safely."
+                #endif
             case .importArchive:
                 guard let pendingImportData else { throw VaultArchiveError.invalidArchive }
                 let summary = try await store.importEncryptedVault(data: pendingImportData, password: password)
@@ -496,6 +642,27 @@ private struct DataToolsView: View {
             SecureLog.failure("Encrypted archive transfer", error: error, logger: SecureLog.crypto)
         }
     }
+
+    #if os(macOS)
+    private func saveArchive(_ archive: URL) {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = archive.lastPathComponent
+        panel.canCreateDirectories = true
+        panel.title = L10n.string("Save Encrypted Archive")
+        panel.begin { response in
+            guard response == .OK, let destination = panel.url else { return }
+            do {
+                // NSSavePanel grants access to the selected destination. Atomic
+                // writing honors an existing file's replacement confirmation.
+                try Data(contentsOf: archive).write(to: destination, options: .atomic)
+                statusMessage = L10n.string("Encrypted archive saved.")
+            } catch {
+                statusMessage = error.localizedDescription
+                SecureLog.failure("Archive file save", error: error, logger: SecureLog.crypto)
+            }
+        }
+    }
+    #endif
 }
 
 private enum VaultTransferMode: String, Identifiable {
@@ -519,17 +686,17 @@ private struct VaultTransferPasswordSheet: View {
             Form {
                 Section {
                     SecureField("Archive password", text: $password)
-                        .textContentType(.newPassword)
+                        .vaultTextContentType(.newPassword)
                     if mode == .export {
                         SecureField("Confirm archive password", text: $confirmation)
-                            .textContentType(.newPassword)
+                            .vaultTextContentType(.newPassword)
                     }
                 } footer: {
                     Text("Use at least 12 characters. This password cannot be recovered.")
                 }
             }
             .navigationTitle(mode.title)
-            .navigationBarTitleDisplayMode(.inline)
+            .vaultNavigationTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -548,6 +715,8 @@ private struct VaultTransferPasswordSheet: View {
                 }
             }
         }
+        .formStyle(.grouped)
+        .vaultSheetSize(width: 460, height: 280)
         .interactiveDismissDisabled(isWorking)
     }
 }
@@ -569,14 +738,22 @@ private struct AboutView: View {
                         .font(.system(size: 54))
                         .foregroundStyle(Color.vaultBlue.gradient)
                     Text("Vaultwarden App").font(.title2.bold())
+                    #if os(macOS)
+                    Text("Independent macOS client for self-hosted vaults").foregroundStyle(.secondary)
+                    #else
                     Text("Independent iOS client for self-hosted vaults").foregroundStyle(.secondary)
+                    #endif
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
             }
             Section("Version") {
                 LabeledContent("Application", value: "\(version) (\(build))")
+                #if os(macOS)
+                LabeledContent("Minimum system", value: "macOS 26.2")
+                #else
                 LabeledContent("Minimum system", value: "iOS 26.2")
+                #endif
                 LabeledContent("Mode", value: "Production")
             }
             Section("Resources") {
@@ -592,7 +769,7 @@ private struct AboutView: View {
             }
         }
         .navigationTitle("About")
-        .navigationBarTitleDisplayMode(.inline)
+        .vaultNavigationTitleDisplayMode(.inline)
     }
 }
 
@@ -601,7 +778,7 @@ private struct PrivacyAndSecurityView: View {
         List {
             Section("Data Handling") {
                 Text("Vault data is sent only to the Vaultwarden server configured by the user. The app has no analytics, advertising SDK, or tracking domains.")
-                Text("Offline vault data, mutation queues, and the AutoFill index are encrypted on device. Keys are stored in iOS Keychain and are not included in exports.")
+                Text("Offline vault data, mutation queues, and the AutoFill index are encrypted on device. Keys are stored in the system Keychain and are not included in exports.")
             }
             Section("Exports") {
                 Text("Encrypted archives require device authentication and a separate archive password. Organization items and passkeys are excluded from archives.")
@@ -611,7 +788,7 @@ private struct PrivacyAndSecurityView: View {
             }
         }
         .navigationTitle("Privacy & Security")
-        .navigationBarTitleDisplayMode(.inline)
+        .vaultNavigationTitleDisplayMode(.inline)
     }
 }
 
@@ -630,7 +807,7 @@ private struct LicensesView: View {
             }
         }
         .navigationTitle("Licenses")
-        .navigationBarTitleDisplayMode(.inline)
+        .vaultNavigationTitleDisplayMode(.inline)
     }
 }
 
@@ -652,6 +829,6 @@ private struct DiagnosticsView: View {
             }
         }
         .navigationTitle("Diagnostics")
-        .navigationBarTitleDisplayMode(.inline)
+        .vaultNavigationTitleDisplayMode(.inline)
     }
 }

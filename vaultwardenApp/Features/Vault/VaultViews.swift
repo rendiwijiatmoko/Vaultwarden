@@ -1,6 +1,11 @@
 import SwiftUI
+#if os(iOS)
 import UIKit
 import VisionKit
+#elseif os(macOS)
+import AppKit
+import UniformTypeIdentifiers
+#endif
 internal import Vision
 
 struct VaultSyncStatusText: View {
@@ -107,14 +112,18 @@ struct VaultCollectionView: View {
     @State private var compactSearchText = ""
     @State private var selection = Set<UUID>()
     @State private var showingAddItem = false
-    @State private var editMode: EditMode = .inactive
+    @State private var editMode: VaultEditMode = .inactive
     @State private var pendingDeletion: [VaultItem] = []
     @State private var pendingArchive: [VaultItem] = []
     @State private var showingDeleteConfirmation = false
     @State private var showingArchiveConfirmation = false
     @State private var pendingRowAction: VaultRowAction?
     @State private var showingRowAlert = false
+    #if os(macOS)
+    @State private var sortOrder: VaultSortOrder = .nameAscending
+    #else
     @State private var sortOrder: VaultSortOrder = .newestFirst
+    #endif
 
     init(
         filter: VaultFilter,
@@ -183,6 +192,11 @@ struct VaultCollectionView: View {
                 )
             } else if editMode.isEditing {
                 // Multi-select for bulk actions.
+                #if os(macOS)
+                List(selection: $selection) { listSections(displayedItems) }
+                    .listStyle(.plain)
+                    .contentMargins(.horizontal, 20, for: .scrollContent)
+                #else
                 if usesColumnSelection {
                     List { listSections(displayedItems) }
                         .listStyle(.plain)
@@ -192,13 +206,20 @@ struct VaultCollectionView: View {
                         .listStyle(.plain)
                         .refreshable { await store.syncFromPullToRefresh() }
                 }
+                #endif
             } else {
+                #if os(macOS)
+                List(selection: $store.selectedItemID) { listSections(displayedItems) }
+                    .listStyle(.plain)
+                    .contentMargins(.horizontal, 20, for: .scrollContent)
+                #else
                 List { listSections(displayedItems) }
                     .listStyle(.plain)
                     .refreshable { await store.syncFromPullToRefresh() }
+                #endif
             }
         }
-        .environment(\.editMode, $editMode)
+        .vaultEditMode($editMode)
         .onAppear {
             guard !editMode.isEditing else { return }
             selection.removeAll()
@@ -216,7 +237,7 @@ struct VaultCollectionView: View {
         .onDisappear { onSelectionChange?([], false) }
         .navigationTitle(title)
         .navigationSubtitle(subtitle)
-        .navigationBarTitleDisplayMode(usesColumnSelection ? .large : .inline)
+        .vaultNavigationTitleDisplayMode(usesColumnSelection ? .large : .inline)
         .navigationBarBackButtonHidden(editMode.isEditing)
         .modifier(
             AdaptiveCollectionSearch(
@@ -228,7 +249,7 @@ struct VaultCollectionView: View {
         )
         .toolbar {
             if editMode.isEditing {
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItem(placement: .vaultLeading) {
                     Button(hasSelectedAllVisibleItems(in: displayedItems) ? "Deselect All" : "Select All") {
                         withAnimation(.snappy) { toggleSelectAll(in: displayedItems) }
                     }
@@ -236,43 +257,68 @@ struct VaultCollectionView: View {
                 }
             }
 
+            #if os(iOS)
             if category == .codes, !editMode.isEditing {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .vaultTrailing) {
                     TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
                         TOTPCircularTimer(date: context.date, period: sharedCodePeriod)
                     }
                 }
                 .sharedBackgroundVisibility(.hidden)
             }
+            #endif
 
-            ToolbarItem(placement: .topBarTrailing) {
+            #if os(macOS)
+            if editMode.isEditing {
+                ToolbarItem(placement: .primaryAction) { selectionModeButton }
+            }
+            #else
+            ToolbarItem(placement: .vaultTrailing) {
                 selectionModeButton
                     .tint(nil)
             }
+            #endif
 
             if !editMode.isEditing {
-                ToolbarItem(placement: .bottomBar) {
+                #if os(macOS)
+                if category == .codes {
+                    ToolbarItem(placement: .automatic) {
+                        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
+                            TOTPCircularTimer(date: context.date, period: sharedCodePeriod)
+                        }
+                    }
+                    .sharedBackgroundVisibility(.hidden)
+                }
+                ToolbarItem(placement: .automatic) {
+                    ControlGroup {
+                        sortMenu.menuIndicator(.hidden)
+                        addItemButton
+                    }
+                }
+                #else
+                ToolbarItem(placement: .vaultBottomBar) {
                     sortMenu
                         .tint(nil)
                 }
 
-                ToolbarSpacer(.flexible, placement: .bottomBar)
+                ToolbarSpacer(.flexible, placement: .vaultBottomBar)
 
                 if !usesColumnSelection {
                     // iOS 26 renders this as the native bottom search pill.
-                    DefaultToolbarItem(kind: .search, placement: .bottomBar)
+                    DefaultToolbarItem(kind: .search, placement: .vaultBottomBar)
 
-                    ToolbarSpacer(.flexible, placement: .bottomBar)
+                    ToolbarSpacer(.flexible, placement: .vaultBottomBar)
                 }
 
-                ToolbarItem(placement: .bottomBar) {
+                ToolbarItem(placement: .vaultBottomBar) {
                     addItemButton
                         .tint(nil)
                 }
+                #endif
             }
 
             if editMode.isEditing {
-                ToolbarItemGroup(placement: .bottomBar) {
+                ToolbarItemGroup(placement: .vaultBottomBar) {
                     Button {
                         pendingArchive = selectedItems
                         showingArchiveConfirmation = !pendingArchive.isEmpty
@@ -376,6 +422,11 @@ struct VaultCollectionView: View {
                         .tag(order)
                 }
             }
+            #if os(macOS)
+            Divider()
+            Button("Select Items", action: toggleSelectionMode)
+                .disabled(liveItems.isEmpty)
+            #endif
         } label: {
             Image(systemName: "arrow.up.arrow.down")
         }
@@ -414,6 +465,9 @@ struct VaultCollectionView: View {
                         && isRowSelected(displayedItems[index + 1])
 
                     row(for: item, isSelected: isSelected)
+                        #if os(macOS)
+                        .listRowInsets(EdgeInsets(top: 8, leading: 18, bottom: 8, trailing: 18))
+                        #endif
                         .tag(item.id)
                         .listRowBackground(
                             selectionBackground(
@@ -451,6 +505,15 @@ struct VaultCollectionView: View {
 
     @ViewBuilder
     private func row(for item: VaultItem, isSelected: Bool) -> some View {
+        #if os(macOS)
+        // A native selectable List supports arrow keys and Command/Shift
+        // multi-selection. Buttons around entire rows consume those gestures.
+        if category == .codes, !editMode.isEditing, let secret = item.totpSecret {
+            TOTPItemRow(item: item, secret: secret)
+        } else {
+            collectionRowContent(for: item)
+        }
+        #else
         if editMode.isEditing, usesColumnSelection {
             Button {
                 withAnimation(.snappy) {
@@ -496,6 +559,7 @@ struct VaultCollectionView: View {
                 collectionRowContent(for: item, isSelected: isSelected)
             }
         }
+        #endif
     }
 
     private func isRowSelected(_ item: VaultItem) -> Bool {
@@ -520,6 +584,9 @@ struct VaultCollectionView: View {
         item: VaultItem,
         displayedItems: [VaultItem]
     ) -> some View {
+        #if os(macOS)
+        Color.clear
+        #else
         if isRowSelected(item) {
             let previousIsSelected = index > 0 && isRowSelected(displayedItems[index - 1])
             let nextIsSelected = index + 1 < displayedItems.count
@@ -537,6 +604,7 @@ struct VaultCollectionView: View {
         } else {
             Color.clear
         }
+        #endif
     }
 
     @ViewBuilder
@@ -880,7 +948,7 @@ struct VaultItemRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(item.name)
-                        .font(.body.weight(.semibold))
+                        .font(itemTitleFont)
                         .foregroundStyle(isSelected ? Color.white : Color.primary)
                         .lineLimit(1)
                     if item.isFavorite {
@@ -890,11 +958,21 @@ struct VaultItemRow: View {
                     }
                 }
                 Text(item.displaySubtitle)
-                    .font(.subheadline)
+                    .font(itemSubtitleFont)
                     .foregroundStyle(isSelected ? Color.white.opacity(0.72) : Color.secondary)
                     .lineLimit(1)
             }
-            Spacer()
+            Spacer(minLength: 0)
+            #if os(macOS)
+            if !item.risks.isEmpty {
+                Image(systemName: "exclamationmark")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 24, height: 24)
+                    .background(Color.primary.opacity(0.04), in: Circle())
+                    .accessibilityLabel("Security Recommendation")
+            }
+            #else
             HStack(spacing: 5) {
                 if item.passkeyCount > 0 { Image(systemName: "person.badge.key.fill") }
                 if item.totpSecret != nil { Image(systemName: "lock.rotation") }
@@ -902,8 +980,25 @@ struct VaultItemRow: View {
             }
             .font(.caption)
             .foregroundStyle(isSelected ? Color.white.opacity(0.72) : Color.secondary)
+            #endif
         }
         .padding(.vertical, 7)
+    }
+
+    private var itemTitleFont: Font {
+        #if os(macOS)
+        .system(size: 17, weight: .semibold)
+        #else
+        .body.weight(.semibold)
+        #endif
+    }
+
+    private var itemSubtitleFont: Font {
+        #if os(macOS)
+        .system(size: 15)
+        #else
+        .subheadline
+        #endif
     }
 
 }
@@ -913,7 +1008,7 @@ private struct VaultItemThumbnail: View {
     let showsWebsiteIcon: Bool
     let serverURL: URL?
     var size: CGFloat = 42
-    @State private var image: UIImage?
+    @State private var image: VaultPlatformImage?
 
     private var taskID: String {
         "\(showsWebsiteIcon)|\(serverURL?.absoluteString ?? "")|\(item.uri)"
@@ -928,17 +1023,25 @@ private struct VaultItemThumbnail: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(iconColor.gradient)
             } else if showsWebsiteIcon, let image {
-                Image(uiImage: image)
+                Image(vaultImage: image)
                     .resizable()
                     .scaledToFit()
                     .padding(size * 0.12)
                     .background(Color.white)
             } else {
                 Text(initial)
+                    #if os(macOS)
+                    .font(.system(size: size * 0.70, weight: .regular))
+                    #else
                     .font(.system(size: size * 0.42, weight: .bold, design: .rounded))
+                    #endif
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    #if os(macOS)
+                    .background(Color(nsColor: .systemGray))
+                    #else
                     .background(iconColor.gradient)
+                    #endif
             }
         }
         .frame(width: size, height: size)
@@ -957,7 +1060,7 @@ private struct VaultItemThumbnail: View {
                     website: item.uri,
                     serverURL: serverURL
                   ) else { return }
-            image = UIImage(data: data)
+            image = VaultPlatformImage(data: data)
         }
         .accessibilityHidden(true)
     }
@@ -981,7 +1084,9 @@ private struct VaultItemThumbnail: View {
 struct VaultItemDetailView: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.dismiss) private var dismiss
+    #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    #endif
     let itemID: UUID
     @State private var revealPassword = false
     @State private var revealCardNumber = false
@@ -1009,6 +1114,9 @@ struct VaultItemDetailView: View {
                 // which would otherwise abandon the edit without asking.
                 .navigationBarBackButtonHidden(true)
             } else if let item {
+                #if os(macOS)
+                macDetail(item)
+                #else
                 List {
                     Section {
                         HStack(spacing: 16) {
@@ -1289,10 +1397,10 @@ struct VaultItemDetailView: View {
                 // The item name already appears in the detail header. Keep the
                 // split-view toolbar free for Edit and Search, like Passwords.
                 .navigationTitle("")
-                .navigationBarTitleDisplayMode(.inline)
+                .vaultNavigationTitleDisplayMode(.inline)
                 .toolbar {
                     if !item.isDeleted {
-                        ToolbarItem(placement: .topBarTrailing) {
+                        ToolbarItem(placement: .vaultTrailing) {
                             Button("Edit") {
                                 withAnimation(.snappy) { isEditing = true }
                             }
@@ -1300,6 +1408,7 @@ struct VaultItemDetailView: View {
                         }
                     }
                 }
+                #endif
             } else {
                 EmptyStateView(icon: "questionmark.folder", title: "Item unavailable", message: "This item may have been deleted.")
             }
@@ -1336,11 +1445,277 @@ struct VaultItemDetailView: View {
         if store.selectedItemID == item.id {
             store.selectedItemID = nil
         }
+        #if os(iOS)
         if horizontalSizeClass == .compact {
             dismiss()
         }
+        #endif
     }
 }
+
+#if os(macOS)
+private extension VaultItemDetailView {
+    func macDetail(_ item: VaultItem) -> some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                MacDetailCard {
+                    VStack(spacing: 12) {
+                        VaultItemThumbnail(
+                            item: item,
+                            showsWebsiteIcon: store.settings.showFavicons,
+                            serverURL: store.authenticatedSession?.serverURL,
+                            size: 64
+                        )
+                        Text(item.name)
+                            .font(.system(size: 23, weight: .bold))
+                            .multilineTextAlignment(.center)
+                            .textSelection(.enabled)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 10)
+                    .padding(.bottom, 22)
+
+                    macItemFields(item)
+
+                    ForEach(item.customFields) { field in
+                        CustomFieldDetailRow(field: field, item: item)
+                    }
+                    if let folder = item.folder {
+                        DetailValueRow(title: "Folder", value: folder, canCopy: false)
+                    }
+                    DetailValueRow(title: "Organization", value: item.organization ?? L10n.string("Not Shared"), canCopy: false)
+                    if let createdAt = item.createdAt {
+                        DetailValueRow(title: "Created", value: createdAt.formatted(date: .abbreviated, time: .omitted), canCopy: false)
+                    }
+                    DetailValueRow(title: "Modified", value: item.updatedAt.formatted(date: .abbreviated, time: .omitted), canCopy: false)
+                    if item.isArchived {
+                        DetailValueRow(title: "Status", value: L10n.string("Archived"), canCopy: false)
+                    } else if item.isDeleted {
+                        DetailValueRow(title: "Status", value: L10n.string("Deleted"), canCopy: false)
+                    }
+                    Divider().opacity(0.45)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Notes").foregroundStyle(.secondary)
+                        if !item.notes.isEmpty {
+                            Text(item.notes)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 12)
+                }
+
+                if item.passkeyCount > 0 {
+                    MacDetailCard {
+                        HStack(alignment: .top, spacing: 16) {
+                            Image(systemName: "checkmark.seal.fill")
+                                .font(.system(size: 28))
+                                .foregroundStyle(Color.vaultGreen)
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Passkey").font(.headline)
+                                Text(L10n.format(
+                                    "Passkeys are a secure way to sign in using %@ or your device passcode. They provide stronger phishing resistance than traditional passwords.",
+                                    BiometricAuthenticator.displayName
+                                ))
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .padding(.vertical, 6)
+                    }
+                }
+
+                if !item.risks.isEmpty || (item.type == .login && !item.password.isEmpty) {
+                    MacDetailCard {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Label("Security", systemImage: "shield.lefthalf.filled")
+                                .font(.headline)
+                            ForEach(Array(item.risks).sorted { $0.rawValue < $1.rawValue }, id: \.self) { risk in
+                                Label(risk.localizedTitle, systemImage: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(Color.vaultRed)
+                            }
+                            if item.type == .login && !item.password.isEmpty {
+                                if !item.risks.isEmpty { Divider().opacity(0.45) }
+                                PasswordBreachFooter(password: item.password)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 4)
+                    }
+                }
+            }
+            .font(.system(size: 13))
+            .frame(maxWidth: 820)
+            .padding(.horizontal, 28)
+            .padding(.vertical, 24)
+            .frame(maxWidth: .infinity)
+        }
+        .background(Color(nsColor: .textBackgroundColor))
+        .navigationTitle("")
+        .toolbar {
+            ToolbarItemGroup(placement: .automatic) {
+                Menu {
+                    if item.isDeleted {
+                        Button("Restore Item") { Task { await store.restore(item) } }
+                        Button("Delete Permanently", role: .destructive) { showDeleteConfirmation = true }
+                    } else {
+                        Button(item.isArchived ? "Unarchive Item" : "Archive Item") { showArchiveConfirmation = true }
+                        Divider()
+                        Button("Move to Deleted", role: .destructive) { showDeleteConfirmation = true }
+                    }
+                } label: {
+                    Label("Item Actions", systemImage: "ellipsis")
+                }
+                .menuIndicator(.hidden)
+                .help("Item Actions")
+                if !item.isDeleted {
+                    Button("Edit") { withAnimation(.snappy) { isEditing = true } }
+                }
+            }
+        }
+        .confirmationDialog(
+            item.isDeleted ? "Delete permanently?" : "Move item to Deleted?",
+            isPresented: $showDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button(item.isDeleted ? "Delete Permanently" : "Move to Deleted", role: .destructive) {
+                Task { await deleteAndLeaveDetail(item, permanently: item.isDeleted) }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text(item.isDeleted ? "This cannot be undone." : "You can restore this item later from Deleted.")
+        }
+        .confirmationDialog(
+            item.isArchived ? "Unarchive item?" : "Archive item?",
+            isPresented: $showArchiveConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button(item.isArchived ? "Unarchive" : "Archive") {
+                Task {
+                    if item.isArchived { await store.unarchive(item) }
+                    else { await store.archive(item) }
+                }
+            }
+            Button("Cancel", role: .cancel) { }
+        }
+    }
+
+    @ViewBuilder
+    func macItemFields(_ item: VaultItem) -> some View {
+        switch item.type {
+        case .login:
+            DetailValueRow(title: "Username", value: item.username)
+            if item.passkeyCount > 0 {
+                DetailValueRow(title: "Passkey", value: L10n.format("%lld passkeys stored", item.passkeyCount), canCopy: false)
+            }
+            if !item.password.isEmpty {
+                SecretFieldRow(title: "Password", value: item.password, revealed: revealPassword) {
+                    revealPassword.toggle()
+                }
+            }
+            if let secret = item.totpSecret {
+                MacDetailRow(title: "Code") {
+                    TOTPCodeView(secret: secret, compact: true, showsTimer: store.selectedFilter != .category(.codes))
+                }
+            }
+            ForEach(Array(item.websiteURIs.enumerated()), id: \.offset) { index, uri in
+                MacDetailRow(title: index == 0 ? L10n.string("Website") : L10n.format("Website %lld", index + 1)) {
+                    HStack(spacing: 8) {
+                        if let url = item.websiteURL(for: uri) {
+                            Link(destination: url) {
+                                Text(uri)
+                                    .multilineTextAlignment(.trailing)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .help(uri)
+                            .accessibilityLabel(L10n.string("Open Website") + ": " + uri)
+                        } else {
+                            Text(uri).foregroundStyle(.secondary).textSelection(.enabled)
+                        }
+                        AnimatedCopyButton(value: uri, accessibilityName: "website URI")
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        case .card:
+            if let card = item.card {
+                macValue("Cardholder", card.cardholderName)
+                macValue("Brand", card.brand, canCopy: false)
+                if !card.number.isEmpty {
+                    SecretFieldRow(title: "Number", value: card.number, revealed: revealCardNumber) { revealCardNumber.toggle() }
+                }
+                if !card.securityCode.isEmpty {
+                    SecretFieldRow(title: "Security code", value: card.securityCode, revealed: revealSecurityCode) { revealSecurityCode.toggle() }
+                }
+                macValue("Expires", card.expirationDisplay, canCopy: false)
+                macValue("Valid from", [card.validFromMonth, card.validFromYear].filter { !$0.isEmpty }.joined(separator: "/"), canCopy: false)
+            }
+        case .identity:
+            if let identity = item.identity {
+                macValue("Full name", identity.fullName)
+                macValue("Username", identity.username)
+                macValue("Company", identity.company)
+                macValue("Email", identity.email)
+                macValue("Phone", identity.phone)
+                if !identity.socialSecurityNumber.isEmpty {
+                    SecretFieldRow(title: "Social security number", value: identity.socialSecurityNumber, revealed: revealIdentityNumber) { revealIdentityNumber.toggle() }
+                }
+                macValue("Passport number", identity.passportNumber)
+                macValue("License number", identity.licenseNumber)
+                macValue("Address line 1", identity.address1)
+                macValue("Address line 2", identity.address2)
+                macValue("City", identity.city)
+                macValue("State / Province", identity.state)
+                macValue("Postal code", identity.postalCode)
+                macValue("Country", identity.country)
+            }
+        case .secureNote, .sshKey:
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    func macValue(_ title: String, _ value: String, canCopy: Bool = true) -> some View {
+        if !value.isEmpty { DetailValueRow(title: title, value: value, canCopy: canCopy) }
+    }
+}
+
+private struct MacDetailCard<Content: View>: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) { content }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(Color(white: colorScheme == .dark ? 0.155 : 1), in: RoundedRectangle(cornerRadius: 14))
+    }
+}
+
+private struct MacDetailRow<Content: View>: View {
+    let title: String
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Divider().opacity(0.45)
+            HStack(alignment: .firstTextBaseline, spacing: 20) {
+                Text(title)
+                    .frame(minWidth: 68, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+                content
+                    .multilineTextAlignment(.trailing)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+            .padding(.vertical, 12)
+        }
+    }
+}
+#endif
 
 private struct PasswordBreachFooter: View {
     let password: String
@@ -1418,6 +1793,21 @@ private struct DetailValueRow: View {
     var localizesTitle = true
 
     var body: some View {
+        #if os(macOS)
+        MacDetailRow(title: localizesTitle ? L10n.string(title) : title) {
+            HStack(spacing: 8) {
+                Text(value)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                if canCopy && !value.isEmpty {
+                    AnimatedCopyButton(value: value, accessibilityName: localizesTitle ? L10n.string(title) : title)
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        #else
         VStack(alignment: .leading, spacing: 7) {
             Text(localizesTitle ? L10n.string(title) : title)
                 .font(.caption)
@@ -1436,6 +1826,7 @@ private struct DetailValueRow: View {
             }
         }
         .padding(.vertical, 3)
+        #endif
     }
 }
 
@@ -1452,10 +1843,17 @@ private struct CustomFieldDetailRow: View {
     var body: some View {
         switch field.type {
         case .boolean:
+            #if os(macOS)
+            MacDetailRow(title: field.name) {
+                Label(field.value == "true" ? "Yes" : "No", systemImage: field.value == "true" ? "checkmark.circle.fill" : "xmark.circle")
+                    .foregroundStyle(field.value == "true" ? Color.vaultGreen : .secondary)
+            }
+            #else
             LabeledContent(field.name) {
                 Label(field.value == "true" ? "Yes" : "No", systemImage: field.value == "true" ? "checkmark.circle.fill" : "xmark.circle")
                     .foregroundStyle(field.value == "true" ? Color.vaultGreen : .secondary)
             }
+            #endif
         case .hidden:
             SecretFieldRow(
                 title: field.name,
@@ -1487,6 +1885,29 @@ private struct SecretFieldRow: View {
     var localizesTitle = true
 
     var body: some View {
+        #if os(macOS)
+        MacDetailRow(title: localizesTitle ? L10n.string(title) : title) {
+            HStack(spacing: 8) {
+                Text(revealed ? value : String(repeating: "•", count: 12))
+                    .font(.system(.body, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let toggleReveal {
+                    Button(action: toggleReveal) {
+                        Image(systemName: revealed ? "eye.slash" : "eye")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel(revealed ? "Hide value" : "Show value")
+                    .help(revealed ? "Hide value" : "Show value")
+                }
+                AnimatedCopyButton(value: copyValue ?? value, accessibilityName: localizesTitle ? L10n.string(title) : title)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        #else
         VStack(alignment: .leading, spacing: 7) {
             Text(localizesTitle ? L10n.string(title) : title)
                 .font(.caption)
@@ -1510,11 +1931,14 @@ private struct SecretFieldRow: View {
             }
         }
         .padding(.vertical, 3)
+        #endif
     }
 }
 
 private struct TOTPCodeView: View {
     let secret: String
+    var compact = false
+    var showsTimer = true
     @State private var copied = false
     @State private var copySequence = 0
 
@@ -1525,10 +1949,19 @@ private struct TOTPCodeView: View {
                 copy(code)
             } label: {
                 HStack {
+                    if compact && showsTimer {
+                        TOTPCircularTimer(date: context.date, period: TOTPGenerator.period(secret: secret))
+                            .scaleEffect(0.6)
+                            .frame(width: 22, height: 22)
+                    }
                     Text(code.chunked(every: 3))
-                        .font(.title2.monospacedDigit().weight(.semibold))
-                    Spacer()
-                    TOTPCircularTimer(date: context.date, period: TOTPGenerator.period(secret: secret))
+                        .font((compact ? Font.body : .title2).monospacedDigit().weight(.semibold))
+                    if !compact {
+                        Spacer()
+                        if showsTimer {
+                            TOTPCircularTimer(date: context.date, period: TOTPGenerator.period(secret: secret))
+                        }
+                    }
                     Image(systemName: copied ? "checkmark" : "doc.on.doc")
                         .font(.body.weight(.semibold))
                         .foregroundStyle(copied ? Color.vaultGreen : Color.vaultBlue)
@@ -1571,6 +2004,9 @@ private struct TOTPItemRow: View {
             let code = TOTPGenerator.code(secret: secret, date: context.date) ?? "------"
 
             HStack(spacing: 12) {
+                #if os(macOS)
+                rowContent(code: code)
+                #else
                 if let onSelect {
                     Button(action: onSelect) {
                         rowContent(code: code)
@@ -1585,6 +2021,7 @@ private struct TOTPItemRow: View {
                     }
                     .buttonStyle(.plain)
                 }
+                #endif
 
                 AnimatedCopyButton(
                     value: code,
@@ -1714,6 +2151,7 @@ private extension EnvironmentValues {
 /// Installs a non-blocking tap recognizer on the editor's window. Taps on an
 /// actual text input are ignored so field-to-field focus keeps working; every
 /// other tap ends editing while still reaching the tapped control.
+#if os(iOS)
 private struct KeyboardDismissTapInstaller: UIViewRepresentable {
     let onDismiss: () -> Void
 
@@ -1791,6 +2229,8 @@ private struct KeyboardDismissTapInstaller: UIViewRepresentable {
     }
 }
 
+#endif
+
 private struct CredentialKeyboardSuggestion: View {
     let title: String
     let value: String
@@ -1842,9 +2282,9 @@ private struct LabeledFormField: View {
     let showsRevealButton: Bool
     let focusBinding: FocusState<AddEditCredentialField?>.Binding?
     let focusValue: AddEditCredentialField?
-    let keyboardType: UIKeyboardType
-    let textContentType: UITextContentType?
-    let capitalization: TextInputAutocapitalization?
+    let keyboardType: VaultKeyboardType
+    let textContentType: VaultTextContentType?
+    let capitalization: VaultTextInputAutocapitalization?
     let autocorrectionDisabled: Bool
     @State private var isRevealed = false
 
@@ -1856,9 +2296,9 @@ private struct LabeledFormField: View {
         showsRevealButton: Bool = false,
         focusBinding: FocusState<AddEditCredentialField?>.Binding? = nil,
         focusValue: AddEditCredentialField? = nil,
-        keyboardType: UIKeyboardType = .default,
-        textContentType: UITextContentType? = nil,
-        capitalization: TextInputAutocapitalization? = nil,
+        keyboardType: VaultKeyboardType = .default,
+        textContentType: VaultTextContentType? = nil,
+        capitalization: VaultTextInputAutocapitalization? = nil,
         autocorrectionDisabled: Bool = false
     ) {
         self.title = title
@@ -1883,9 +2323,9 @@ private struct LabeledFormField: View {
             HStack(spacing: 12) {
                 focusedInput
                 .font(.body)
-                .keyboardType(keyboardType)
-                .textContentType(textContentType)
-                .textInputAutocapitalization(capitalization)
+                .vaultKeyboardType(keyboardType)
+                .vaultTextContentType(textContentType)
+                .vaultTextInputAutocapitalization(capitalization)
                 .autocorrectionDisabled(autocorrectionDisabled)
 
                 if isSecure && showsRevealButton {
@@ -2031,7 +2471,7 @@ struct AddEditVaultItemView: View {
 
     var body: some View {
         switch presentation {
-        case .sheet: NavigationStack { editor }
+        case .sheet: NavigationStack { editor }.vaultSheetSize(width: 580, height: 620)
         case .inline: editor
         }
     }
@@ -2117,14 +2557,20 @@ struct AddEditVaultItemView: View {
                             autocorrectionDisabled: true
                         )
                         Button {
+                            #if os(iOS)
                             guard DataScannerViewController.isSupported,
                                   DataScannerViewController.isAvailable else {
                                 totpScanError = "QR code scanning is not available on this device."
                                 return
                             }
+                            #endif
                             showingTOTPScanner = true
                         } label: {
+                            #if os(macOS)
+                            Label("Import QR Code", systemImage: "qrcode")
+                            #else
                             Label("Scan", systemImage: "qrcode.viewfinder")
+                            #endif
                         }
                     }
                 } else if type == .card {
@@ -2148,15 +2594,18 @@ struct AddEditVaultItemView: View {
 
                 customFieldsEditor
             }
+            .formStyle(.grouped)
             .environment(\.addEditFocusBinding, $focusedCredentialField)
+            #if os(iOS)
             .background {
                 KeyboardDismissTapInstaller {
                     focusedCredentialField = nil
                 }
             }
+            #endif
             .scrollDismissesKeyboard(.interactively)
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                if isKeyboardVisible, let activeCredentialField {
+                if showsCredentialSuggestions, let activeCredentialField {
                     CredentialKeyboardSuggestion(
                         title: activeCredentialField.suggestionTitle,
                         value: suggestion(for: activeCredentialField),
@@ -2172,7 +2621,7 @@ struct AddEditVaultItemView: View {
                 }
             }
             .navigationTitle(navigationTitleText)
-            .navigationBarTitleDisplayMode(.inline)
+            .vaultNavigationTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button { finish() } label: {
@@ -2234,7 +2683,7 @@ struct AddEditVaultItemView: View {
                     }
                     .ignoresSafeArea(edges: .bottom)
                     .navigationTitle("Scan Authenticator Code")
-                    .navigationBarTitleDisplayMode(.inline)
+                    .vaultNavigationTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) {
                             Button("Cancel") { showingTOTPScanner = false }
@@ -2242,6 +2691,7 @@ struct AddEditVaultItemView: View {
                         }
                     }
                 }
+                .vaultSheetSize(width: 460, height: 340)
             }
             .alert(
                 "Unable to Scan Code",
@@ -2254,18 +2704,28 @@ struct AddEditVaultItemView: View {
             } message: {
                 Text(totpScanError ?? "Please try again.")
             }
+            #if os(iOS)
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
                 isKeyboardVisible = true
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
                 isKeyboardVisible = false
             }
+            #endif
             .onChange(of: focusedCredentialField) { oldValue, newValue in
                 guard let newValue,
                       newValue.supportsGeneratorSuggestion,
                       newValue != oldValue else { return }
                 refreshSuggestion(for: newValue)
             }
+    }
+
+    private var showsCredentialSuggestions: Bool {
+        #if os(macOS)
+        activeCredentialField != nil
+        #else
+        isKeyboardVisible
+        #endif
     }
 
     private var navigationTitleText: String {
@@ -2587,6 +3047,7 @@ struct AddEditVaultItemView: View {
     }
 }
 
+#if os(iOS)
 private struct TOTPQRCodeScannerView: UIViewControllerRepresentable {
     let onScan: (String) -> Void
 
@@ -2640,6 +3101,68 @@ private struct TOTPQRCodeScannerView: UIViewControllerRepresentable {
         }
     }
 }
+
+#elseif os(macOS)
+/// macOS imports a QR image through the native file picker. Vision reads it
+/// locally; authenticator secrets never leave the device during recognition.
+private struct TOTPQRCodeScannerView: View {
+    let onScan: (String) -> Void
+    @State private var choosingImage = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Image(systemName: "qrcode.viewfinder")
+                .font(.system(size: 52))
+                .foregroundStyle(Color.vaultBlue)
+            Text("Import an Authenticator QR Code")
+                .font(.title2.bold())
+            Text("Choose an image containing your authenticator setup QR code.")
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            Button("Choose Image…") { choosingImage = true }
+                .buttonStyle(.borderedProminent)
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.callout)
+                    .foregroundStyle(Color.vaultRed)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .padding(32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .fileImporter(isPresented: $choosingImage, allowedContentTypes: [.image]) { result in
+            switch result {
+            case let .success(url): recognizeCode(in: url)
+            case let .failure(error): errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func recognizeCode(in url: URL) {
+        let hasAccess = url.startAccessingSecurityScopedResource()
+        defer { if hasAccess { url.stopAccessingSecurityScopedResource() } }
+
+        do {
+            let request = VNDetectBarcodesRequest()
+            request.symbologies = [.qr]
+            try VNImageRequestHandler(url: url).perform([request])
+            guard let value = request.results?
+                .compactMap(\.payloadStringValue)
+                .first(where: { value in
+                    guard let url = URL(string: value) else { return false }
+                    return OTPAuthSetupRequest.parse(url) != nil
+                }) else {
+                errorMessage = L10n.string("This image does not contain a valid TOTP authenticator QR code.")
+                return
+            }
+            onScan(value)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+#endif
 
 private extension String {
     func chunked(every size: Int) -> String {

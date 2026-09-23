@@ -59,3 +59,12 @@ VaultAutoFillExtension/
 - Integration tests must exercise authentication, sync payload compatibility, conflicts, and CRUD against a dedicated non-production server.
 - System UI tests must exercise AutoFill/password creation/passkey registration on physical devices because AuthenticationServices owns those presentation and authorization flows.
 - Release gates for licensing, privacy ownership, trademark use, and encryption export classification live outside the runtime architecture and are tracked in the repository release checklist.
+
+## Native macOS integration
+
+- A single multiplatform app target compiles SwiftUI with AppKit on macOS and UIKit on iOS. Mac Catalyst is disabled. Per-platform Info.plist and entitlements preserve the iOS extension and add a sandboxed native Mac credential provider.
+- `PlatformUI` contains presentation adapters; platform APIs remain conditional at integration boundaries. The vault model, synchronization engine, networking, and cryptographic implementation are shared.
+- Mac commands route through the same pending-action router as iOS Home Screen quick actions. The Mac uses a native sidebar and three-column selection; Settings has its own scene.
+- Mac keychain queries use the data-protection keychain. The vault key retains user-presence access control; the Mac login password replaces the iOS device passcode as the fallback.
+- macOS refresh is an app-lifetime task, not an iOS background task. Application/session lifecycle handling applies timeouts and removes sensitive views when the vault locks.
+- The pinned Swift SDK's iOS artifact lacks macOS support. `Scripts/prepare-macos-sdk.sh` verifies source/archive checksums and builds the corresponding native Rust library into an ignored local Swift package before Xcode runs. No binary is downloaded or built by a project build phase.

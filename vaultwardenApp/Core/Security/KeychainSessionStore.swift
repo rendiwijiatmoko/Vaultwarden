@@ -114,11 +114,19 @@ struct KeychainSessionStore: SessionStore {
         }
     }
 
+    private var vaultKeyAccessibility: CFString {
+        #if os(macOS)
+        kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        #else
+        kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly
+        #endif
+    }
+
     func saveVaultKey(_ key: Data, reference: String) throws {
         var accessControlError: Unmanaged<CFError>?
         guard let accessControl = SecAccessControlCreateWithFlags(
             nil,
-            kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly,
+            vaultKeyAccessibility,
             .userPresence,
             &accessControlError
         ) else {
@@ -167,6 +175,7 @@ struct KeychainSessionStore: SessionStore {
     private func baseQuery(reference: String) -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
+            kSecUseDataProtectionKeychain as String: true,
             kSecAttrService as String: service,
             kSecAttrAccount as String: reference
         ]

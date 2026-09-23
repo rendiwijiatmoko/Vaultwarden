@@ -71,13 +71,13 @@ struct GeneratorView: View {
             }
             .background(Color.vaultBackground)
             .navigationTitle("Generator")
-            .navigationBarTitleDisplayMode(.inline)
+            .vaultNavigationTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }
                         .tint(nil)
                 }
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .vaultTrailing) {
                     Button {
                         loadHistory()
                         showingHistory = true
@@ -104,6 +104,7 @@ struct GeneratorView: View {
                 GeneratorHistoryView(records: $history)
             }
         }
+        .vaultSheetSize(width: 560, height: 680)
     }
 
     private var generatedCard: some View {
@@ -313,19 +314,25 @@ private struct GeneratorHistoryView: View {
                                     reload()
                                 }
                             }
+                            .contextMenu {
+                                Button("Delete", systemImage: "trash", role: .destructive) {
+                                    try? GeneratorHistoryStore.delete(id: record.id)
+                                    reload()
+                                }
+                            }
                         }
                     }
                 }
             }
             .navigationTitle("Generator History")
-            .navigationBarTitleDisplayMode(.inline)
+            .vaultNavigationTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
                         .tint(nil)
                 }
                 if !records.isEmpty {
-                    ToolbarItem(placement: .topBarTrailing) {
+                    ToolbarItem(placement: .vaultTrailing) {
                         Button(role: .destructive) { confirmClear = true } label: {
                             Image(systemName: "trash")
                         }
@@ -348,6 +355,7 @@ private struct GeneratorHistoryView: View {
                 }
             }
         }
+        .vaultSheetSize(width: 560, height: 520)
     }
 
     private func reload() {
@@ -416,7 +424,7 @@ struct QuickPasswordGeneratorView: View {
             }
             .background(Color.vaultBackground)
             .navigationTitle("Generate Password")
-            .navigationBarTitleDisplayMode(.inline)
+            .vaultNavigationTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -429,6 +437,7 @@ struct QuickPasswordGeneratorView: View {
             .onChange(of: useSymbols) { _, _ in regenerate() }
         }
         .presentationDetents([.large])
+        .vaultSheetSize(width: 520, height: 620)
     }
 
     private func regenerate() {
@@ -476,7 +485,7 @@ struct QuickUsernameGeneratorView: View {
             }
             .padding(20)
             .navigationTitle("Generate Username")
-            .navigationBarTitleDisplayMode(.inline)
+            .vaultNavigationTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -485,5 +494,6 @@ struct QuickUsernameGeneratorView: View {
             }
         }
         .presentationDetents([.medium])
+        .vaultSheetSize(width: 460, height: 340)
     }
 }

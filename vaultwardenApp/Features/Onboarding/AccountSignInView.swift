@@ -37,23 +37,23 @@ struct AccountSignInView: View {
 
                 Section("Account") {
                     TextField("Server URL", text: $serverURL)
-                        .keyboardType(.URL)
-                        .textInputAutocapitalization(.never)
+                        .vaultKeyboardType(.URL)
+                        .vaultTextInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                     TextField("Email", text: $email)
-                        .keyboardType(.emailAddress)
-                        .textContentType(.username)
-                        .textInputAutocapitalization(.never)
+                        .vaultKeyboardType(.emailAddress)
+                        .vaultTextContentType(.username)
+                        .vaultTextInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                     SecureField("Master Password", text: $masterPassword)
-                        .textContentType(.password)
+                        .vaultTextContentType(.password)
                 }
 
                 if requiresTwoFactor {
                     Section("Two-step login") {
                         TextField("6-digit verification code", text: $verificationCode)
-                            .keyboardType(.numberPad)
-                            .textContentType(.oneTimeCode)
+                            .vaultKeyboardType(.numberPad)
+                            .vaultTextContentType(.oneTimeCode)
                             .onChange(of: verificationCode) { _, newValue in
                                 verificationCode = String(newValue.filter(\.isNumber).prefix(6))
                             }
@@ -70,30 +70,50 @@ struct AccountSignInView: View {
                     }
                 }
 
+                #if os(macOS)
                 Section {
-                    Button {
-                        connect()
-                    } label: {
-                        HStack {
-                            Spacer()
-                            if isConnecting {
-                                ProgressView()
-                            } else {
-                                Text("Sign In").fontWeight(.semibold)
-                            }
-                            Spacer()
-                        }
-                    }
-                    .disabled(!canConnect)
+                    EmptyView()
+                } footer: {
+                    signInButton
+                        .font(.body)
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
                 }
+                #else
+                Section { signInButton }
+                #endif
             }
             .navigationTitle("Vaultwarden")
-            .toolbarTitleDisplayMode(.inlineLarge)
+            .vaultToolbarTitleDisplayMode(.inlineLarge)
             .onAppear {
                 serverURL = store.settings.serverURL
                 email = store.settings.email
             }
         }
+        .formStyle(.grouped)
+        .vaultSheetSize(width: 560, height: 560)
+        #if os(macOS)
+        .frame(maxWidth: 680, maxHeight: 640)
+        .padding(.vertical, 16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.vaultBackground)
+        #endif
+    }
+
+    private var signInButton: some View {
+        Button(action: connect) {
+            HStack {
+                Spacer()
+                if isConnecting {
+                    ProgressView()
+                } else {
+                    Text("Sign In").fontWeight(.semibold)
+                }
+                Spacer()
+            }
+        }
+        .disabled(!canConnect)
+        .keyboardShortcut(.defaultAction)
     }
 
     private func connect() {

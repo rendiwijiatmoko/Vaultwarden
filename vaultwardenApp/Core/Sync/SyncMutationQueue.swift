@@ -172,7 +172,7 @@ actor SyncMutationQueue {
         let sealed = try AES.GCM.seal(data, using: key)
         guard let combined = sealed.combined else { throw MutationQueueError.invalidPayload }
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try combined.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        try combined.write(to: url, options: ClientPlatform.encryptedFileWritingOptions)
     }
 
     private func queueURL(reference: String) throws -> URL {
@@ -214,6 +214,7 @@ actor SyncMutationQueue {
     private func keyQuery(reference: String) -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
+            kSecUseDataProtectionKeychain as String: true,
             kSecAttrService as String: keychainService,
             kSecAttrAccount as String: reference
         ]

@@ -75,6 +75,7 @@ nonisolated enum GeneratorHistoryStore {
     private static var baseQuery: [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
+            kSecUseDataProtectionKeychain as String: true,
             kSecAttrService as String: keychainService,
             kSecAttrAccount as String: account
         ]

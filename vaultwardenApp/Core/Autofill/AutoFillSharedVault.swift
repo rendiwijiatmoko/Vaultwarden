@@ -487,7 +487,13 @@ nonisolated enum AutoFillSharedVault {
         let key = encryptionKey(keyMaterial: payloadKey, reference: payload.accountReference)
         let sealed = try AES.GCM.seal(data, using: key)
         guard let combined = sealed.combined else { throw AutoFillSharedVaultError.invalidPayload }
+        #if os(macOS)
+        // The payload remains AES-GCM encrypted; data-protection Keychain access
+        // and device-owner authentication guard its key on macOS.
+        try combined.write(to: try vaultURL(), options: .atomic)
+        #else
         try combined.write(to: try vaultURL(), options: [.atomic, .completeFileProtection])
+        #endif
         guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else {
             throw AutoFillSharedVaultError.appGroupUnavailable
         }
@@ -503,7 +509,11 @@ nonisolated enum AutoFillSharedVault {
         }
         let context = LAContext()
         context.localizedCancelTitle = L10n.string("Cancel")
+        #if os(macOS)
+        context.localizedFallbackTitle = L10n.string("Use Mac Password")
+        #else
         context.localizedFallbackTitle = L10n.string("Use Device Passcode")
+        #endif
         guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: nil),
               try await context.evaluatePolicy(
                 .deviceOwnerAuthentication,
@@ -594,6 +604,9 @@ nonisolated enum AutoFillSharedVault {
         if shared {
             query[kSecAttrAccessGroup as String] = keychainAccessGroup
         }
+        #if os(macOS)
+        query[kSecUseDataProtectionKeychain as String] = true
+        #endif
         return query
     }
 
@@ -632,21 +645,29 @@ nonisolated enum AutoFillSharedVault {
     }
 
     private static func payloadKeyQuery(reference: String) -> [String: Any] {
-        [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: payloadKeyService,
             kSecAttrAccount as String: reference,
             kSecAttrAccessGroup as String: keychainAccessGroup
         ]
+        #if os(macOS)
+        query[kSecUseDataProtectionKeychain as String] = true
+        #endif
+        return query
     }
 
     private static func writeSessionUpdateQuery(reference: String) -> [String: Any] {
-        [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: writeSessionUpdateService,
             kSecAttrAccount as String: reference,
             kSecAttrAccessGroup as String: keychainAccessGroup
         ]
+        #if os(macOS)
+        query[kSecUseDataProtectionKeychain as String] = true
+        #endif
+        return query
     }
 
     private static func vaultURL() throws -> URL {

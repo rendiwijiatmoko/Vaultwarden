@@ -1,7 +1,9 @@
 import QuickLook
 import PhotosUI
 import SwiftUI
+#if canImport(UIKit)
 import UIKit
+#endif
 import UniformTypeIdentifiers
 
 struct SendView: View {
@@ -37,18 +39,18 @@ struct SendView: View {
                             SendListRow(send: send, onSwipeAction: requestSwipeAction)
                         }
                     }
-                    .listStyle(.insetGrouped)
+                    .vaultInsetGroupedListStyle()
                 }
             }
             .background(Color.vaultBackground)
             .navigationTitle("Send")
-            .navigationBarTitleDisplayMode(.inline)
+            .vaultNavigationTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }
                         .tint(nil)
                 }
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .vaultTrailing) {
                     Button { showingCreate = true } label: { Image(systemName: "plus") }
                         .tint(nil)
                 }
@@ -74,6 +76,7 @@ struct SendView: View {
                 Text(swipeAlertMessage)
             }
         }
+        .vaultSheetSize(width: 640, height: 680)
     }
 
     private var pendingSwipeSend: SendItem? {
@@ -106,6 +109,9 @@ struct SendView: View {
 
     private func requestSwipeAction(_ action: SendSwipeAction) {
         pendingSwipeAction = action
+        #if os(macOS)
+        showingSwipeAlert = true
+        #else
         showingSwipeAlert = false
         Task { @MainActor in
             // Let List finish dismissing its swipe host before presenting from
@@ -118,6 +124,7 @@ struct SendView: View {
             }
             showingSwipeAlert = true
         }
+        #endif
     }
 
     private var sendIntro: some View {
@@ -175,6 +182,20 @@ private struct SendListRow: View {
                     )
                 }
                 .tint(send.isDisabled ? Color.vaultGreen : .orange)
+            }
+        }
+        .contextMenu {
+            if send.isDisabled || !send.isExpired {
+                Button {
+                    onSwipeAction(.changeStatus(send.id))
+                } label: {
+                    Label(send.isDisabled ? "Activate" : "Deactivate", systemImage: send.isDisabled ? "play.fill" : "pause.fill")
+                }
+            }
+            Button(role: .destructive) {
+                onSwipeAction(.delete(send.id))
+            } label: {
+                Label("Delete", systemImage: "trash")
             }
         }
     }
@@ -325,9 +346,9 @@ struct SendDetailView: View {
                     }
                 }
                 .navigationTitle("Send Details")
-                .navigationBarTitleDisplayMode(.inline)
+                .vaultNavigationTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
+                    ToolbarItem(placement: .vaultTrailing) {
                         Button("Edit") { showingEdit = true }
                             .tint(nil)
                     }
@@ -400,7 +421,9 @@ struct CreateSendView: View {
     @State private var passwordIsVisible = false
     @State private var disabled: Bool
     @State private var showingFileImporter = false
+    #if os(iOS)
     @State private var showingCamera = false
+    #endif
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var isImportingFile = false
     @State private var fileSelectionError: String?
@@ -462,6 +485,7 @@ struct CreateSendView: View {
                             }
 
                             HStack(spacing: 8) {
+                                #if os(iOS)
                                 Button {
                                     guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
                                         fileSelectionError = "Camera is not available on this device."
@@ -472,6 +496,7 @@ struct CreateSendView: View {
                                     SendFileSourceLabel(title: "Camera", systemImage: "camera.fill")
                                 }
                                 .disabled(isImportingFile)
+                                #endif
 
                                 PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
                                     SendFileSourceLabel(title: "Photos", systemImage: "photo.on.rectangle")
@@ -536,9 +561,9 @@ struct CreateSendView: View {
                                     SecureField(passwordPrompt, text: $password)
                                 }
                             }
-                            .textContentType(.newPassword)
+                            .vaultTextContentType(.newPassword)
                             .autocorrectionDisabled()
-                            .textInputAutocapitalization(.never)
+                            .vaultTextInputAutocapitalization(.never)
 
                             Button {
                                 passwordIsVisible.toggle()
@@ -589,7 +614,7 @@ struct CreateSendView: View {
                 }
             }
             .navigationTitle(editingSend == nil ? "New Send" : "Edit Send")
-            .navigationBarTitleDisplayMode(.inline)
+            .vaultNavigationTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { cancel() }
@@ -613,12 +638,14 @@ struct CreateSendView: View {
                     fileSelectionError = error.localizedDescription
                 }
             }
+            #if os(iOS)
             .fullScreenCover(isPresented: $showingCamera) {
                 SendCameraPicker { image in
                     importCameraImage(image)
                 }
                 .ignoresSafeArea()
             }
+            #endif
             .onChange(of: selectedPhotoItem) { _, item in
                 guard let item else { return }
                 importPhoto(item)
@@ -627,6 +654,8 @@ struct CreateSendView: View {
                 expirationDays = min(expirationDays, period.maximumExpirationDays ?? 1)
             }
         }
+        .formStyle(.grouped)
+        .vaultSheetSize(width: 620, height: 680)
     }
 
     private var canSave: Bool {
@@ -733,6 +762,7 @@ struct CreateSendView: View {
         }
     }
 
+    #if os(iOS)
     private func importCameraImage(_ image: UIImage) {
         guard let data = image.jpegData(compressionQuality: 0.9) else {
             fileSelectionError = SendFileSelectionError.unavailable.localizedDescription
@@ -745,6 +775,7 @@ struct CreateSendView: View {
             )
         }
     }
+    #endif
 
     private func prepareSelection(
         operation: @escaping @Sendable () throws -> StagedSendFile
@@ -950,6 +981,7 @@ private nonisolated enum SendFileStager {
     }
 }
 
+#if os(iOS)
 private struct SendCameraPicker: UIViewControllerRepresentable {
     let onImagePicked: (UIImage) -> Void
     @Environment(\.dismiss) private var dismiss
@@ -990,3 +1022,4 @@ private struct SendCameraPicker: UIViewControllerRepresentable {
         }
     }
 }
+#endif

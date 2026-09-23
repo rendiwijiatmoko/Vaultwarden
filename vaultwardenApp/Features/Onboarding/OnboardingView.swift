@@ -1,6 +1,8 @@
 import AuthenticationServices
 import SwiftUI
+#if canImport(UIKit)
 import UIKit
+#endif
 
 private enum OnboardingStep: Int, CaseIterable {
     case welcome
@@ -61,6 +63,13 @@ struct OnboardingView: View {
         }
         .background(Color.vaultBackground)
         .safeAreaInset(edge: .bottom) { footer }
+        .vaultSheetSize(width: 640, height: 680)
+        #if os(macOS)
+        .frame(maxWidth: 680, maxHeight: 760)
+        .padding(.vertical, 16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.vaultBackground)
+        #endif
         .onAppear {
             serverURL = store.settings.serverURL
             email = store.settings.email
@@ -199,7 +208,7 @@ struct OnboardingView: View {
                 icon: BiometricAuthenticator.systemImage,
                 color: .vaultGreen,
                 title: "Protect this device",
-                message: "Choose when iOS should verify that it is really you. These options can be changed later."
+                message: "Choose when this device should verify that it is really you. These options can be changed later."
             )
 
             VStack(spacing: 0) {
@@ -226,8 +235,8 @@ struct OnboardingView: View {
 
                 OnboardingToggleRow(
                     icon: "ellipsis.rectangle.fill",
-                    title: "Allow device passcode",
-                    message: "Use the device passcode when biometrics are unavailable.",
+                    title: deviceAuthenticationTitle,
+                    message: deviceAuthenticationMessage,
                     isOn: $allowPasscodeFallback
                 )
             }
@@ -250,8 +259,13 @@ struct OnboardingView: View {
             )
 
             VStack(alignment: .leading, spacing: 18) {
+                #if os(macOS)
+                OnboardingInstruction(number: 1, text: "Open AutoFill settings in System Settings.")
+                OnboardingInstruction(number: 2, text: "Turn on AutoFill Passwords and Passkeys.")
+                #else
                 OnboardingInstruction(number: 1, text: "Open Passwords & Codes in iOS Settings.")
                 OnboardingInstruction(number: 2, text: "Choose AutoFill Passwords and Passkeys.")
+                #endif
                 OnboardingInstruction(number: 3, text: "Select Vaultwarden as your provider.")
             }
             .padding(18)
@@ -261,12 +275,12 @@ struct OnboardingView: View {
                 ASSettingsHelper.openCredentialProviderAppSettings { error in
                     Task { @MainActor in
                         autofillStatus = error == nil
-                            ? "Passwords & Codes settings opened."
+                            ? "AutoFill settings opened."
                             : error?.localizedDescription
                     }
                 }
             } label: {
-                Label("Open Passwords & Codes Settings", systemImage: "arrow.up.forward.app")
+                Label("Open AutoFill Settings", systemImage: "arrow.up.forward.app")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
@@ -279,7 +293,7 @@ struct OnboardingView: View {
                     .frame(maxWidth: .infinity, alignment: .center)
             }
 
-            Text("You can finish setup now and enable AutoFill later from the app's Settings tab.")
+            Text("You can finish setup now and enable AutoFill later from the app's Settings.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -312,6 +326,7 @@ struct OnboardingView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
+                .keyboardShortcut(.defaultAction)
                 .disabled((step == .account && !accountIsValid) || isConnecting)
             }
             .padding(.horizontal, 22)
@@ -328,6 +343,22 @@ struct OnboardingView: View {
         case .autofill: "Open My Vault"
         }
         return L10n.string(key)
+    }
+
+    private var deviceAuthenticationTitle: String {
+        #if os(macOS)
+        "Allow Mac login password"
+        #else
+        "Allow device passcode"
+        #endif
+    }
+
+    private var deviceAuthenticationMessage: String {
+        #if os(macOS)
+        "Use your Mac login password when biometrics are unavailable."
+        #else
+        "Use the device passcode when biometrics are unavailable."
+        #endif
     }
 
     private var accountIsValid: Bool {
@@ -451,8 +482,8 @@ private struct OnboardingInputField: View {
     let title: String
     let placeholder: String
     @Binding var text: String
-    let keyboardType: UIKeyboardType
-    let textContentType: UITextContentType?
+    let keyboardType: VaultKeyboardType
+    let textContentType: VaultTextContentType?
     let isSecure: Bool
 
     var body: some View {
@@ -467,9 +498,9 @@ private struct OnboardingInputField: View {
                     TextField(L10n.string(placeholder), text: $text)
                 }
             }
-            .keyboardType(keyboardType)
-            .textContentType(textContentType)
-            .textInputAutocapitalization(.never)
+            .vaultKeyboardType(keyboardType)
+            .vaultTextContentType(textContentType)
+            .vaultTextInputAutocapitalization(.never)
             .autocorrectionDisabled()
         }
         .padding(.vertical, 13)

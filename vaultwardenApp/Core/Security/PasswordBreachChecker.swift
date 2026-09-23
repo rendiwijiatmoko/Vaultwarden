@@ -30,7 +30,7 @@ nonisolated enum PasswordBreachChecker {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue("true", forHTTPHeaderField: "Add-Padding")
-        request.setValue("Vaultwarden-iOS-Password-Check", forHTTPHeaderField: "User-Agent")
+        request.setValue(ClientPlatform.userAgent + "-Password-Check", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 15
 
         let (data, response) = try await URLSession.shared.data(for: request)

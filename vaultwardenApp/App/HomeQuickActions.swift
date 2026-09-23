@@ -1,5 +1,7 @@
 import Combine
+#if os(iOS)
 import UIKit
+#endif
 
 /// Actions exposed from the app icon on the Home Screen.
 enum HomeQuickAction: String, Equatable {
@@ -21,6 +23,18 @@ final class HomeQuickActionRouter: ObservableObject {
 
     private init() {}
 
+    func enqueue(_ action: HomeQuickAction) {
+        pendingAction = action
+    }
+
+    @discardableResult
+    func enqueue(rawValue: String) -> Bool {
+        guard let action = HomeQuickAction(rawValue: rawValue) else { return false }
+        enqueue(action)
+        return true
+    }
+
+    #if os(iOS)
     @discardableResult
     func enqueue(_ shortcutItem: UIApplicationShortcutItem) -> Bool {
         guard let action = HomeQuickAction(rawValue: shortcutItem.type) else { return false }
@@ -28,12 +42,15 @@ final class HomeQuickActionRouter: ObservableObject {
         return true
     }
 
+    #endif
+
     func consume(_ action: HomeQuickAction) {
         guard pendingAction == action else { return }
         pendingAction = nil
     }
 }
 
+#if os(iOS)
 /// SwiftUI apps don't install a scene delegate by default. A custom delegate
 /// is required because UIKit delivers warm-launch quick actions to the active
 /// window scene rather than to the application delegate.
@@ -71,3 +88,5 @@ final class VaultwardenApplicationDelegate: NSObject, UIApplicationDelegate {
         return configuration
     }
 }
+
+#endif

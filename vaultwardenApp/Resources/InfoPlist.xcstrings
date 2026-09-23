@@ -243,18 +243,15 @@
     },
     "CFBundleName" : {
       "comment" : "Bundle name",
-      "extractionState" : "extracted_with_value",
+      "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
-            "state" : "new",
-            "value" : "vaultwardenApp"
+            "state" : "translated",
+            "value" : "Vaultwarden"
           }
         }
       }
-    },
-    "New Password" : {
-
     },
     "NSCameraUsageDescription" : {
       "comment" : "Reason shown by iOS when requesting camera access.",
@@ -1215,12 +1212,6 @@
           }
         }
       }
-    },
-    "Search" : {
-
-    },
-    "Verification Codes" : {
-
     }
   },
   "version" : "1.0"

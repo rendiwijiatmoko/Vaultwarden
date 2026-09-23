@@ -1,4 +1,4 @@
-# Vaultwarden for iOS
+# Vaultwarden for iOS and macOS
 
 A native SwiftUI client for connecting to a user-selected, self-hosted Vaultwarden server.
 
@@ -7,7 +7,8 @@ A native SwiftUI client for connecting to a user-selected, self-hosted Vaultward
 
 ## Highlights
 
-- Native SwiftUI interface for iPhone and iPad
+- Native SwiftUI interface for iPhone, iPad, and Mac (AppKit, not Mac Catalyst)
+- Mac sidebar, three-column vault, keyboard navigation, menu commands, and Settings window
 - Login and encrypted synchronization with a self-hosted Vaultwarden server
 - Login, secure note, card, identity, SSH key, folder, collection, and custom-field support
 - Create, edit, trash, restore, and permanently delete vault items
@@ -24,6 +25,8 @@ A native SwiftUI client for connecting to a user-selected, self-hosted Vaultward
 ## Requirements
 
 - macOS with Xcode 26.2 or newer
+- macOS 26.2 or newer to run the native Mac app
+- Rust via rustup to prepare the pinned native Bitwarden SDK
 - iOS or iPadOS 26.2 or newer
 - An Apple development team for code signing
 - A self-hosted Vaultwarden server available over HTTPS
@@ -37,15 +40,43 @@ A native SwiftUI client for connecting to a user-selected, self-hosted Vaultward
    cd iOS-Vaultwarden
    ```
 
-2. Open `vaultwardenApp.xcodeproj` in Xcode.
-3. Replace the existing development team and bundle identifiers with your own values.
-4. Configure matching App Group and Keychain Sharing identifiers for both the main app and `VaultAutoFillExtension`.
-5. Select the `vaultwardenApp` scheme and an iOS device, then build and run.
-6. Enter the HTTPS URL of your Vaultwarden server during onboarding.
+2. Prepare the SDK before opening Xcode. The pinned upstream artifact has only iOS slices; this builds matching native macOS slices and keeps the original iOS slices:
 
-The app and AutoFill extension must use the same App Group and shared Keychain access group. AutoFill and passkey flows should be tested on a physical device because their presentation is controlled by iOS.
+   ```sh
+   ./Scripts/prepare-macos-sdk.sh
+   ```
+
+   The default contains Apple Silicon and Intel. For a faster Apple Silicon development build, use `MACOS_ARCHS=arm64 ./Scripts/prepare-macos-sdk.sh`. Downloaded sources and generated binaries are ignored by Git. See [Packages/README.md](Packages/README.md) for checksums, source pins, and compiler details.
+
+3. Open `vaultwardenApp.xcodeproj` in Xcode.
+4. Replace the existing development team and bundle identifiers with your own values.
+5. Configure matching App Group and Keychain Sharing identifiers for both the main app and `VaultAutoFillExtension`.
+6. Select the `vaultwardenApp` scheme and **My Mac** for the native macOS app, or an iOS device for iOS, then build and run.
+7. Enter the HTTPS URL of your Vaultwarden server during onboarding.
+
+The app and AutoFill extension must use the same App Group and shared Keychain access group. AutoFill and passkey flows require signed builds with matching provisioning on each platform. Validate them on a Mac and an iOS device because AuthenticationServices controls their presentation. The Mac entitlements are in `Config/macOS` and `VaultAutoFillExtension/VaultAutoFillExtension-macOS.entitlements`.
+
+## Native Mac behavior
+
+- The resizable vault window has a native sidebar, item list, and detail column. Arrow keys navigate items; Command/Shift selection supports bulk actions.
+- **⌘N** creates a password, **⌘F** focuses search, **⌘R** syncs, **⇧⌘L** locks, and **⌘,** opens Settings.
+- Touch ID or the Mac login password protects device authentication. Vault keys and tokens use the macOS data-protection Keychain, with matching sharing groups for AutoFill.
+- Copying a secret clears that clipboard item after 30 seconds without deleting a newer copy. Copied secrets are marked concealed for clipboard managers.
+- QR setup imports an image through a native file picker and decodes it locally. iOS retains camera scanning.
+- Encrypted exports use a Save dialog; Send supports native file selection. The Mac sandbox allows outbound networking and user-selected files.
+- Background refresh runs while the app is running and stops when it quits. Sleep, screen lock, and user-session switching lock the vault; switching apps follows the selected vault timeout.
+- macOS AutoFill supports passwords, passkeys, and verification codes. Apple's iOS-only system password-save/generation callbacks are omitted on Mac; manual creation and the in-app generator remain available.
 
 ## Testing
+
+Build and test on the current Mac:
+
+```sh
+xcodebuild -project vaultwardenApp.xcodeproj \
+  -scheme vaultwardenApp \
+  -destination 'platform=macOS' \
+  test
+```
 
 Run the shared scheme's test action in Xcode, or use:
 
@@ -56,7 +87,9 @@ xcodebuild -project vaultwardenApp.xcodeproj \
   test
 ```
 
-Automated tests cover cryptographic known answers, encrypted archive integrity, mutation queue behavior, CRUD projections, AutoFill domain matching, passkey selection, and lock timeout mapping.
+Signing is required for Keychain-backed tests and for a usable account/AutoFill installation on macOS. An unsigned build can verify compilation and the SDK tests, but the mutation-queue test returns Keychain error `-34018` without the required entitlement. Add the development account in Xcode Settings → Accounts and enable automatic signing for both targets before running the full suite.
+
+Automated tests cover native SDK PBKDF2/Argon2 known answers, vault-key unwrap and wrong-password rejection, cipher round trips, OTP imports, encrypted archive integrity, mutation queue behavior, CRUD projections, AutoFill domain matching, passkey selection, and lock timeout mapping.
 
 ## Project structure
 
@@ -96,7 +129,7 @@ Issues and pull requests are welcome, especially for reproducible bugs, interope
 
 ## Dependency notice
 
-This project currently pins [Bitwarden SDK for Swift](https://github.com/bitwarden/sdk-swift) at revision `3dbc27249f48fcb88c56739ece52e2335701de0b`. That package references a prebuilt `BitwardenFFI` artifact. Its exact distribution terms and corresponding source must be verified before distributing compiled builds of this application.
+The preparation script pins [Bitwarden SDK for Swift](https://github.com/bitwarden/sdk-swift) at revision `3dbc27249f48fcb88c56739ece52e2335701de0b`. The local package combines its prebuilt iOS `BitwardenFFI` artifact with macOS libraries built from Rust SDK revision `10ba9cbb21cb201988b7e54e68df13678ebcaa5f`. Its exact distribution terms and corresponding source must be verified before distributing compiled builds of this application.
 
 Vaultwarden server software is not bundled with this repository. Users provide and control their own server.
 

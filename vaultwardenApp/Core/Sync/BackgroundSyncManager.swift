@@ -1,3 +1,4 @@
+#if os(iOS)
 import BackgroundTasks
 import Foundation
 
@@ -33,3 +34,35 @@ nonisolated enum BackgroundSyncManager {
         BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: refreshIdentifier)
     }
 }
+
+#else
+import Foundation
+
+/// macOS keeps refreshing while the app is running; no iOS BGTask registration.
+@MainActor
+enum BackgroundSyncManager {
+    private static var handler: (@MainActor @Sendable () async -> Bool)?
+    private static var refreshTask: Task<Void, Never>?
+
+    static func register(handler: @escaping @MainActor @Sendable () async -> Bool) {
+        self.handler = handler
+    }
+
+    static func schedule(earliest: TimeInterval = 15 * 60) {
+        guard refreshTask == nil else { return }
+        refreshTask = Task {
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(earliest)) }
+                catch { return }
+                guard !Task.isCancelled else { return }
+                _ = await handler?()
+            }
+        }
+    }
+
+    static func cancelPendingRefresh() {
+        refreshTask?.cancel()
+        refreshTask = nil
+    }
+}
+#endif

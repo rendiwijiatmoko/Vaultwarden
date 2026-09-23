@@ -45,7 +45,7 @@ nonisolated struct EncryptedVaultCacheStore: VaultCacheStore {
         )
         // Background refresh runs after the user has unlocked the device once.
         // The device-only key still prevents migration or backup extraction.
-        try combined.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        try combined.write(to: url, options: ClientPlatform.encryptedFileWritingOptions)
     }
 
     func load(reference: String) throws -> Data {
@@ -123,6 +123,7 @@ nonisolated struct EncryptedVaultCacheStore: VaultCacheStore {
     private func keyQuery(reference: String) -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
+            kSecUseDataProtectionKeychain as String: true,
             kSecAttrService as String: keychainService,
             kSecAttrAccount as String: reference
         ]

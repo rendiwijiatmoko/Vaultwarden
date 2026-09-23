@@ -110,6 +110,7 @@ final class AppStore: ObservableObject {
     /// without having to be re-entered.
     func items(for filter: VaultFilter) -> [VaultItem] {
         switch filter {
+        case .all: activeItems
         case let .category(category): items(in: category)
         case .favorites: favoriteItems
         case .unfoldered: unfolderedItems
@@ -123,6 +124,7 @@ final class AppStore: ObservableObject {
 
     func title(for filter: VaultFilter) -> String {
         switch filter {
+        case .all: L10n.string("All")
         case let .category(category): category.localizedTitle
         case .favorites: L10n.string("Favorites")
         case .unfoldered: L10n.string("Unfoldered")
@@ -571,7 +573,7 @@ final class AppStore: ObservableObject {
         formatter.dateFormat = "yyyy-MM-dd-HHmmss"
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("Vaultwarden-\(formatter.string(from: Date())).vwvault")
-        try archive.write(to: url, options: [.atomic, .completeFileProtection])
+        try archive.write(to: url, options: ClientPlatform.protectedFileWritingOptions)
         return url
     }
 
@@ -858,7 +860,7 @@ final class AppStore: ObservableObject {
         selectedItemID = nil
 
         if cleanupFailure != nil {
-            userFacingNotice = "You were logged out, but iOS could not verify removal of every protected Keychain item. Restart the device and log out again before handing it to someone else."
+            userFacingNotice = "You were logged out, but the system could not verify removal of every protected Keychain item. Restart the device and log out again before handing it to someone else."
             SecureLog.event("Logout completed with a protected-storage cleanup failure", logger: SecureLog.security)
         }
     }
@@ -902,9 +904,12 @@ final class AppStore: ObservableObject {
     }
 
     func unlockWithBiometrics() async -> Bool {
+        guard UnlockPresentationPolicy.isAllowed, !Task.isCancelled else { return false }
         do {
             if let lockTask { await lockTask.value }
             lockTask = nil
+            // Focus may have changed while the preceding lock finished.
+            guard UnlockPresentationPolicy.isAllowed, !Task.isCancelled else { return false }
             if let authenticatedSession {
                 try await vaultwardenService.unlock(session: authenticatedSession)
             } else {

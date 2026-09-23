@@ -2,6 +2,22 @@ import CryptoKit
 import Foundation
 import LocalAuthentication
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
+
+/// A SwiftUI scene can remain active after another macOS app takes focus.
+/// Check the application itself before requesting interactive authentication.
+enum UnlockPresentationPolicy {
+    @MainActor
+    static var isAllowed: Bool {
+        #if os(macOS)
+        NSApplication.shared.isActive && NSApplication.shared.keyWindow != nil
+        #else
+        true
+        #endif
+    }
+}
 
 enum BiometricAuthenticator {
     static var displayName: String {
@@ -31,6 +47,7 @@ enum BiometricAuthenticator {
     }
 
     static func authenticate(reason: String, allowPasscode: Bool = false) async -> Bool {
+        guard UnlockPresentationPolicy.isAllowed, !Task.isCancelled else { return false }
         let context = LAContext()
         context.localizedCancelTitle = L10n.string("Cancel")
         let policy: LAPolicy = allowPasscode ? .deviceOwnerAuthentication : .deviceOwnerAuthenticationWithBiometrics
@@ -190,7 +207,12 @@ nonisolated struct OTPAuthSetupRequest: Identifiable, Hashable, Sendable {
 struct LockView: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.scenePhase) private var scenePhase
+    #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    private var unlockButtonWidth: CGFloat { horizontalSizeClass == .regular ? 360 : .infinity }
+    #else
+    private let unlockButtonWidth: CGFloat = 360
+    #endif
     private let isPrivacyShield: Bool
     @State private var showPasswordUnlock = false
     @State private var biometricFailed = false
@@ -217,23 +239,19 @@ struct LockView: View {
                 HStack {
                     Label(
                         biometricFailed
-                            ? L10n.format("Try %@ or Device Passcode", BiometricAuthenticator.displayName)
+                            ? biometricRetryTitle
                             : L10n.string("Unlock"),
                         systemImage: biometricFailed ? "lock.open.fill" : BiometricAuthenticator.systemImage
                     )
                 }
-                .frame(maxWidth: horizontalSizeClass == .regular ? 360 : .infinity)
+                .frame(maxWidth: unlockButtonWidth)
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
             .disabled(isUnlocking)
 
             if biometricFailed, !isPrivacyShield {
-                Text(store.lastUnlockError
-                     ?? L10n.format(
-                        "%@ was not completed. Try again using biometrics or the device passcode, or unlock with your master password.",
-                        BiometricAuthenticator.displayName
-                     ))
+                Text(store.lastUnlockError ?? biometricFailureMessage)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -246,7 +264,7 @@ struct LockView: View {
         .padding(28)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
-            Color(uiColor: .systemGroupedBackground)
+            Color.vaultBackground
                 .ignoresSafeArea(.all)
         }
         .ignoresSafeArea(.all)
@@ -257,15 +275,50 @@ struct LockView: View {
             guard phase == .active else { return }
             Task { await attemptAutomaticUnlockIfNeeded() }
         }
+        #if os(macOS)
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await attemptAutomaticUnlockIfNeeded() }
+        }
+        .sheet(isPresented: $showPasswordUnlock) {
+            MasterPasswordUnlockView()
+                .environmentObject(store)
+                .frame(width: 520, height: 500)
+        }
+        #else
         .fullScreenCover(isPresented: $showPasswordUnlock) {
             MasterPasswordUnlockView()
                 .environmentObject(store)
         }
+        #endif
+    }
+
+    private var biometricRetryTitle: String {
+        #if os(macOS)
+        L10n.format("Try %@ or Mac Password", BiometricAuthenticator.displayName)
+        #else
+        L10n.format("Try %@ or Device Passcode", BiometricAuthenticator.displayName)
+        #endif
+    }
+
+    private var biometricFailureMessage: String {
+        #if os(macOS)
+        L10n.format(
+            "%@ was not completed. Try again using biometrics or your Mac login password, or unlock with your master password.",
+            BiometricAuthenticator.displayName
+        )
+        #else
+        L10n.format(
+            "%@ was not completed. Try again using biometrics or the device passcode, or unlock with your master password.",
+            BiometricAuthenticator.displayName
+        )
+        #endif
     }
 
     private func attemptAutomaticUnlockIfNeeded() async {
         guard !isPrivacyShield,
               scenePhase == .active,
+              UnlockPresentationPolicy.isAllowed,
+              !Task.isCancelled,
               store.isLocked,
               store.settings.biometricUnlock,
               store.shouldAutomaticallyPromptUnlock,
@@ -275,7 +328,8 @@ struct LockView: View {
     }
 
     private func attemptDeviceUnlock() async {
-        guard !isPrivacyShield, !isUnlocking else { return }
+        guard !isPrivacyShield, !isUnlocking,
+              UnlockPresentationPolicy.isAllowed, !Task.isCancelled else { return }
         isUnlocking = true
         let success = await store.unlockWithBiometrics()
         biometricFailed = !success
@@ -342,7 +396,7 @@ private struct MasterPasswordUnlockView: View {
                         }
                     }
                     .padding(20)
-                    .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18))
+                    .background(Color.vaultCard, in: RoundedRectangle(cornerRadius: 18))
 
                     VStack(spacing: 14) {
                         Button {
@@ -375,9 +429,9 @@ private struct MasterPasswordUnlockView: View {
                 .padding(20)
             }
             .scrollDismissesKeyboard(.interactively)
-            .background(Color(uiColor: .systemGroupedBackground))
+            .background(Color.vaultBackground)
             .navigationTitle("Verify Master Password")
-            .navigationBarTitleDisplayMode(.inline)
+            .vaultNavigationTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }

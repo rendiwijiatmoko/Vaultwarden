@@ -76,7 +76,7 @@ actor WebsiteIconRepository {
             )
             try data.write(
                 to: fileURL,
-                options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]
+                options: ClientPlatform.encryptedFileWritingOptions
             )
             var values = URLResourceValues()
             values.isExcludedFromBackup = true

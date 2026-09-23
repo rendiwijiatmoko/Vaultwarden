@@ -495,6 +495,22 @@ nonisolated enum AutoFillCreateLoginSupport {
         )
     }
 
+    private static var clientID: String {
+        #if os(macOS)
+        "desktop"
+        #else
+        "mobile"
+        #endif
+    }
+
+    private static var userAgent: String {
+        #if os(macOS)
+        "vaultwardenApp/macOS-AutoFill"
+        #else
+        "vaultwardenApp/iOS-AutoFill"
+        #endif
+    }
+
     private static func createRequest(
         body: Data,
         session: AutoFillWriteSession
@@ -505,7 +521,7 @@ nonisolated enum AutoFillCreateLoginSupport {
         request.setValue("\(session.tokenType) \(session.accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("vaultwardenApp/iOS-AutoFill", forHTTPHeaderField: "User-Agent")
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         return try await data(for: request)
     }
 
@@ -520,12 +536,12 @@ nonisolated enum AutoFillCreateLoginSupport {
         request.httpMethod = "POST"
         request.httpBody = formData([
             ("grant_type", "refresh_token"),
-            ("client_id", "mobile"),
+            ("client_id", clientID),
             ("refresh_token", refreshToken)
         ])
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("vaultwardenApp/iOS-AutoFill", forHTTPHeaderField: "User-Agent")
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         let (data, response) = try await data(for: request)
         try validate(response, data: data)
         let token = try JSONDecoder().decode(AutoFillRefreshTokenResponse.self, from: data)
