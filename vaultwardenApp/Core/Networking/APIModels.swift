@@ -1,5 +1,21 @@
 import Foundation
 
+nonisolated struct AttachmentUploadRequestDTO: Encodable {
+    let key: String
+    let fileName: String
+    let fileSize: Int
+}
+
+nonisolated struct AttachmentUploadResponseDTO: Decodable {
+    let attachmentId: String
+    let url: String
+    let fileUploadType: Int
+}
+
+nonisolated struct AttachmentDownloadResponseDTO: Decodable {
+    let url: String
+}
+
 nonisolated enum BitwardenJSONDecoder {
     static func make() -> JSONDecoder {
         let decoder = JSONDecoder()

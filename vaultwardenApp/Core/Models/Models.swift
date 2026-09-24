@@ -122,6 +122,7 @@ nonisolated struct VaultItem: Identifiable, Hashable, Codable, Sendable {
     var isFavorite = false
     var totpSecret: String?
     var passkeyCount = 0
+    var attachments: [VaultAttachment]? = nil
     var risks: Set<VaultRisk> = []
     var card: CardDetails?
     var identity: IdentityDetails?
@@ -172,6 +173,16 @@ nonisolated struct VaultItem: Identifiable, Hashable, Codable, Sendable {
         if !username.isEmpty { return username }
         if !uri.isEmpty { return uri }
         return type.localizedTitle
+    }
+}
+
+nonisolated struct VaultAttachment: Identifiable, Hashable, Codable, Sendable {
+    var id: String
+    var fileName: String
+    var size: Int64
+
+    var formattedSize: String {
+        ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
     }
 }
 

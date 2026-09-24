@@ -1,3 +1,4 @@
+import BitwardenSdk
 import Foundation
 
 nonisolated struct SyncResponseDTO: Decodable, Sendable {
@@ -127,6 +128,7 @@ nonisolated struct SyncCipherDTO: Decodable, Sendable {
     let edit: Bool
     let viewPassword: Bool
     let fields: [SyncFieldDTO]?
+    let attachments: [SyncAttachmentDTO]?
     let creationDate: String
     let deletedDate: String?
     let revisionDate: String
@@ -136,7 +138,7 @@ nonisolated struct SyncCipherDTO: Decodable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id, organizationId, folderId, collectionIds, key, name, notes, type, login, identity, card
         case secureNote, sshKey, favorite, reprompt, organizationUseTotp, edit, viewPassword, fields
-        case creationDate, deletedDate, revisionDate, archivedDate, data
+        case creationDate, deletedDate, revisionDate, archivedDate, data, attachments
     }
 
     init(from decoder: Decoder) throws {
@@ -166,6 +168,7 @@ nonisolated struct SyncCipherDTO: Decodable, Sendable {
         edit = try container.decodeIfPresent(Bool.self, forKey: .edit) ?? true
         viewPassword = try container.decodeIfPresent(Bool.self, forKey: .viewPassword) ?? true
         fields = try container.decodeIfPresent([SyncFieldDTO].self, forKey: .fields) ?? legacyData?.fields
+        attachments = try container.decodeIfPresent([SyncAttachmentDTO].self, forKey: .attachments)
         creationDate = try container.decode(String.self, forKey: .creationDate)
         deletedDate = try container.decodeIfPresent(String.self, forKey: .deletedDate)
         revisionDate = try container.decode(String.self, forKey: .revisionDate)
@@ -175,6 +178,19 @@ nonisolated struct SyncCipherDTO: Decodable, Sendable {
         // Only the String form is passed to the SDK as blob-encrypted data; object fields are
         // merged into the legacy properties above.
         data = try? container.decode(String.self, forKey: .data)
+    }
+}
+
+nonisolated struct SyncAttachmentDTO: Decodable, Sendable {
+    let id: String?
+    let url: String?
+    let size: String?
+    let sizeName: String?
+    let fileName: String?
+    let key: String?
+
+    var sdkAttachment: Attachment {
+        Attachment(id: id, url: url, size: size, sizeName: sizeName, fileName: fileName, key: key)
     }
 }
 

@@ -1,4 +1,6 @@
 import SwiftUI
+import PhotosUI
+import UniformTypeIdentifiers
 #if os(iOS)
 import UIKit
 import VisionKit
@@ -964,6 +966,12 @@ struct VaultItemRow: View {
             }
             Spacer(minLength: 0)
             #if os(macOS)
+            if item.attachments?.isEmpty == false {
+                Image(systemName: "paperclip")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("Has attachments")
+            }
             if !item.risks.isEmpty {
                 Image(systemName: "exclamationmark")
                     .font(.system(size: 12, weight: .bold))
@@ -974,6 +982,7 @@ struct VaultItemRow: View {
             }
             #else
             HStack(spacing: 5) {
+                if item.attachments?.isEmpty == false { Image(systemName: "paperclip") }
                 if item.passkeyCount > 0 { Image(systemName: "person.badge.key.fill") }
                 if item.totpSecret != nil { Image(systemName: "lock.rotation") }
                 if item.organization != nil { Image(systemName: "person.2.fill") }
@@ -1081,6 +1090,19 @@ private struct VaultItemThumbnail: View {
     }
 }
 
+private struct VaultAttachmentDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.data] }
+    var data: Data
+
+    init(data: Data) { self.data = data }
+    init(configuration: ReadConfiguration) throws {
+        data = configuration.file.regularFileContents ?? Data()
+    }
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: data)
+    }
+}
+
 struct VaultItemDetailView: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.dismiss) private var dismiss
@@ -1095,6 +1117,11 @@ struct VaultItemDetailView: View {
     @State private var isEditing = false
     @State private var showDeleteConfirmation = false
     @State private var showArchiveConfirmation = false
+    @State private var exportedAttachment: VaultAttachmentDocument?
+    @State private var exportedFileName = "Attachment"
+    @State private var exportedContentType: UTType = .data
+    @State private var showingAttachmentExporter = false
+    @State private var downloadingAttachmentID: String?
 
     private var item: VaultItem? { store.items.first { $0.id == itemID } }
 
@@ -1155,32 +1182,6 @@ struct VaultItemDetailView: View {
                         if let secret = item.totpSecret {
                             Section("Verification Code") {
                                 TOTPCodeView(secret: secret)
-                            }
-                        }
-
-                        if item.passkeyCount > 0 {
-                            Section {
-                                HStack(alignment: .top, spacing: 14) {
-                                    Image(systemName: "checkmark.seal.fill")
-                                        .font(.title2)
-                                        .foregroundStyle(Color.vaultGreen)
-                                        .padding(.top, 2)
-
-                                    VStack(alignment: .leading, spacing: 6) {
-                                        Text(L10n.format("%lld passkeys stored", item.passkeyCount))
-                                            .font(.headline)
-                                            .foregroundStyle(.primary)
-
-                                        Text(L10n.format(
-                                            "Passkeys are a secure way to sign in using %@ or your device passcode. They provide stronger phishing resistance than traditional passwords.",
-                                            BiometricAuthenticator.displayName
-                                        ))
-                                            .font(.subheadline)
-                                            .foregroundStyle(.secondary)
-                                            .fixedSize(horizontal: false, vertical: true)
-                                    }
-                                }
-                                .padding(.vertical, 6)
                             }
                         }
 
@@ -1347,6 +1348,40 @@ struct VaultItemDetailView: View {
                         }
                     }
 
+                    if item.attachments?.isEmpty == false {
+                        Section("Attachments") {
+                            ForEach(item.attachments ?? []) { attachment in
+                                attachmentRow(attachment, itemID: item.id)
+                            }
+                        }
+                    }
+
+                    if item.passkeyCount > 0 {
+                        Section {
+                            HStack(alignment: .top, spacing: 14) {
+                                Image(systemName: "checkmark.seal.fill")
+                                    .font(.title2)
+                                    .foregroundStyle(Color.vaultGreen)
+                                    .padding(.top, 2)
+
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text(L10n.format("%lld passkeys stored", item.passkeyCount))
+                                        .font(.headline)
+                                        .foregroundStyle(.primary)
+
+                                    Text(L10n.format(
+                                        "Passkeys are a secure way to sign in using %@ or your device passcode. They provide stronger phishing resistance than traditional passwords.",
+                                        BiometricAuthenticator.displayName
+                                    ))
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
+                            .padding(.vertical, 6)
+                        }
+                    }
+
                     Section {
                         if item.isDeleted {
                             Button("Restore Item") { Task { await store.restore(item) } }
@@ -1393,6 +1428,7 @@ struct VaultItemDetailView: View {
                         }
                         .textCase(nil)
                     }
+
                 }
                 // The item name already appears in the detail header. Keep the
                 // split-view toolbar free for Edit and Search, like Passwords.
@@ -1412,6 +1448,56 @@ struct VaultItemDetailView: View {
             } else {
                 EmptyStateView(icon: "questionmark.folder", title: "Item unavailable", message: "This item may have been deleted.")
             }
+        }
+        .fileExporter(
+            isPresented: $showingAttachmentExporter,
+            document: exportedAttachment,
+            contentType: exportedContentType,
+            defaultFilename: exportedFileName
+        ) { result in
+            if case let .failure(error) = result {
+                store.userFacingNotice = "Could not save attachment: \(error.localizedDescription)"
+            }
+            exportedAttachment = nil
+        }
+    }
+
+    private func attachmentRow(_ attachment: VaultAttachment, itemID: UUID) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "paperclip")
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(attachment.fileName).lineLimit(2)
+                Text(attachment.formattedSize)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            Button {
+                Task {
+                    downloadingAttachmentID = attachment.id
+                    defer { downloadingAttachmentID = nil }
+                    guard let url = await store.downloadAttachment(attachment, from: itemID) else { return }
+                    defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+                    do {
+                        exportedAttachment = VaultAttachmentDocument(data: try Data(contentsOf: url))
+                        exportedFileName = attachment.fileName
+                        exportedContentType = UTType(filenameExtension: url.pathExtension) ?? .data
+                        showingAttachmentExporter = true
+                    } catch {
+                        store.userFacingNotice = "Could not open attachment: \(error.localizedDescription)"
+                    }
+                }
+            } label: {
+                if downloadingAttachmentID == attachment.id {
+                    ProgressView()
+                } else {
+                    Label("Download", systemImage: "arrow.down.to.line")
+                        .labelStyle(.iconOnly)
+                }
+            }
+            .disabled(downloadingAttachmentID != nil)
+            .accessibilityLabel("Download \(attachment.fileName)")
         }
     }
 
@@ -1506,6 +1592,36 @@ private extension VaultItemDetailView {
                     .padding(.vertical, 12)
                 }
 
+                if !item.risks.isEmpty || (item.type == .login && !item.password.isEmpty) {
+                    MacDetailCard {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Label("Security", systemImage: "shield.lefthalf.filled")
+                                .font(.headline)
+                            ForEach(Array(item.risks).sorted { $0.rawValue < $1.rawValue }, id: \.self) { risk in
+                                Label(risk.localizedTitle, systemImage: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(Color.vaultRed)
+                            }
+                            if item.type == .login && !item.password.isEmpty {
+                                if !item.risks.isEmpty { Divider().opacity(0.45) }
+                                PasswordBreachFooter(password: item.password)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 4)
+                    }
+                }
+                if item.attachments?.isEmpty == false {
+                    MacDetailCard {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Label("Attachments", systemImage: "paperclip").font(.headline)
+                            ForEach(item.attachments ?? []) { attachment in
+                                attachmentRow(attachment, itemID: item.id)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+
                 if item.passkeyCount > 0 {
                     MacDetailCard {
                         HStack(alignment: .top, spacing: 16) {
@@ -1527,24 +1643,6 @@ private extension VaultItemDetailView {
                     }
                 }
 
-                if !item.risks.isEmpty || (item.type == .login && !item.password.isEmpty) {
-                    MacDetailCard {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Label("Security", systemImage: "shield.lefthalf.filled")
-                                .font(.headline)
-                            ForEach(Array(item.risks).sorted { $0.rawValue < $1.rawValue }, id: \.self) { risk in
-                                Label(risk.localizedTitle, systemImage: "exclamationmark.triangle.fill")
-                                    .foregroundStyle(Color.vaultRed)
-                            }
-                            if item.type == .login && !item.password.isEmpty {
-                                if !item.risks.isEmpty { Divider().opacity(0.45) }
-                                PasswordBreachFooter(password: item.password)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 4)
-                    }
-                }
             }
             .font(.system(size: 13))
             .frame(maxWidth: 820)
@@ -1607,9 +1705,6 @@ private extension VaultItemDetailView {
         switch item.type {
         case .login:
             DetailValueRow(title: "Username", value: item.username)
-            if item.passkeyCount > 0 {
-                DetailValueRow(title: "Passkey", value: L10n.format("%lld passkeys stored", item.passkeyCount), canCopy: false)
-            }
             if !item.password.isEmpty {
                 SecretFieldRow(title: "Password", value: item.password, revealed: revealPassword) {
                     revealPassword.toggle()
@@ -2368,6 +2463,65 @@ private struct LabeledFormField: View {
     }
 }
 
+private nonisolated struct StagedVaultAttachment: Identifiable, Sendable {
+    let id: UUID
+    let url: URL
+    let fileName: String
+    let size: Int64
+
+    var formattedSize: String { ByteCountFormatter.string(fromByteCount: size, countStyle: .file) }
+}
+
+private nonisolated enum VaultAttachmentStageError: LocalizedError {
+    case unavailable
+    case tooLarge
+
+    var errorDescription: String? {
+        switch self {
+        case .unavailable: "This file is unavailable."
+        case .tooLarge: "Attachments must be 100 MB or smaller."
+        }
+    }
+}
+
+private nonisolated enum VaultAttachmentStager {
+    private static let maximumSize = 100 * 1_024 * 1_024
+
+    static func stage(fileAt source: URL) throws -> StagedVaultAttachment {
+        let access = source.startAccessingSecurityScopedResource()
+        defer { if access { source.stopAccessingSecurityScopedResource() } }
+        let size = try source.resourceValues(forKeys: [.fileSizeKey, .isDirectoryKey])
+        guard size.isDirectory != true else { throw VaultAttachmentStageError.unavailable }
+        guard let byteCount = size.fileSize, byteCount <= maximumSize else {
+            throw VaultAttachmentStageError.tooLarge
+        }
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("StagedVaultAttachments", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let name = source.lastPathComponent
+        let destination = directory.appendingPathComponent(name)
+        do {
+            try FileManager.default.copyItem(at: source, to: destination)
+            return StagedVaultAttachment(id: UUID(), url: destination, fileName: name, size: Int64(byteCount))
+        } catch {
+            try? FileManager.default.removeItem(at: directory)
+            throw error
+        }
+    }
+
+    static func stage(data: Data, fileName: String) throws -> StagedVaultAttachment {
+        guard data.count <= maximumSize else { throw VaultAttachmentStageError.tooLarge }
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("StagedVaultAttachments", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let destination = directory.appendingPathComponent(fileName)
+        try data.write(to: destination, options: .atomic)
+        return StagedVaultAttachment(id: UUID(), url: destination, fileName: fileName, size: Int64(data.count))
+    }
+}
+
 struct AddEditVaultItemView: View {
     /// `sheet` brings its own navigation stack and Cancel/Save titles.
     /// `inline` drops the stack so the editor can take over a detail screen
@@ -2416,6 +2570,13 @@ struct AddEditVaultItemView: View {
     @State private var card: CardDetails
     @State private var identity: IdentityDetails
     @State private var customFields: [VaultCustomField]
+    @State private var pendingAttachments: [StagedVaultAttachment] = []
+    @State private var attachmentsMarkedForRemoval: Set<String> = []
+    @State private var removedAttachmentIDs: Set<String> = []
+    @State private var showingAttachmentImporter = false
+    @State private var showingAttachmentPhotos = false
+    @State private var selectedAttachmentPhoto: PhotosPickerItem?
+    @State private var attachmentError: String?
     @State private var showingGenerator = false
     @State private var showingUsernameGenerator = false
     @State private var showingTOTPScanner = false
@@ -2593,8 +2754,114 @@ struct AddEditVaultItemView: View {
                 }
 
                 customFieldsEditor
+
+                Section("Attachments") {
+                    if let existingItem {
+                        ForEach((existingItem.attachments ?? []).filter { !removedAttachmentIDs.contains($0.id) }) { attachment in
+                            HStack(spacing: 12) {
+                                Image(systemName: "paperclip")
+                                    .foregroundStyle(.secondary)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(attachment.fileName)
+                                        .strikethrough(attachmentsMarkedForRemoval.contains(attachment.id))
+                                    Text(attachmentsMarkedForRemoval.contains(attachment.id)
+                                         ? "Will be removed when saved"
+                                         : attachment.formattedSize)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer(minLength: 8)
+                                Button {
+                                    if attachmentsMarkedForRemoval.contains(attachment.id) {
+                                        attachmentsMarkedForRemoval.remove(attachment.id)
+                                    } else {
+                                        attachmentsMarkedForRemoval.insert(attachment.id)
+                                    }
+                                } label: {
+                                    Image(systemName: attachmentsMarkedForRemoval.contains(attachment.id)
+                                          ? "arrow.uturn.backward.circle.fill"
+                                          : "minus.circle.fill")
+                                }
+                                .buttonStyle(.borderless)
+                                .foregroundStyle(attachmentsMarkedForRemoval.contains(attachment.id)
+                                                 ? Color.accentColor : Color.red)
+                                .accessibilityLabel(attachmentsMarkedForRemoval.contains(attachment.id)
+                                                    ? "Undo removal of \(attachment.fileName)"
+                                                    : "Remove \(attachment.fileName)")
+                            }
+                        }
+                        ForEach(pendingAttachments) { attachment in
+                            HStack {
+                                Label(attachment.fileName, systemImage: "paperclip")
+                                Spacer()
+                                Text(attachment.formattedSize).foregroundStyle(.secondary)
+                                Button(role: .destructive) {
+                                    try? FileManager.default.removeItem(at: attachment.url.deletingLastPathComponent())
+                                    pendingAttachments.removeAll { $0.id == attachment.id }
+                                } label: { Image(systemName: "minus.circle.fill") }
+                                    .buttonStyle(.borderless)
+                                    .accessibilityLabel("Remove \(attachment.fileName)")
+                            }
+                        }
+                        Menu {
+                            Button { showingAttachmentImporter = true } label: {
+                                Label("Files", systemImage: "folder")
+                            }
+                            Button { showingAttachmentPhotos = true } label: {
+                                Label("Photos", systemImage: "photo.on.rectangle")
+                            }
+                        } label: {
+                            Label("Add Attachment", systemImage: "paperclip")
+                        }
+                    } else {
+                        Text("Save this item first, then edit it to add attachments.")
+                            .foregroundStyle(.secondary)
+                    }
+                    if let attachmentError {
+                        Text(attachmentError).foregroundStyle(.red)
+                    }
+                }
             }
             .formStyle(.grouped)
+            .fileImporter(
+                isPresented: $showingAttachmentImporter,
+                allowedContentTypes: [.item],
+                allowsMultipleSelection: true
+            ) { result in
+                switch result {
+                case let .success(urls):
+                    for url in urls { stageAttachment(url) }
+                case let .failure(error):
+                    attachmentError = error.localizedDescription
+                }
+            }
+            .photosPicker(
+                isPresented: $showingAttachmentPhotos,
+                selection: $selectedAttachmentPhoto,
+                matching: .images
+            )
+            .onChange(of: selectedAttachmentPhoto) { _, photo in
+                guard let photo else { return }
+                Task {
+                    defer { selectedAttachmentPhoto = nil }
+                    do {
+                        guard let data = try await photo.loadTransferable(type: Data.self) else {
+                            throw VaultAttachmentStageError.unavailable
+                        }
+                        let ext = photo.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
+                        let staged = try await Task.detached(priority: .userInitiated) {
+                            try VaultAttachmentStager.stage(
+                                data: data,
+                                fileName: "Photo-\(UUID().uuidString).\(ext)"
+                            )
+                        }.value
+                        pendingAttachments.append(staged)
+                        attachmentError = nil
+                    } catch {
+                        attachmentError = error.localizedDescription
+                    }
+                }
+            }
             .environment(\.addEditFocusBinding, $focusedCredentialField)
             #if os(iOS)
             .background {
@@ -2799,6 +3066,10 @@ struct AddEditVaultItemView: View {
     /// Inline hosts stay on screen, so hand control back to them instead of
     /// dismissing a presentation that does not exist.
     private func finish() {
+        for attachment in pendingAttachments {
+            try? FileManager.default.removeItem(at: attachment.url.deletingLastPathComponent())
+        }
+        pendingAttachments = []
         if let onFinish {
             onFinish()
         } else {
@@ -3034,6 +3305,8 @@ struct AddEditVaultItemView: View {
     private func save() async {
         let item = draftItem
         if let existingItem,
+           pendingAttachments.isEmpty,
+           attachmentsMarkedForRemoval.isEmpty,
            editableSnapshot(for: item) == editableSnapshot(for: existingItem) {
             finish()
             return
@@ -3041,8 +3314,39 @@ struct AddEditVaultItemView: View {
 
         isSaving = true
         defer { isSaving = false }
-        if await store.save(item) {
-            finish()
+        let needsCipherSave = existingItem.map {
+            editableSnapshot(for: item) != editableSnapshot(for: $0)
+        } ?? true
+        if needsCipherSave {
+            guard await store.save(item) else { return }
+        }
+        for attachment in existingItem?.attachments ?? []
+        where attachmentsMarkedForRemoval.contains(attachment.id) {
+            guard await store.removeAttachment(attachment, from: item.id) else { return }
+            attachmentsMarkedForRemoval.remove(attachment.id)
+            removedAttachmentIDs.insert(attachment.id)
+        }
+        for attachment in pendingAttachments {
+            guard await store.addAttachment(
+                to: item.id, fileURL: attachment.url, fileName: attachment.fileName
+            ) else { return }
+            try? FileManager.default.removeItem(at: attachment.url.deletingLastPathComponent())
+            pendingAttachments.removeAll { $0.id == attachment.id }
+        }
+        finish()
+    }
+
+    private func stageAttachment(_ url: URL) {
+        Task {
+            do {
+                let staged = try await Task.detached(priority: .userInitiated) {
+                    try VaultAttachmentStager.stage(fileAt: url)
+                }.value
+                pendingAttachments.append(staged)
+                attachmentError = nil
+            } catch {
+                attachmentError = error.localizedDescription
+            }
         }
     }
 }

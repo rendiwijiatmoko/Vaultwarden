@@ -13,6 +13,7 @@ nonisolated struct DecryptedVaultSnapshot: Sendable {
 }
 
 nonisolated struct RemoteCipherState: Sendable {
+    let encrypted: Cipher
     let view: CipherView
 
     var canEdit: Bool { view.edit }
@@ -139,7 +140,7 @@ nonisolated struct BitwardenVaultPayloadDecoder: VaultPayloadDecoder {
                     collectionIDs: view.collectionIds
                 )
                 items.append(item)
-                remoteCiphers[item.id] = RemoteCipherState(view: view)
+                remoteCiphers[item.id] = RemoteCipherState(encrypted: cipher, view: view)
             } catch {
                 cipherFailures += 1
                 continue
@@ -296,6 +297,14 @@ nonisolated struct BitwardenVaultPayloadDecoder: VaultPayloadDecoder {
             isFavorite: view.favorite,
             totpSecret: login?.totp,
             passkeyCount: login?.fido2Credentials?.count ?? 0,
+            attachments: (view.attachments ?? []).compactMap { attachment in
+                guard let id = attachment.id else { return nil }
+                return VaultAttachment(
+                    id: id,
+                    fileName: attachment.fileName ?? "Attachment",
+                    size: Int64(attachment.size ?? "") ?? 0
+                )
+            },
             risks: risks,
             card: card,
             identity: identity,
@@ -457,7 +466,7 @@ private extension SyncCipherDTO {
             permissions: nil,
             viewPassword: viewPassword,
             localData: nil,
-            attachments: nil,
+            attachments: attachments?.map(\.sdkAttachment),
             fields: fields?.map(\.sdkField),
             passwordHistory: nil,
             creationDate: creationDate,

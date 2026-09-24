@@ -189,6 +189,95 @@ final class AppStore: ObservableObject {
         }
     }
 
+    func addAttachment(to itemID: UUID, fileURL: URL, fileName: String) async -> Bool {
+        guard let session = authenticatedSession else { return false }
+        guard pendingMutationCount == 0 else {
+            userFacingNotice = "Sync pending vault changes before uploading an attachment."
+            return false
+        }
+        isSyncing = true
+        defer { isSyncing = false }
+        do {
+            if remoteCiphers[itemID] == nil {
+                let snapshot = try await vaultwardenService.sync(session: session)
+                apply(snapshot)
+            }
+            guard let cipher = remoteCiphers[itemID], cipher.canEdit else {
+                userFacingNotice = "Save and sync this item before adding an attachment."
+                return false
+            }
+            try await vaultwardenService.uploadAttachment(
+                fileURL: fileURL, fileName: fileName,
+                cipher: cipher, organizationKeys: organizationKeys, session: session
+            )
+            let snapshot = try await vaultwardenService.sync(session: session)
+            apply(snapshot)
+            await applyPendingProjectionsAndPublish()
+            return true
+        } catch {
+            userFacingNotice = "Attachment upload failed: \(error.localizedDescription)"
+            SecureLog.failure("Attachment upload", error: error, logger: SecureLog.sync)
+            return false
+        }
+    }
+
+    func removeAttachment(_ attachment: VaultAttachment, from itemID: UUID) async -> Bool {
+        guard let session = authenticatedSession else { return false }
+        guard pendingMutationCount == 0 else {
+            userFacingNotice = "Sync pending vault changes before removing an attachment."
+            return false
+        }
+        guard let cipher = remoteCiphers[itemID], cipher.canEdit else {
+            userFacingNotice = "This item cannot be edited right now."
+            return false
+        }
+        isSyncing = true
+        defer { isSyncing = false }
+        do {
+            try await vaultwardenService.deleteAttachment(
+                attachmentID: attachment.id, cipher: cipher, session: session
+            )
+        } catch {
+            userFacingNotice = "Attachment removal failed: \(error.localizedDescription)"
+            SecureLog.failure("Attachment removal", error: error, logger: SecureLog.sync)
+            return false
+        }
+
+        // The server deletion has succeeded. Keep the row and paperclip accurate
+        // even if the subsequent vault refresh is delayed or unavailable.
+        do {
+            let snapshot = try await vaultwardenService.sync(session: session)
+            apply(snapshot)
+        } catch {
+            lastSyncError = error.localizedDescription
+            SecureLog.failure("Attachment refresh", error: error, logger: SecureLog.sync)
+        }
+        if let index = items.firstIndex(where: { $0.id == itemID }) {
+            items[index].attachments?.removeAll { $0.id == attachment.id }
+        }
+        return true
+    }
+
+    func downloadAttachment(_ attachment: VaultAttachment, from itemID: UUID) async -> URL? {
+        guard let session = authenticatedSession,
+              let cipher = remoteCiphers[itemID] else {
+            userFacingNotice = "Sync this item before downloading its attachment."
+            return nil
+        }
+        isSyncing = true
+        defer { isSyncing = false }
+        do {
+            return try await vaultwardenService.downloadAttachment(
+                attachment: attachment, cipher: cipher,
+                organizationKeys: organizationKeys, session: session
+            )
+        } catch {
+            userFacingNotice = "Attachment download failed: \(error.localizedDescription)"
+            SecureLog.failure("Attachment download", error: error, logger: SecureLog.sync)
+            return nil
+        }
+    }
+
     @discardableResult
     func trash(_ item: VaultItem) async -> Bool {
         guard let session = authenticatedSession else { return false }
@@ -560,6 +649,8 @@ final class AppStore: ObservableObject {
                 var copy = item
                 // Passkey private material is managed by the Bitwarden SDK and is never represented by this UI model.
                 copy.passkeyCount = 0
+                // This archive contains item fields, not attachment file contents.
+                copy.attachments = nil
                 return copy
             },
             folders: folders,
@@ -602,6 +693,7 @@ final class AppStore: ObservableObject {
             item.archivedAt = nil
             item.createdAt = Date()
             item.passkeyCount = 0
+            item.attachments = nil
             item.updatedAt = Date()
             if await save(item) { importedItems += 1 } else { failedItems += 1 }
         }

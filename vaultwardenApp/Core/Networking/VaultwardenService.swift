@@ -60,6 +60,24 @@ nonisolated protocol VaultwardenService: Sendable {
         password: String?,
         session: AuthenticatedSession
     ) async throws -> URL
+    func uploadAttachment(
+        fileURL: URL,
+        fileName: String,
+        cipher: RemoteCipherState,
+        organizationKeys: [String: String],
+        session: AuthenticatedSession
+    ) async throws
+    func downloadAttachment(
+        attachment: VaultAttachment,
+        cipher: RemoteCipherState,
+        organizationKeys: [String: String],
+        session: AuthenticatedSession
+    ) async throws -> URL
+    func deleteAttachment(
+        attachmentID: String,
+        cipher: RemoteCipherState,
+        session: AuthenticatedSession
+    ) async throws
     func unlock(session: AuthenticatedSession) async throws
     func unlock(session: AuthenticatedSession, masterPassword: String) async throws
     func lock(session: AuthenticatedSession?) async
@@ -131,6 +149,7 @@ enum VaultwardenServiceError: LocalizedError {
     case sendFileTooLarge
     case unsupportedFileUpload
     case archiveNotSupported
+    case missingAttachment
 
     var errorDescription: String? {
         switch self {
@@ -150,6 +169,7 @@ enum VaultwardenServiceError: LocalizedError {
         case .unsupportedFileUpload: "This server returned an unsupported file upload target."
         case .archiveNotSupported:
             "This Vaultwarden server does not support archiving items. Update the server, then try again."
+        case .missingAttachment: "This attachment is unavailable. Sync the vault and try again."
         }
     }
 }
@@ -817,6 +837,150 @@ struct DefaultVaultwardenService: VaultwardenService {
             throw error
         }
         return createdSendID
+    }
+
+    func uploadAttachment(
+        fileURL: URL,
+        fileName: String,
+        cipher: RemoteCipherState,
+        organizationKeys: [String: String],
+        session: AuthenticatedSession
+    ) async throws {
+        guard let cipherID = cipher.view.id else { throw VaultwardenServiceError.missingAttachment }
+        let credentials = try sessionStore.load(reference: session.tokenReference)
+        guard let userKey = await keyMemory.load(reference: session.tokenReference) else {
+            throw VaultwardenServiceError.vaultLocked
+        }
+        let client = try await BitwardenCipherWriter.initializedClient(
+            email: session.accountID,
+            userKey: userKey,
+            credentials: credentials,
+            organizationKeys: organizationKeys
+        )
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("EncryptedAttachmentUploads", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let encryptedURL = directory.appendingPathComponent("payload.enc")
+        let attachment = try client.vault().attachments().encryptFile(
+            cipher: cipher.encrypted,
+            attachment: AttachmentView(
+                id: nil, url: nil, size: nil, sizeName: nil,
+                fileName: fileName, key: nil
+            ),
+            decryptedFilePath: fileURL.path,
+            encryptedFilePath: encryptedURL.path
+        )
+        guard let encryptedName = attachment.fileName, let encryptedKey = attachment.key else {
+            throw VaultwardenServiceError.missingAttachment
+        }
+        let encryptedSize = try encryptedURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+        let body = try bitwardenEncoder.encode(AttachmentUploadRequestDTO(
+            key: encryptedKey, fileName: encryptedName, fileSize: encryptedSize
+        ))
+        let (responseData, _) = try await authenticatedResponse(
+            session: session, method: "POST",
+            path: "api/ciphers/\(cipherID)/attachment/v2", body: body
+        )
+        let upload = try BitwardenJSONDecoder.make().decode(AttachmentUploadResponseDTO.self, from: responseData)
+        do {
+            switch upload.fileUploadType {
+            case 0:
+                let multipart = try makeMultipartFile(
+                    encryptedFileURL: encryptedURL,
+                    fileName: "attachment.enc",
+                    directory: directory
+                )
+                _ = try await authenticatedUploadResponse(
+                    session: session, method: "POST",
+                    path: Self.directUploadPath(upload.url),
+                    fileURL: multipart.url,
+                    contentType: "multipart/form-data; boundary=\(multipart.boundary)"
+                )
+            case 1:
+                guard let url = URL(string: upload.url), url.scheme == "https" else {
+                    throw VaultwardenServiceError.unsupportedFileUpload
+                }
+                var request = URLRequest(url: url)
+                request.httpMethod = "PUT"
+                request.setValue("BlockBlob", forHTTPHeaderField: "x-ms-blob-type")
+                request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+                let (data, response) = try await httpClient.upload(for: request, fromFile: encryptedURL)
+                try validate(response: response, data: data)
+            default:
+                throw VaultwardenServiceError.unsupportedFileUpload
+            }
+        } catch {
+            _ = try? await authenticatedResponse(
+                session: session, method: "DELETE",
+                path: "api/ciphers/\(cipherID)/attachment/\(upload.attachmentId)"
+            )
+            throw error
+        }
+    }
+
+    func deleteAttachment(
+        attachmentID: String,
+        cipher: RemoteCipherState,
+        session: AuthenticatedSession
+    ) async throws {
+        guard let cipherID = cipher.view.id,
+              cipher.view.attachments?.contains(where: { $0.id == attachmentID }) == true else {
+            throw VaultwardenServiceError.missingAttachment
+        }
+        _ = try await authenticatedResponse(
+            session: session,
+            method: "DELETE",
+            path: "api/ciphers/\(cipherID)/attachment/\(attachmentID)"
+        )
+    }
+
+    func downloadAttachment(
+        attachment: VaultAttachment,
+        cipher: RemoteCipherState,
+        organizationKeys: [String: String],
+        session: AuthenticatedSession
+    ) async throws -> URL {
+        guard let cipherID = cipher.view.id,
+              let view = cipher.view.attachments?.first(where: { $0.id == attachment.id }) else {
+            throw VaultwardenServiceError.missingAttachment
+        }
+        let (accessData, _) = try await authenticatedResponse(
+            session: session, method: "GET",
+            path: "api/ciphers/\(cipherID)/attachment/\(attachment.id)"
+        )
+        let access = try BitwardenJSONDecoder.make().decode(AttachmentDownloadResponseDTO.self, from: accessData)
+        guard let url = URL(string: access.url, relativeTo: session.serverURL)?.absoluteURL,
+              url.scheme == "https" else { throw VaultwardenServiceError.missingAttachment }
+        let (encryptedURL, response) = try await httpClient.download(for: URLRequest(url: url))
+        try validate(response: response, data: Data())
+        let credentials = try sessionStore.load(reference: session.tokenReference)
+        guard let userKey = await keyMemory.load(reference: session.tokenReference) else {
+            throw VaultwardenServiceError.vaultLocked
+        }
+        let client = try await BitwardenCipherWriter.initializedClient(
+            email: session.accountID,
+            userKey: userKey,
+            credentials: credentials,
+            organizationKeys: organizationKeys
+        )
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DecryptedAttachments", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let outputURL = directory.appendingPathComponent(Self.safeFileName(attachment.fileName))
+        do {
+            try client.vault().attachments().decryptFile(
+                cipher: cipher.encrypted, attachment: view,
+                encryptedFilePath: encryptedURL.path,
+                decryptedFilePath: outputURL.path
+            )
+            return outputURL
+        } catch {
+            try? FileManager.default.removeItem(at: directory)
+            throw error
+        }
     }
 
     func downloadAndDecryptSendFile(
