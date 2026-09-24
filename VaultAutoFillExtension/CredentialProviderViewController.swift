@@ -387,6 +387,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         }
 
         updateAccountAvatar(payload)
+        viewModel.searchText = ""
         viewModel.credentials = credentials
         viewModel.serviceIdentifiers = serviceIdentifiers
         viewModel.defaultURIMatchType = AutoFillSharedVault.defaultURIMatchType
@@ -434,28 +435,43 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
             return
         }
         updateAccountAvatar(payload)
+        viewModel.searchText = ""
+        viewModel.showsWebsiteIcons = AutoFillSharedVault.showsWebsiteIcons
+        viewModel.websiteIconServerURL = payload.writeSession?.serverURL
         viewModel.registrationRelyingParty = identity.relyingPartyIdentifier
         viewModel.registrationUserName = identity.userName
+        viewModel.registrationTargets = (payload.passkeyTargets ?? [])
+            .filter { $0.matches(identity.relyingPartyIdentifier) }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         viewModel.state = .passkeyRegistration(
-            L10n.string("A new Login item will be encrypted and saved to your Vaultwarden vault.")
+            viewModel.registrationTargets.isEmpty
+                ? L10n.string("A new Login item will be encrypted and saved to your Vaultwarden vault.")
+                : ""
         )
-        viewModel.primaryActionTitle = L10n.string("Create Passkey")
+        viewModel.primaryActionTitle = L10n.string("Create New Login")
         viewModel.onPrimaryAction = { [weak self] in
             guard let self else { return }
             self.viewModel.state = .loading(L10n.string("Creating and saving passkey…"))
-            Task { await self.registerPasskey(request: request, unlocked: unlocked) }
+            Task { await self.registerPasskey(request: request, unlocked: unlocked, targetID: nil) }
+        }
+        viewModel.onSelectPasskeyTarget = { [weak self] target in
+            guard let self else { return }
+            self.viewModel.state = .loading(L10n.string("Creating and saving passkey…"))
+            Task { await self.registerPasskey(request: request, unlocked: unlocked, targetID: target.id) }
         }
     }
 
     @available(iOSApplicationExtension 17.0, *)
     private func registerPasskey(
         request: ASPasskeyCredentialRequest,
-        unlocked: AutoFillUnlockedVault
+        unlocked: AutoFillUnlockedVault,
+        targetID: String?
     ) async {
         do {
             let result = try await AutoFillPasskeySupport.register(
                 request: request,
-                unlockedVault: unlocked
+                unlockedVault: unlocked,
+                targetID: targetID
             )
             let oldPayload = unlocked.payload
             let updatedPayload = AutoFillVaultPayload(
@@ -464,11 +480,12 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
                 generatedAt: Date(),
                 credentials: oldPayload.credentials,
                 passkeys: (oldPayload.passkeys ?? []) + [result.passkey],
-                passkeyCiphers: (oldPayload.passkeyCiphers ?? []) + [result.cipher],
+                passkeyCiphers: (oldPayload.passkeyCiphers ?? []).filter { $0.id != result.cipher.id } + [result.cipher],
                 cryptoContext: oldPayload.cryptoContext,
                 writeSession: result.writeSession,
                 userKey: unlocked.userKey,
-                folders: oldPayload.folders
+                folders: oldPayload.folders,
+                passkeyTargets: oldPayload.passkeyTargets
             )
             try AutoFillSharedVault.publish(payload: updatedPayload, userKey: unlocked.userKey)
             unlockedVault = AutoFillUnlockedVault(payload: updatedPayload, userKey: unlocked.userKey)
@@ -678,7 +695,8 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
             cryptoContext: oldPayload.cryptoContext,
             writeSession: result.writeSession,
             userKey: unlockedVault.userKey,
-            folders: oldPayload.folders
+            folders: oldPayload.folders,
+            passkeyTargets: oldPayload.passkeyTargets
         )
         try AutoFillSharedVault.publish(payload: updatedPayload, userKey: unlockedVault.userKey)
         let updatedVault = AutoFillUnlockedVault(payload: updatedPayload, userKey: unlockedVault.userKey)
@@ -1001,6 +1019,7 @@ private final class AutoFillCredentialListViewModel: ObservableObject {
     @Published var accountDisplayName = L10n.string("Vaultwarden account")
     @Published var registrationRelyingParty = ""
     @Published var registrationUserName = ""
+    @Published var registrationTargets: [AutoFillPasskeyTarget] = []
     #if os(iOS)
     @Published var generatedPasswords: [AutoFillGeneratedPasswordOption] = []
     #endif
@@ -1024,6 +1043,7 @@ private final class AutoFillCredentialListViewModel: ObservableObject {
     var onAdd: () -> Void = {}
     var onAccount: () -> Void = {}
     var onPrimaryAction: () -> Void = {}
+    var onSelectPasskeyTarget: (AutoFillPasskeyTarget) -> Void = { _ in }
     var onSelect: (AutoFillCredentialRecord) -> Void = { _ in }
     var onDidSaveNewLogin: (AutoFillCredentialRecord) -> Void = { _ in }
     var onCancelCreate: () -> Void = {}
@@ -1069,6 +1089,16 @@ private final class AutoFillCredentialListViewModel: ObservableObject {
         }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
+    var filteredRegistrationTargets: [AutoFillPasskeyTarget] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return registrationTargets }
+        return registrationTargets.filter { target in
+            target.name.localizedCaseInsensitiveContains(query)
+                || target.username.localizedCaseInsensitiveContains(query)
+                || target.uriRules.contains { $0.uri.localizedCaseInsensitiveContains(query) }
+        }
+    }
+
     var isSearching: Bool {
         !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -1094,6 +1124,13 @@ private final class AutoFillCredentialListViewModel: ObservableObject {
         if case .credentials = state { return true }
         return false
     }
+
+    var showsPasskeyTargetList: Bool {
+        if case .passkeyRegistration = state { return !registrationTargets.isEmpty }
+        return false
+    }
+
+    var showsSelectionList: Bool { showsCredentialList || showsPasskeyTargetList }
 
     var subtitle: String {
         switch state {
@@ -1192,11 +1229,14 @@ private struct AutoFillCredentialListView: View {
             }
             .padding(16)
 
-            if viewModel.showsCredentialList {
+            if viewModel.showsSelectionList {
                 VStack(spacing: 10) {
                     HStack(spacing: 8) {
                         Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                        TextField("Search all available credentials", text: $viewModel.searchText)
+                        TextField(
+                            viewModel.showsPasskeyTargetList ? "Search matching logins" : "Search all available credentials",
+                            text: $viewModel.searchText
+                        )
                             .textFieldStyle(.plain)
                             .accessibilityLabel("Search credentials")
                         if !viewModel.searchText.isEmpty {
@@ -1209,7 +1249,7 @@ private struct AutoFillCredentialListView: View {
                     }
                     .padding(10)
                     .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
-                    if viewModel.hasRequestContext && !viewModel.credentials.isEmpty {
+                    if viewModel.showsCredentialList && viewModel.hasRequestContext && !viewModel.credentials.isEmpty {
                         Picker("Show credentials", selection: $viewModel.showsAllCredentials) {
                             Text("Suggested").tag(false)
                             Text("All Items").tag(true)
@@ -1223,6 +1263,7 @@ private struct AutoFillCredentialListView: View {
             Divider()
             Group {
                 if viewModel.showsCredentialList { credentialList }
+                else if viewModel.showsPasskeyTargetList { passkeyTargetList }
                 else { statusContent }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1231,6 +1272,15 @@ private struct AutoFillCredentialListView: View {
                 HStack {
                     Button(action: viewModel.onAdd) {
                         Label("New Password", systemImage: "plus")
+                    }
+                    Spacer()
+                }
+                .padding(16)
+            } else if viewModel.showsPasskeyTargetList {
+                Divider()
+                HStack {
+                    Button(action: viewModel.onPrimaryAction) {
+                        Label("Create New Login", systemImage: "plus")
                     }
                     Spacer()
                 }
@@ -1245,8 +1295,11 @@ private struct AutoFillCredentialListView: View {
         #else
         NavigationStack {
             Group {
-                if viewModel.showsCredentialList {
-                    credentialList
+                if viewModel.showsSelectionList {
+                    Group {
+                        if viewModel.showsPasskeyTargetList { passkeyTargetList }
+                        else { credentialList }
+                    }
                         .searchable(
                             text: $viewModel.searchText,
                             placement: .toolbar,
@@ -1269,12 +1322,12 @@ private struct AutoFillCredentialListView: View {
                     .accessibilityLabel("Close AutoFill")
                 }
 
-                if viewModel.showsCredentialList {
+                if viewModel.showsSelectionList {
                     ToolbarItem(placement: .primaryAction) {
-                        Button(action: viewModel.onAdd) {
+                        Button(action: viewModel.showsPasskeyTargetList ? viewModel.onPrimaryAction : viewModel.onAdd) {
                             Image(systemName: "plus")
                         }
-                        .accessibilityLabel("Create new password")
+                        .accessibilityLabel(viewModel.showsPasskeyTargetList ? "Create new Login" : "Create new password")
                     }
 
                     #if os(iOS)
@@ -1340,6 +1393,52 @@ private struct AutoFillCredentialListView: View {
             }
             .listStyle(.plain)
         }
+    }
+
+    @ViewBuilder
+    private var passkeyTargetList: some View {
+        if viewModel.filteredRegistrationTargets.isEmpty {
+            ContentUnavailableView.search(text: viewModel.searchText)
+        } else {
+            List {
+                Section {
+                    ForEach(viewModel.filteredRegistrationTargets) { target in
+                        Button {
+                            viewModel.onSelectPasskeyTarget(target)
+                        } label: {
+                            AutoFillCredentialRow(
+                                credential: registrationRowCredential(for: target),
+                                kind: .password,
+                                showsWebsiteIcon: viewModel.showsWebsiteIcons,
+                                serverURL: viewModel.websiteIconServerURL
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .alignmentGuide(.listRowSeparatorLeading) { _ in 55 }
+                    }
+                } header: {
+                    Text("Choose a login to save this passkey to")
+                }
+                #if os(iOS)
+                .listSectionSeparator(.hidden, edges: .top)
+                #endif
+            }
+            .listStyle(.plain)
+        }
+    }
+
+    private func registrationRowCredential(for target: AutoFillPasskeyTarget) -> AutoFillCredentialRecord {
+        let uri = target.uriRules.first(where: { $0.match != .never })?.uri ?? ""
+        let host = URL(string: uri)?.host ?? URL(string: "https://\(uri)")?.host
+        return AutoFillCredentialRecord(
+            id: target.id,
+            name: target.name,
+            username: target.username.isEmpty ? viewModel.registrationRelyingParty : target.username,
+            password: "",
+            serviceIdentifier: host,
+            totpSecret: nil,
+            uriRules: target.uriRules
+        )
     }
 
     @ViewBuilder

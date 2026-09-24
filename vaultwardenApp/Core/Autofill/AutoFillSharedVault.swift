@@ -201,6 +201,24 @@ nonisolated struct AutoFillVaultPayload: Codable, Sendable {
     let writeSession: AutoFillWriteSession?
     let userKey: Data?
     let folders: [AutoFillFolderRecord]?
+    let passkeyTargets: [AutoFillPasskeyTarget]?
+}
+
+nonisolated struct AutoFillPasskeyTarget: Codable, Hashable, Identifiable, Sendable {
+    let id: String
+    let name: String
+    let username: String
+    let uriRules: [AutoFillURIRule]
+
+    func matches(_ relyingPartyIdentifier: String) -> Bool {
+        let domainRules = uriRules
+            .filter { $0.match != .never }
+            .map { AutoFillURIRule(uri: $0.uri, match: .baseDomain) }
+        return AutoFillCredentialRecord(
+            id: id, name: name, username: username, password: "",
+            serviceIdentifier: nil, totpSecret: nil, uriRules: domainRules
+        ).matches(serviceIdentifiers: [relyingPartyIdentifier])
+    }
 }
 
 nonisolated struct AutoFillFolderRecord: Codable, Hashable, Identifiable, Sendable {

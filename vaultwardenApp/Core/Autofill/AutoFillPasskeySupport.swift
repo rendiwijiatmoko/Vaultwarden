@@ -41,7 +41,8 @@ nonisolated struct AutoFillPasskeyRegistrationResult {
 nonisolated enum AutoFillPasskeySupport {
     static func register(
         request: ASPasskeyCredentialRequest,
-        unlockedVault: AutoFillUnlockedVault
+        unlockedVault: AutoFillUnlockedVault,
+        targetID: String? = nil
     ) async throws -> AutoFillPasskeyRegistrationResult {
         guard let identity = request.credentialIdentity as? ASPasskeyCredentialIdentity else {
             throw AutoFillPasskeyError.credentialNotFound
@@ -54,13 +55,19 @@ nonisolated enum AutoFillPasskeySupport {
 
         let parameters = supportedParameters(request.supportedAlgorithms)
         guard !parameters.isEmpty else { throw AutoFillPasskeyError.unsupportedAlgorithm }
+        if let targetID {
+            guard payload.passkeyTargets?.contains(where: {
+                $0.id == targetID && $0.matches(identity.relyingPartyIdentifier)
+            }) == true else { throw AutoFillPasskeyError.credentialNotFound }
+        }
 
         let client = try await makeClient(context: context, userKey: unlockedVault.userKey)
         let store = PasskeyRegistrationStore(
             ciphers: payload.passkeyCiphers ?? [],
             passkeys: payload.passkeys ?? [],
             writeSession: writeSession,
-            accountReference: payload.accountReference
+            accountReference: payload.accountReference,
+            targetID: targetID
         )
         let userInterface = PasskeyRegistrationUserInterface()
         let excluded = request.excludedCredentials?.map {
@@ -88,10 +95,73 @@ nonisolated enum AutoFillPasskeySupport {
         guard let saved = await store.savedCredential() else {
             throw AutoFillPasskeyError.registrationNotSaved
         }
-        let decryptedView = try await client.vault().ciphers().decrypt(cipher: saved.context.cipher)
+        let finalSave: PasskeyRegistrationStore.SavedCredential
+        if let targetID {
+            let (encrypted, session) = try await AutoFillCreateLoginSupport.fetchEncryptedCipher(
+                id: targetID, writeSession: saved.writeSession,
+                accountReference: payload.accountReference
+            )
+            let existing = try await client.vault().ciphers().decrypt(cipher: encrypted)
+            guard existing.type == .login, existing.edit, existing.organizationId == nil,
+                  existing.deletedDate == nil,
+                  existing.attachments?.isEmpty != false,
+                  existing.passwordHistory?.isEmpty != false,
+                  let login = existing.login else {
+                throw AutoFillPasskeyError.registrationNotSaved
+            }
+            let currentRules = (login.uris ?? []).compactMap { uri -> AutoFillURIRule? in
+                guard let value = uri.uri else { return nil }
+                return AutoFillURIRule(
+                    uri: value,
+                    match: uri.match == .never ? .never : .baseDomain
+                )
+            }
+            guard AutoFillPasskeyTarget(
+                id: targetID, name: existing.name,
+                username: login.username ?? "", uriRules: currentRules
+            ).matches(identity.relyingPartyIdentifier) else {
+                throw AutoFillPasskeyError.credentialNotFound
+            }
+            let created = try await client.vault().ciphers().decrypt(cipher: saved.context.cipher)
+            guard let credential = created.login?.fido2Credentials?.first else {
+                throw AutoFillPasskeyError.registrationNotSaved
+            }
+            let updatedLogin = LoginView(
+                username: login.username, password: login.password,
+                passwordRevisionDate: login.passwordRevisionDate, uris: login.uris,
+                totp: login.totp, autofillOnPageLoad: login.autofillOnPageLoad,
+                fido2Credentials: (login.fido2Credentials ?? []) + [credential]
+            )
+            let updatedView = CipherView(
+                id: existing.id, organizationId: existing.organizationId,
+                folderId: existing.folderId, collectionIds: existing.collectionIds,
+                key: existing.key, name: existing.name, notes: existing.notes,
+                type: existing.type, login: updatedLogin, identity: existing.identity,
+                card: existing.card, secureNote: existing.secureNote,
+                sshKey: existing.sshKey, bankAccount: existing.bankAccount,
+                driversLicense: existing.driversLicense, passport: existing.passport,
+                favorite: existing.favorite, reprompt: existing.reprompt,
+                organizationUseTotp: existing.organizationUseTotp, edit: existing.edit,
+                permissions: existing.permissions, viewPassword: existing.viewPassword,
+                localData: existing.localData, attachments: existing.attachments,
+                attachmentDecryptionFailures: existing.attachmentDecryptionFailures,
+                fields: existing.fields, passwordHistory: existing.passwordHistory,
+                creationDate: existing.creationDate, deletedDate: existing.deletedDate,
+                revisionDate: existing.revisionDate, archivedDate: existing.archivedDate
+            )
+            let context = try await client.vault().ciphers().encrypt(cipherView: updatedView)
+            let updatedSession = try await AutoFillCreateLoginSupport.updateEncryptedCipher(
+                context, id: targetID, writeSession: session,
+                accountReference: payload.accountReference
+            )
+            finalSave = .init(context: context, identifier: targetID, writeSession: updatedSession)
+        } else {
+            finalSave = saved
+        }
+        let decryptedView = try await client.vault().ciphers().decrypt(cipher: finalSave.context.cipher)
         let cipher = AutoFillPasskeyCipherRecord(
             view: decryptedView,
-            identifier: saved.identifier
+            identifier: finalSave.identifier
         )
         return AutoFillPasskeyRegistrationResult(
             credential: ASPasskeyRegistrationCredential(
@@ -101,7 +171,7 @@ nonisolated enum AutoFillPasskeySupport {
                 attestationObject: result.attestationObject
             ),
             passkey: AutoFillPasskeyRecord(
-                cipherID: saved.identifier,
+                cipherID: finalSave.identifier,
                 relyingPartyIdentifier: identity.relyingPartyIdentifier,
                 userName: identity.userName,
                 credentialID: result.credentialId,
@@ -109,7 +179,7 @@ nonisolated enum AutoFillPasskeySupport {
                 hasCounter: false
             ),
             cipher: cipher,
-            writeSession: saved.writeSession
+            writeSession: finalSave.writeSession
         )
     }
 
@@ -495,6 +565,65 @@ nonisolated enum AutoFillCreateLoginSupport {
         )
     }
 
+    static func fetchEncryptedCipher(
+        id: String, writeSession initialSession: AutoFillWriteSession,
+        accountReference: String
+    ) async throws -> (Cipher, AutoFillWriteSession) {
+        var session = initialSession
+        if session.expiresAt <= Date().addingTimeInterval(30) {
+            session = try await refresh(session, accountReference: accountReference)
+        }
+        var response = try await cipherRequest(id: id, method: "GET", body: nil, session: session)
+        if response.1.statusCode == 401 {
+            session = try await refresh(session, accountReference: accountReference)
+            response = try await cipherRequest(id: id, method: "GET", body: nil, session: session)
+        }
+        try validate(response.1, data: response.0)
+        if let object = try? JSONSerialization.jsonObject(with: response.0) as? [String: Any] {
+            for (key, value) in object where ["attachments", "attachments2", "passwordhistory"].contains(key.lowercased()) {
+                if let values = value as? [Any], !values.isEmpty { throw AutoFillPasskeyError.registrationNotSaved }
+                if let values = value as? [String: Any], !values.isEmpty { throw AutoFillPasskeyError.registrationNotSaved }
+            }
+        }
+        let dto = try BitwardenJSONDecoder.make().decode(SyncCipherDTO.self, from: response.0)
+        guard dto.id.caseInsensitiveCompare(id) == .orderedSame,
+              let cipher = dto.passkeyCipher else { throw AutoFillCreateLoginError.invalidResponse }
+        return (cipher, session)
+    }
+
+    static func updateEncryptedCipher(
+        _ context: EncryptionContext, id: String,
+        writeSession initialSession: AutoFillWriteSession,
+        accountReference: String
+    ) async throws -> AutoFillWriteSession {
+        var session = initialSession
+        if session.expiresAt <= Date().addingTimeInterval(30) {
+            session = try await refresh(session, accountReference: accountReference)
+        }
+        let body = try encoder.encode(AutoFillCipherWriteRequest(context))
+        var response = try await cipherRequest(id: id, method: "PUT", body: body, session: session)
+        if response.1.statusCode == 401 {
+            session = try await refresh(session, accountReference: accountReference)
+            response = try await cipherRequest(id: id, method: "PUT", body: body, session: session)
+        }
+        try validate(response.1, data: response.0)
+        return session
+    }
+
+    private static func cipherRequest(
+        id: String, method: String, body: Data?, session: AutoFillWriteSession
+    ) async throws -> (Data, HTTPURLResponse) {
+        guard UUID(uuidString: id) != nil else { throw AutoFillCreateLoginError.invalidInput }
+        var request = URLRequest(url: endpoint(session.serverURL, path: "api/ciphers/\(id)"))
+        request.httpMethod = method
+        request.httpBody = body
+        request.setValue("\(session.tokenType) \(session.accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        return try await data(for: request)
+    }
+
     private static var clientID: String {
         #if os(macOS)
         "desktop"
@@ -612,6 +741,75 @@ nonisolated enum AutoFillCreateLoginSupport {
             try container.encode(formatter.string(from: date))
         }
         return encoder
+    }
+}
+
+private extension SyncCipherDTO {
+    nonisolated var passkeyCipher: Cipher? {
+        guard type == 1, let login,
+              let creation = ServerDateParser.parse(creationDate),
+              let revision = ServerDateParser.parse(revisionDate) else { return nil }
+        let uris = login.uris?.map { uri in
+            LoginUri(
+                uri: uri.uri,
+                match: uri.match.flatMap { value in
+                    switch value {
+                    case 0: .domain
+                    case 1: .host
+                    case 2: .startsWith
+                    case 3: .exact
+                    case 4: .regularExpression
+                    case 5: .never
+                    default: nil
+                    }
+                },
+                uriChecksum: uri.uriChecksum
+            )
+        }
+        let credentials = login.fido2Credentials?.compactMap { value -> Fido2Credential? in
+            guard let date = ServerDateParser.parse(value.creationDate) else { return nil }
+            return Fido2Credential(
+                credentialId: value.credentialId, keyType: value.keyType,
+                keyAlgorithm: value.keyAlgorithm, keyCurve: value.keyCurve,
+                keyValue: value.keyValue, rpId: value.rpId,
+                userHandle: value.userHandle, userName: value.userName,
+                counter: value.counter, rpName: value.rpName,
+                userDisplayName: value.userDisplayName,
+                discoverable: value.discoverable, creationDate: date
+            )
+        }
+        return Cipher(
+            id: id, organizationId: organizationId, folderId: folderId,
+            collectionIds: collectionIds, key: key, name: name,
+            notes: notes, type: .login,
+            login: Login(
+                username: login.username, password: login.password,
+                passwordRevisionDate: ServerDateParser.parse(login.passwordRevisionDate),
+                uris: uris, totp: login.totp,
+                autofillOnPageLoad: login.autofillOnPageLoad,
+                fido2Credentials: credentials
+            ),
+            identity: nil, card: nil, secureNote: nil, sshKey: nil,
+            bankAccount: nil, driversLicense: nil, passport: nil,
+            favorite: favorite, reprompt: reprompt == 0 ? .none : .password,
+            organizationUseTotp: organizationUseTotp, edit: edit,
+            permissions: nil, viewPassword: viewPassword, localData: nil,
+            attachments: nil,
+            fields: fields?.map { field in
+                let fieldType: BitwardenSdk.FieldType = switch field.type {
+                case 1: .hidden
+                case 2: .boolean
+                case 3: .linked
+                default: .text
+                }
+                return Field(name: field.name, value: field.value,
+                             type: fieldType, linkedId: field.linkedId)
+            },
+            passwordHistory: nil, creationDate: creation,
+            deletedDate: ServerDateParser.parse(deletedDate),
+            revisionDate: revision,
+            archivedDate: ServerDateParser.parse(archivedDate), data: data
+        )
     }
 }
 
@@ -772,18 +970,21 @@ private actor PasskeyRegistrationStore: Fido2CredentialStore {
     private let passkeys: [AutoFillPasskeyRecord]
     private let initialWriteSession: AutoFillWriteSession
     private let accountReference: String
+    private let targetID: String?
     private var saved: SavedCredential?
 
     init(
         ciphers: [AutoFillPasskeyCipherRecord],
         passkeys: [AutoFillPasskeyRecord],
         writeSession: AutoFillWriteSession,
-        accountReference: String
+        accountReference: String,
+        targetID: String?
     ) {
         self.ciphers = Dictionary(uniqueKeysWithValues: ciphers.map { ($0.id, $0.sdkView) })
         self.passkeys = passkeys
         initialWriteSession = writeSession
         self.accountReference = accountReference
+        self.targetID = targetID
     }
 
     func findCredentials(ids: [Data]?, ripId: String, userHandle: Data?) async throws -> [CipherView] {
@@ -799,6 +1000,13 @@ private actor PasskeyRegistrationStore: Fido2CredentialStore {
     func allCredentials() async throws -> [CipherListView] { [] }
 
     func saveCredential(cred: EncryptionContext) async throws {
+        if let targetID {
+            saved = SavedCredential(
+                context: cred, identifier: targetID,
+                writeSession: initialWriteSession
+            )
+            return
+        }
         let result = try await AutoFillCreateLoginSupport.saveEncryptedCipher(
             cred,
             writeSession: initialWriteSession,

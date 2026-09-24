@@ -13,6 +13,8 @@
 		A1B2C3D4E5F6000000000014 /* ../vaultwardenApp/Core/Autofill/AutoFillPasskeySupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000015 /* ../vaultwardenApp/Core/Autofill/AutoFillPasskeySupport.swift */; };
 		A1B2C3D4E5F6000000000016 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000017 /* PrivacyInfo.xcprivacy */; };
 		A1B2C3D4E5F6000000000018 /* ../vaultwardenApp/Core/Localization/Localization.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000019 /* ../vaultwardenApp/Core/Localization/Localization.swift */; };
+		A1B2C3D4E5F6000000000020 /* APIModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000022 /* APIModels.swift */; };
+		A1B2C3D4E5F6000000000021 /* SyncModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000023 /* SyncModels.swift */; };
 		A1B2C3D4E5F600000000001A /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F600000000001B /* Localizable.xcstrings */; };
 		A1B2C3D4E5F600000000001C /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F600000000001D /* InfoPlist.xcstrings */; };
 		B17A2D010000000000000001 /* BitwardenSdk in Frameworks */ = {isa = PBXBuildFile; productRef = B17A2D030000000000000003 /* BitwardenSdk */; };
@@ -60,6 +62,8 @@
 		A1B2C3D4E5F6000000000015 /* ../vaultwardenApp/Core/Autofill/AutoFillPasskeySupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../vaultwardenApp/Core/Autofill/AutoFillPasskeySupport.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000000000017 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000000000019 /* ../vaultwardenApp/Core/Localization/Localization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../vaultwardenApp/Core/Localization/Localization.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6000000000022 /* APIModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../vaultwardenApp/Core/Networking/APIModels.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6000000000023 /* SyncModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../vaultwardenApp/Core/Networking/SyncModels.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F600000000001B /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		A1B2C3D4E5F600000000001D /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 		D00000000000000000000001 /* vaultwardenAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = vaultwardenAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -145,6 +149,8 @@
 				A1B2C3D4E5F6000000000013 /* ../vaultwardenApp/Core/Autofill/AutoFillSharedVault.swift */,
 				A1B2C3D4E5F6000000000015 /* ../vaultwardenApp/Core/Autofill/AutoFillPasskeySupport.swift */,
 				A1B2C3D4E5F6000000000019 /* ../vaultwardenApp/Core/Localization/Localization.swift */,
+				A1B2C3D4E5F6000000000022 /* APIModels.swift */,
+				A1B2C3D4E5F6000000000023 /* SyncModels.swift */,
 				A1B2C3D4E5F600000000001B /* Localizable.xcstrings */,
 				A1B2C3D4E5F600000000001D /* InfoPlist.xcstrings */,
 				A1B2C3D4E5F6000000000005 /* Info.plist */,
@@ -352,6 +358,8 @@
 				A1B2C3D4E5F6000000000012 /* ../vaultwardenApp/Core/Autofill/AutoFillSharedVault.swift in Sources */,
 				A1B2C3D4E5F6000000000014 /* ../vaultwardenApp/Core/Autofill/AutoFillPasskeySupport.swift in Sources */,
 				A1B2C3D4E5F6000000000018 /* ../vaultwardenApp/Core/Localization/Localization.swift in Sources */,
+				A1B2C3D4E5F6000000000020 /* APIModels.swift in Sources */,
+				A1B2C3D4E5F6000000000021 /* SyncModels.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

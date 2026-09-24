@@ -181,6 +181,19 @@ final class ReleaseHardeningTests: XCTestCase {
         XCTAssertEqual(result.map(\.cipherID), ["cipher-1"])
     }
 
+    func testPasskeyTargetMatchesDomainEvenForExactLoginURI() {
+        let target = AutoFillPasskeyTarget(
+            id: UUID().uuidString, name: "Example", username: "person",
+            uriRules: [
+                AutoFillURIRule(uri: "https://login.example.com/sign-in", match: .exact),
+                AutoFillURIRule(uri: "https://ignored.example.org", match: .never)
+            ]
+        )
+        XCTAssertTrue(target.matches("example.com"))
+        XCTAssertFalse(target.matches("example.org"))
+        XCTAssertFalse(target.matches("different.com"))
+    }
+
     func testVaultTimeoutIntervals() {
         XCTAssertEqual(VaultTimeout.immediately.timeInterval, 0)
         XCTAssertEqual(VaultTimeout.oneMinute.timeInterval, 60)

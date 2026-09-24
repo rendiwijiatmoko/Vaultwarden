@@ -40,6 +40,24 @@ nonisolated enum AutoFillVaultPublisher {
         let passkeyCiphers = snapshot.remoteCiphers.values
             .map(\.view)
             .filter { $0.deletedDate == nil && $0.login?.fido2Credentials?.isEmpty == false }
+        let passkeyTargets = snapshot.items.compactMap { item -> AutoFillPasskeyTarget? in
+            guard !item.isDeleted, item.type == .login,
+                  let view = snapshot.remoteCiphers[item.id]?.view,
+                  view.organizationId == nil, view.edit,
+                  view.attachments?.isEmpty != false,
+                  view.passwordHistory?.isEmpty != false,
+                  let uris = view.login?.uris?.compactMap({ value -> AutoFillURIRule? in
+                      guard let uri = value.uri, !uri.isEmpty else { return nil }
+                      return AutoFillURIRule(
+                          uri: uri,
+                          match: value.match.flatMap { AutoFillURIMatchType(rawValue: $0.rawValue) }
+                      )
+                  }), !uris.isEmpty else { return nil }
+            return AutoFillPasskeyTarget(
+                id: item.id.uuidString.lowercased(), name: item.name,
+                username: item.username, uriRules: uris
+            )
+        }
         var passkeys: [AutoFillPasskeyRecord] = []
         if let client = try? await BitwardenCipherWriter.initializedClient(
             email: email,
@@ -86,7 +104,8 @@ nonisolated enum AutoFillVaultPublisher {
             folders: snapshot.folderIDsByName.map { name, id in
                 AutoFillFolderRecord(id: id, name: name)
             }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending },
+            passkeyTargets: passkeyTargets
         )
         do {
             try AutoFillSharedVault.publish(payload: payload, userKey: userKey)
