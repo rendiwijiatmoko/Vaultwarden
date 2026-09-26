@@ -62,6 +62,14 @@ nonisolated struct AutoFillCredentialRecord: Codable, Hashable, Identifiable, Se
     let serviceIdentifier: String?
     let totpSecret: String?
     let uriRules: [AutoFillURIRule]?
+    let itemType: AutoFillItemType?
+    let insertableFields: [AutoFillTextField]?
+
+    var isLogin: Bool { itemType == nil || itemType == .login }
+    var hasInsertableText: Bool {
+        (isLogin && (!username.isEmpty || !password.isEmpty || totpSecret?.isEmpty == false))
+            || insertableFields?.isEmpty == false
+    }
 
     init(
         id: String,
@@ -70,7 +78,9 @@ nonisolated struct AutoFillCredentialRecord: Codable, Hashable, Identifiable, Se
         password: String,
         serviceIdentifier: String?,
         totpSecret: String?,
-        uriRules: [AutoFillURIRule]? = nil
+        uriRules: [AutoFillURIRule]? = nil,
+        itemType: AutoFillItemType? = nil,
+        insertableFields: [AutoFillTextField]? = nil
     ) {
         self.id = id
         self.name = name
@@ -79,6 +89,8 @@ nonisolated struct AutoFillCredentialRecord: Codable, Hashable, Identifiable, Se
         self.serviceIdentifier = serviceIdentifier
         self.totpSecret = totpSecret
         self.uriRules = uriRules
+        self.itemType = itemType
+        self.insertableFields = insertableFields
     }
 
     func matches(
@@ -188,6 +200,47 @@ nonisolated struct AutoFillCredentialRecord: Codable, Hashable, Identifiable, Se
         "com.hk", "com.mx", "com.my", "com.ph", "com.sg", "com.tr",
         "co.in", "co.nz", "co.za"
     ]
+}
+
+nonisolated enum AutoFillItemType: String, Codable, Hashable, Sendable {
+    case login = "Login"
+    case secureNote = "Secure Note"
+    case card = "Card"
+    case identity = "Identity"
+    case sshKey = "SSH Key"
+
+    var localizedTitle: String { L10n.string(rawValue) }
+
+    var icon: String {
+        switch self {
+        case .login: "key.fill"
+        case .secureNote: "note.text"
+        case .card: "creditcard.fill"
+        case .identity: "person.text.rectangle.fill"
+        case .sshKey: "terminal.fill"
+        }
+    }
+}
+
+nonisolated struct AutoFillTextField: Codable, Hashable, Identifiable, Sendable {
+    let id: String
+    let title: String
+    let value: String
+    let symbol: String
+    let section: String?
+    let isSensitive: Bool?
+    let isCustom: Bool?
+
+    init(id: String, title: String, value: String, symbol: String,
+         section: String? = nil, isSensitive: Bool = false, isCustom: Bool = false) {
+        self.id = id
+        self.title = title
+        self.value = value
+        self.symbol = symbol
+        self.section = section
+        self.isSensitive = isSensitive
+        self.isCustom = isCustom
+    }
 }
 
 nonisolated struct AutoFillVaultPayload: Codable, Sendable {
@@ -517,7 +570,7 @@ nonisolated enum AutoFillSharedVault {
         }
         defaults.set(payload.accountReference, forKey: activeReferenceKey)
         defaults.set(payload.generatedAt, forKey: publishedAtKey)
-        defaults.set(payload.credentials.count, forKey: publishedCountKey)
+        defaults.set(payload.credentials.filter(\.isLogin).count, forKey: publishedCountKey)
     }
 
     static func load(reason: String) async throws -> AutoFillUnlockedVault {

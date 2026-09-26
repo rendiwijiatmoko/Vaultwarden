@@ -520,6 +520,31 @@ nonisolated enum AutoFillCreateLoginSupport {
             accountReference: unlockedVault.payload.accountReference
         )
 
+        var insertableFields: [AutoFillTextField] = []
+        var section = ""
+        func addInsertableField(_ title: String, _ value: String, symbol: String,
+                                sensitive: Bool = false, custom: Bool = false) {
+            guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  !value.isEmpty else { return }
+            insertableFields.append(AutoFillTextField(
+                id: "field|\(insertableFields.count)", title: title, value: value, symbol: symbol,
+                section: section, isSensitive: sensitive, isCustom: custom
+            ))
+        }
+        section = "Websites (URI)"
+        addInsertableField("Website URI", uri, symbol: "link")
+        section = "Notes"
+        addInsertableField("Notes", input.notes, symbol: "note.text")
+        section = "Custom Fields"
+        for field in input.customFields where field.type != .boolean {
+            let value = field.type == .linked
+                ? (field.value == "password" ? password : input.username)
+                : field.value
+            addInsertableField(field.name, value, symbol: field.type.icon,
+                               sensitive: field.type == .hidden || (field.type == .linked && field.value == "password"),
+                               custom: true)
+        }
+
         return AutoFillCreateLoginResult(
             record: AutoFillCredentialRecord(
                 id: saved.identifier,
@@ -528,7 +553,9 @@ nonisolated enum AutoFillCreateLoginSupport {
                 password: password,
                 serviceIdentifier: normalizedServiceIdentifier(uri),
                 totpSecret: input.totpSecret.nilIfBlank,
-                uriRules: uri.isEmpty ? nil : [AutoFillURIRule(uri: uri, match: nil)]
+                uriRules: uri.isEmpty ? nil : [AutoFillURIRule(uri: uri, match: nil)],
+                itemType: .login,
+                insertableFields: insertableFields
             ),
             writeSession: saved.writeSession
         )

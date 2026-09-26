@@ -1,6 +1,7 @@
 import AuthenticationServices
 import Combine
 import LocalAuthentication
+import OSLog
 import SwiftUI
 #if os(macOS)
 import AppKit
@@ -18,10 +19,18 @@ private typealias AutoFillCapitalization = TextInputAutocapitalization
 private typealias AutoFillTextContentType = UITextContentType
 #endif
 
+private enum AutoFillHandoffLog {
+    static let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "VaultAutoFillExtension",
+        category: "TextInsertion"
+    )
+}
+
 final class CredentialProviderViewController: ASCredentialProviderViewController {
     private enum RequestMode {
         case password
         case oneTimeCode
+        case textInsert
         case passkey
         case passkeyRegistration
         case passwordSave
@@ -197,6 +206,12 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         prepareList(mode: .oneTimeCode, serviceIdentifiers: serviceIdentifiers)
     }
 
+    #if os(iOS)
+    override func prepareInterfaceForUserChoosingTextToInsert() {
+        prepareList(mode: .textInsert, serviceIdentifiers: [])
+    }
+    #endif
+
     override func prepareInterfaceToProvideCredential(for credentialRequest: any ASCredentialRequest) {
         pendingRequest = credentialRequest
         if let request = credentialRequest as? ASPasswordCredentialRequest {
@@ -246,10 +261,12 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         pendingRequest = nil
         viewModel.searchText = ""
         viewModel.showsAllCredentials = false
+        viewModel.selectedTextCredential = nil
         if mode != .passkey { passkeyRequestParameters = nil }
         self.serviceIdentifiers = serviceIdentifiers.map(\.identifier)
         let reasonKey: String = switch mode {
         case .oneTimeCode: "Authenticate to choose a verification code"
+        case .textInsert: "Authenticate to insert text from your vault"
         case .passkey: "Authenticate to choose a passkey"
         case .passkeyRegistration: "Authenticate to create this passkey"
         case .passwordSave: "Authenticate to save this password"
@@ -366,12 +383,13 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
             credentials = payload.credentials
             .filter { credential in
                 switch mode {
-                case .password: !credential.password.isEmpty
-                case .oneTimeCode: credential.totpSecret?.isEmpty == false
+                case .password: credential.isLogin && !credential.password.isEmpty
+                case .oneTimeCode: credential.isLogin && credential.totpSecret?.isEmpty == false
+                case .textInsert: credential.hasInsertableText
                 case .passkey: false
                 case .passkeyRegistration: false
                 case .passwordSave, .passwordGeneration: false
-                case .configuration: true
+                case .configuration: credential.isLogin
                 }
             }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
@@ -396,6 +414,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         viewModel.folders = payload.folders ?? []
         viewModel.kind = switch mode {
         case .oneTimeCode: .oneTimeCode
+        case .textInsert: .textInsert
         case .passkey: .passkey
         case .password, .passkeyRegistration, .passwordSave,
              .passwordGeneration, .configuration: .password
@@ -500,7 +519,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         let passkeyCount = payload.passkeys?.count ?? 0
         viewModel.state = .configuration(L10n.format(
             "%lld credentials and %lld passkeys are ready. Finish setup to enable passkey, password, and verification-code suggestions.",
-            payload.credentials.count,
+            payload.credentials.filter(\.isLogin).count,
             passkeyCount
         ))
         viewModel.primaryActionTitle = L10n.string("Finish Setup")
@@ -528,6 +547,8 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
                 using: ASOneTimeCodeCredential(code: code),
                 completionHandler: nil
             )
+        case .textInsert:
+            break
         case .passkey:
             guard let unlockedVault,
                   let parameters = passkeyRequestParameters,
@@ -586,6 +607,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
 
     private func replaceCredentialIdentities(_ payload: AutoFillVaultPayload) async {
         var identities = payload.credentials.reduce(into: [any ASCredentialIdentity]()) { values, record in
+            guard record.isLogin else { return }
             guard let serviceValue = record.serviceIdentifier else { return }
             let service = ASCredentialServiceIdentifier(identifier: serviceValue, type: .domain)
             if !record.password.isEmpty {
@@ -627,6 +649,8 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         case .oneTimeCode:
             target.map { L10n.format("Choose a verification code for “%@”.", $0) }
                 ?? L10n.string("Choose a verification code.")
+        case .textInsert:
+            L10n.string("Choose a saved value to insert into the text field.")
         case .passkey:
             target.map { L10n.format("Choose a passkey for “%@”.", $0) }
                 ?? L10n.string("Choose a passkey.")
@@ -720,7 +744,39 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
             self.viewModel.beginCreate(suggestedURI: self.serviceIdentifiers.first ?? "")
         }
         viewModel.onAccount = { [weak self] in self?.showAccountInformation() }
-        viewModel.onSelect = { [weak self] credential in self?.provide(credential) }
+        viewModel.onSelect = { [weak self] credential in
+            guard let self else { return }
+            if self.mode == .textInsert {
+                self.viewModel.selectedTextCredential = AutoFillSelectedCredential(id: credential.id)
+            } else {
+                self.provide(credential)
+            }
+        }
+        #if os(iOS)
+        viewModel.onInsertText = { [weak self] credential, field in
+            guard let self, self.mode == .textInsert else { return }
+            let value: String
+            switch field {
+            case .username: value = credential.username
+            case .password: value = credential.password
+            case .oneTimeCode:
+                guard let secret = credential.totpSecret,
+                      let code = AutoFillTOTP.code(secret: secret) else {
+                    self.showError("This verification code is invalid or unsupported.")
+                    return
+                }
+                value = code
+            case let .saved(field):
+                value = field.value
+            }
+            guard !value.isEmpty else { return }
+            let startedAt = ProcessInfo.processInfo.systemUptime
+            AutoFillHandoffLog.logger.info("Text insertion handoff started")
+            self.extensionContext.completeRequest(withTextToInsert: value, completionHandler: nil)
+            let elapsed = Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000)
+            AutoFillHandoffLog.logger.info("Text insertion API returned in \(elapsed, privacy: .public) ms")
+        }
+        #endif
         viewModel.onSaveNewLogin = { [weak self] input in
             guard let self else { throw AutoFillCreateLoginError.unavailable }
             return try await self.saveNewLogin(input)
@@ -733,7 +789,11 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
                 return
             }
             #endif
-            self.provide(record)
+            if self.mode == .textInsert {
+                self.viewModel.selectedTextCredential = AutoFillSelectedCredential(id: record.id)
+            } else {
+                self.provide(record)
+            }
         }
         viewModel.onCancelCreate = { [weak self] in
             guard let self else { return }
@@ -800,7 +860,98 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
 private enum AutoFillCredentialListKind: Equatable {
     case password
     case oneTimeCode
+    case textInsert
     case passkey
+}
+
+private struct AutoFillSelectedCredential: Identifiable, Hashable {
+    let id: String
+}
+
+private enum AutoFillInsertableField: Identifiable {
+    case username
+    case password
+    case oneTimeCode
+    case saved(AutoFillTextField)
+
+    var id: String {
+        switch self {
+        case .username: "username"
+        case .password: "password"
+        case .oneTimeCode: "oneTimeCode"
+        case let .saved(field): "saved|\(field.id)"
+        }
+    }
+
+    var isPassword: Bool {
+        if case .password = self { return true }
+        return false
+    }
+
+    static func available(for credential: AutoFillCredentialRecord) -> [Self] {
+        var fields: [Self] = []
+        if credential.isLogin {
+            if !credential.username.isEmpty { fields.append(.username) }
+            if !credential.password.isEmpty { fields.append(.password) }
+            if credential.totpSecret?.isEmpty == false { fields.append(.oneTimeCode) }
+        }
+        fields.append(contentsOf: (credential.insertableFields ?? []).map(Self.saved))
+        return fields
+    }
+
+    var title: String {
+        switch self {
+        case .username: "Username"
+        case .password: "Password"
+        case .oneTimeCode: "Verification Code"
+        case let .saved(field): field.title
+        }
+    }
+
+    var displayTitle: String {
+        if case let .saved(field) = self, field.isCustom == true { return field.title }
+        return L10n.string(title)
+    }
+
+    var symbol: String {
+        switch self {
+        case .username: "person"
+        case .password: "key"
+        case .oneTimeCode: "number"
+        case let .saved(field): field.symbol
+        }
+    }
+
+    var section: String {
+        switch self {
+        case .username, .password: "Credentials"
+        case .oneTimeCode: "Verification Code"
+        case let .saved(field): field.section ?? "Other Fields"
+        }
+    }
+
+    func preview(for credential: AutoFillCredentialRecord) -> String {
+        switch self {
+        case .username: return credential.username
+        case .password: return String(repeating: "•", count: 12)
+        case .oneTimeCode: return String(repeating: "•", count: 6)
+        case let .saved(field):
+            if field.isSensitive == true {
+                if credential.itemType == .card, field.title == "Number" {
+                    let digits = field.value.filter(\.isNumber)
+                    if digits.count > 4 { return "•••• •••• •••• \(digits.suffix(4))" }
+                }
+                return String(repeating: "•", count: 12)
+            }
+            return field.value
+        }
+    }
+}
+
+private struct AutoFillFieldSection: Identifiable {
+    let title: String
+    var fields: [AutoFillInsertableField]
+    var id: String { title }
 }
 
 private enum AutoFillCredentialListState {
@@ -1015,6 +1166,7 @@ private final class AutoFillCredentialListViewModel: ObservableObject {
     @Published var websiteIconServerURL: URL?
     @Published var searchText = ""
     @Published var showsAllCredentials = false
+    @Published var selectedTextCredential: AutoFillSelectedCredential?
     @Published var avatarInitial = "V"
     @Published var accountDisplayName = L10n.string("Vaultwarden account")
     @Published var registrationRelyingParty = ""
@@ -1045,6 +1197,7 @@ private final class AutoFillCredentialListViewModel: ObservableObject {
     var onPrimaryAction: () -> Void = {}
     var onSelectPasskeyTarget: (AutoFillPasskeyTarget) -> Void = { _ in }
     var onSelect: (AutoFillCredentialRecord) -> Void = { _ in }
+    var onInsertText: (AutoFillCredentialRecord, AutoFillInsertableField) -> Void = { _, _ in }
     var onDidSaveNewLogin: (AutoFillCredentialRecord) -> Void = { _ in }
     var onCancelCreate: () -> Void = {}
     #if os(iOS)
@@ -1267,7 +1420,7 @@ private struct AutoFillCredentialListView: View {
                 else { statusContent }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            if viewModel.showsCredentialList && viewModel.kind == .password {
+            if viewModel.showsCredentialList && (viewModel.kind == .password || viewModel.kind == .textInsert) {
                 Divider()
                 HStack {
                     Button(action: viewModel.onAdd) {
@@ -1314,6 +1467,13 @@ private struct AutoFillCredentialListView: View {
             .navigationTitle("Vaultwarden")
             .navigationSubtitle(viewModel.subtitle)
             .autoFillInlineToolbarTitle()
+            .navigationDestination(item: $viewModel.selectedTextCredential) { selection in
+                if let credential = viewModel.credentials.first(where: { $0.id == selection.id }) {
+                    textFieldList(for: credential)
+                } else {
+                    ContentUnavailableView("Item unavailable", systemImage: "key.slash")
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(action: viewModel.onCancel) {
@@ -1329,10 +1489,10 @@ private struct AutoFillCredentialListView: View {
                         }
                         .accessibilityLabel(viewModel.showsPasskeyTargetList ? "Create new Login" : "Create new password")
                     }
+                }
 
-                    #if os(iOS)
+                if viewModel.showsSelectionList {
                     DefaultToolbarItem(kind: .search, placement: .bottomBar)
-                    #endif
                 }
             }
         }
@@ -1394,6 +1554,74 @@ private struct AutoFillCredentialListView: View {
             .listStyle(.plain)
         }
     }
+
+    #if os(iOS)
+    private func textFieldList(for credential: AutoFillCredentialRecord) -> some View {
+        List {
+            Section {
+                HStack(spacing: 16) {
+                    AutoFillCredentialThumbnail(
+                        credential: credential,
+                        kind: .textInsert,
+                        showsWebsiteIcon: viewModel.showsWebsiteIcons,
+                        serverURL: viewModel.websiteIconServerURL,
+                        size: 54
+                    )
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(credential.name).font(.title2.bold())
+                        Text((credential.itemType ?? .login).localizedTitle)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.vertical, 8)
+            }
+
+            ForEach(textFieldSections(for: credential)) { group in
+                Section {
+                    ForEach(group.fields) { field in
+                        Button {
+                            viewModel.onInsertText(credential, field)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 7) {
+                                if group.title != "Notes" {
+                                    Text(field.displayTitle)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Text(field.preview(for: credential))
+                                    .font(field.isPassword ? .body.monospaced() : .body)
+                                    .foregroundStyle(.primary)
+                                    .multilineTextAlignment(.leading)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .padding(.vertical, 3)
+                            .contentShape(.rect)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityHint(L10n.string("Double tap to fill this field"))
+                    }
+                } header: {
+                    Text(L10n.string(group.title))
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle(Text(verbatim: ""))
+        .toolbarTitleDisplayMode(.inline)
+    }
+
+    private func textFieldSections(for credential: AutoFillCredentialRecord) -> [AutoFillFieldSection] {
+        var sections: [AutoFillFieldSection] = []
+        for field in AutoFillInsertableField.available(for: credential) {
+            if let index = sections.firstIndex(where: { $0.title == field.section }) {
+                sections[index].fields.append(field)
+            } else {
+                sections.append(AutoFillFieldSection(title: field.section, fields: [field]))
+            }
+        }
+        return sections
+    }
+    #endif
 
     @ViewBuilder
     private var passkeyTargetList: some View {
@@ -1969,7 +2197,7 @@ private struct AutoFillCredentialRow: View {
 
             Spacer()
 
-            if kind == .password, credential.totpSecret?.isEmpty == false {
+            if (kind == .password || kind == .textInsert), credential.totpSecret?.isEmpty == false {
                 Image(systemName: "lock.rotation")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -1980,8 +2208,12 @@ private struct AutoFillCredentialRow: View {
     }
 
     private var secondaryText: String {
-        if kind == .oneTimeCode, credential.username.isEmpty {
-            return credential.serviceIdentifier ?? "Verification code"
+        if kind == .textInsert, !credential.isLogin {
+            return (credential.itemType ?? .secureNote).localizedTitle
+        }
+        if credential.username.isEmpty {
+            return credential.serviceIdentifier
+                ?? (kind == .oneTimeCode ? "Verification code" : "Login")
         }
         return credential.username
     }
@@ -1994,7 +2226,7 @@ private struct AutoFillCredentialThumbnail: View {
     let serverURL: URL?
     @State private var image: AutoFillImage?
 
-    private let size: CGFloat = 42
+    var size: CGFloat = 42
 
     private var taskID: String {
         "\(showsWebsiteIcon)|\(serverURL?.absoluteString ?? "")|\(credential.serviceIdentifier ?? "")"
@@ -2008,6 +2240,13 @@ private struct AutoFillCredentialThumbnail: View {
                     .scaledToFit()
                     .padding(size * 0.12)
                     .background(Color.white)
+            } else if kind == .textInsert, let itemType = credential.itemType,
+                      itemType != .login {
+                Image(systemName: itemType.icon)
+                    .font(.system(size: size * 0.45, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(iconColor.gradient)
             } else {
                 Text(initial)
                     .font(.system(size: size * 0.42, weight: .bold, design: .rounded))
@@ -2024,7 +2263,7 @@ private struct AutoFillCredentialThumbnail: View {
         }
         .task(id: taskID) {
             image = nil
-            guard showsWebsiteIcon,
+            guard credential.isLogin, showsWebsiteIcon,
                   let serverURL,
                   let website = credential.serviceIdentifier,
                   let data = AutoFillSharedVault.cachedWebsiteIconData(
@@ -2050,9 +2289,19 @@ private struct AutoFillCredentialThumbnail: View {
     }
 
     private var iconColor: Color {
-        switch kind {
+        if kind == .textInsert {
+            switch credential.itemType {
+            case .secureNote: return Color(red: 0.92, green: 0.48, blue: 0.15)
+            case .card: return Color(red: 0.12, green: 0.67, blue: 0.75)
+            case .identity: return Color(red: 0.12, green: 0.68, blue: 0.36)
+            case .sshKey: return Color(red: 0.72, green: 0.24, blue: 0.25)
+            case .login, nil: break
+            }
+        }
+        return switch kind {
         case .password: Color(red: 0.12, green: 0.36, blue: 0.88)
         case .oneTimeCode: Color(red: 0.95, green: 0.66, blue: 0.08)
+        case .textInsert: Color(red: 0.12, green: 0.36, blue: 0.88)
         case .passkey: Color(red: 0.12, green: 0.68, blue: 0.36)
         }
     }

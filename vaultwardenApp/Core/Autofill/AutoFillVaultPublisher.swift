@@ -13,11 +13,14 @@ nonisolated enum AutoFillVaultPublisher {
     ) async {
         let records = snapshot.items.compactMap { item -> AutoFillCredentialRecord? in
             guard !item.isDeleted,
-                  item.type == .login,
-                  snapshot.remoteCiphers[item.id]?.canViewPassword != false,
-                  !item.password.isEmpty || item.totpSecret?.isEmpty == false else {
+                  snapshot.remoteCiphers[item.id]?.canViewPassword != false else {
                 return nil
             }
+            let fields = insertableFields(for: item)
+            guard item.type != .login || !item.password.isEmpty
+                    || item.totpSecret?.isEmpty == false || !item.username.isEmpty
+                    || !fields.isEmpty else { return nil }
+            guard item.type == .login || !fields.isEmpty else { return nil }
             let uriRules = snapshot.remoteCiphers[item.id]?.view.login?.uris?.compactMap { value -> AutoFillURIRule? in
                 guard let uri = value.uri?.trimmingCharacters(in: .whitespacesAndNewlines),
                       !uri.isEmpty else { return nil }
@@ -26,15 +29,17 @@ nonisolated enum AutoFillVaultPublisher {
                     match: value.match.flatMap { AutoFillURIMatchType(rawValue: $0.rawValue) }
                 )
             }
-            let primaryURI = uriRules?.first?.uri ?? item.uri
+            let primaryURI = item.type == .login ? (uriRules?.first?.uri ?? item.uri) : ""
             return AutoFillCredentialRecord(
                 id: item.id.uuidString.lowercased(),
                 name: item.name,
-                username: item.username,
-                password: item.password,
+                username: item.type == .login ? item.username : "",
+                password: item.type == .login ? item.password : "",
                 serviceIdentifier: normalizedServiceIdentifier(primaryURI),
-                totpSecret: item.totpSecret,
-                uriRules: uriRules
+                totpSecret: item.type == .login ? item.totpSecret : nil,
+                uriRules: uriRules,
+                itemType: AutoFillItemType(rawValue: item.type.rawValue),
+                insertableFields: fields
             )
         }
         let passkeyCiphers = snapshot.remoteCiphers.values
@@ -123,6 +128,7 @@ nonisolated enum AutoFillVaultPublisher {
 
     private static func replaceCredentialIdentities(_ payload: AutoFillVaultPayload) async throws {
         var identities = payload.credentials.reduce(into: [any ASCredentialIdentity]()) { values, record in
+            guard record.isLogin else { return }
             guard let serviceValue = record.serviceIdentifier else { return }
             let service = ASCredentialServiceIdentifier(identifier: serviceValue, type: .domain)
             if !record.password.isEmpty {
@@ -154,6 +160,75 @@ nonisolated enum AutoFillVaultPublisher {
             })
         }
         try await ASCredentialIdentityStore.shared.replaceCredentialIdentities(identities)
+    }
+
+    private static func insertableFields(for item: VaultItem) -> [AutoFillTextField] {
+        var fields: [AutoFillTextField] = []
+        var section = ""
+        func add(_ title: String, _ value: String, symbol: String,
+                 sensitive: Bool = false, custom: Bool = false) {
+            guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  !value.isEmpty else { return }
+            fields.append(AutoFillTextField(
+                id: "field|\(fields.count)", title: title, value: value, symbol: symbol,
+                section: section, isSensitive: sensitive, isCustom: custom
+            ))
+        }
+
+        switch item.type {
+        case .login:
+            section = "Websites (URI)"
+            for (index, uri) in item.websiteURIs.enumerated() {
+                add(index == 0 ? "Website URI" : "Website URI \(index + 1)", uri, symbol: "link")
+            }
+        case .secureNote:
+            break
+        case .card:
+            section = "Card"
+            if let card = item.card {
+                add("Cardholder", card.cardholderName, symbol: "person")
+                add("Number", card.number, symbol: "creditcard", sensitive: true)
+                add("Security code", card.securityCode, symbol: "lock", sensitive: true)
+            }
+        case .identity:
+            if let identity = item.identity {
+                section = "Personal Information"
+                add("Full name", identity.fullName, symbol: "person")
+                add("Username", identity.username, symbol: "person")
+                add("Company", identity.company, symbol: "building.2")
+                section = "Contact"
+                add("Email", identity.email, symbol: "envelope")
+                add("Phone", identity.phone, symbol: "phone")
+                section = "Identification"
+                add("Social security number", identity.socialSecurityNumber, symbol: "number", sensitive: true)
+                add("Passport number", identity.passportNumber, symbol: "number")
+                add("License number", identity.licenseNumber, symbol: "number")
+                section = "Address"
+                add("Address line 1", identity.address1, symbol: "house")
+                add("Address line 2", identity.address2, symbol: "house")
+                add("City", identity.city, symbol: "mappin")
+                add("State / Province", identity.state, symbol: "mappin")
+                add("Postal code", identity.postalCode, symbol: "number")
+                add("Country", identity.country, symbol: "globe")
+            }
+        case .sshKey:
+            section = "SSH Key"
+            add("Public key", item.username, symbol: "key")
+            add("Private key", item.password, symbol: "key.fill", sensitive: true)
+        }
+
+        section = "Notes"
+        add(item.type == .sshKey ? "Notes / Fingerprint" : "Notes", item.notes, symbol: "note.text")
+        section = "Custom Fields"
+        for field in item.customFields where field.type != .boolean {
+            let value = field.type == .linked
+                ? (field.value == "password" ? item.password : item.username)
+                : field.value
+            add(field.name, value, symbol: field.type.icon,
+                sensitive: field.type == .hidden || (field.type == .linked && field.value == "password"),
+                custom: true)
+        }
+        return fields
     }
 
     private static func makeCryptoContext(
