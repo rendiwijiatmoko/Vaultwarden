@@ -16,7 +16,14 @@ struct RootSplitView: View {
     private let isCompact = false
     #endif
 
+    #if os(iOS)
+    // Start iPad with the item list and detail visible. The sidebar can still
+    // be revealed with the system's split-view button.
+    @State private var columnVisibility: NavigationSplitViewVisibility = .doubleColumn
+    #else
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    #endif
+    @State private var preferredCompactColumn: NavigationSplitViewColumn = .content
     @State private var path = NavigationPath()
     @State private var compactSearchText = ""
     @State private var regularSearchText = ""
@@ -44,8 +51,25 @@ struct RootSplitView: View {
                 restoreCompactPath()
             } else {
                 selectDefaultSectionIfNeeded()
+                #if os(iOS)
+                columnVisibility = .doubleColumn
+                preferredCompactColumn = .content
+                #endif
             }
         }
+        #if os(iOS)
+        .onGeometryChange(for: Bool.self, of: { $0.size.width >= 700 }) { wasWide, isWide in
+            // A three-column split can collapse without changing size class.
+            // Prefer the list while narrow, then restore both columns when
+            // the window has room again.
+            if wasWide && !isWide {
+                preferredCompactColumn = .content
+            } else if !wasWide && isWide && !isCompact {
+                columnVisibility = .doubleColumn
+                preferredCompactColumn = .content
+            }
+        }
+        #endif
         .sheet(isPresented: $showingQuickActionPassword) {
             AddEditVaultItemView(prefilledType: .login)
                 .environmentObject(store)
@@ -73,17 +97,16 @@ struct RootSplitView: View {
     private func restoreCompactPath() {
         var restored = NavigationPath()
         if let filter = store.selectedFilter { restored.append(filter) }
-        if let itemID = store.selectedItemID { restored.append(itemID) }
         path = restored
     }
 
     private var regularSplit: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
+        NavigationSplitView(columnVisibility: $columnVisibility, preferredCompactColumn: $preferredCompactColumn) {
             VaultHomeView(style: .sidebar, searchText: $regularSearchText)
                 #if os(macOS)
                 .navigationSplitViewColumnWidth(min: 290, ideal: 320, max: 380)
                 #else
-                .navigationSplitViewColumnWidth(min: 200, ideal: 230, max: 320)
+                .navigationSplitViewColumnWidth(min: 280, ideal: 300, max: 360)
                 #endif
         } content: {
             if let filter = store.selectedFilter {
@@ -670,6 +693,8 @@ struct VaultHomeView: View {
                     HStack {
                         Text(L10n.format("Personal Folders (%lld)", store.folders.count + 1))
                             .font(.title3.bold())
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.85)
                             .foregroundStyle(.primary)
                         Spacer()
                         Image(systemName: "chevron.down")
@@ -1057,6 +1082,7 @@ private struct DashboardCard: View {
                 Spacer()
                 Text(count, format: .number)
                     .font(.body)
+                    .fixedSize(horizontal: true, vertical: false)
                     .foregroundStyle(isSelected ? Color.white.opacity(0.8) : Color.secondary)
             }
             Text(title)
@@ -1089,9 +1115,13 @@ private struct FolderRow: View {
                 .frame(width: 30)
             Text(name)
                 .font(.body.weight(.medium))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .layoutPriority(1)
                 .foregroundStyle(isSelected ? Color.white : Color.primary)
             Spacer()
             Text(count, format: .number)
+                .fixedSize(horizontal: true, vertical: false)
                 .foregroundStyle(isSelected ? Color.white.opacity(0.8) : Color.secondary)
             Image(systemName: "chevron.right")
                 .font(.caption.bold())
