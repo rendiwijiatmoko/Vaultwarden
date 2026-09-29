@@ -2823,6 +2823,9 @@ struct AddEditVaultItemView: View {
                 }
             }
             .formStyle(.grouped)
+            #if os(iOS)
+            .environment(\.editMode, .constant(.active))
+            #endif
             .fileImporter(
                 isPresented: $showingAttachmentImporter,
                 allowedContentTypes: [.item],
@@ -3205,6 +3208,14 @@ struct AddEditVaultItemView: View {
             ForEach($customFields) { $field in
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
+                        #if os(macOS)
+                        if customFields.count > 1 {
+                            Image(systemName: "line.3.horizontal")
+                                .foregroundStyle(.secondary)
+                                .draggable(field.id.uuidString)
+                                .accessibilityLabel("Drag to reorder field")
+                        }
+                        #endif
                         Image(systemName: field.type.icon)
                             .foregroundStyle(Color.vaultBlue)
                             .frame(width: 24)
@@ -3242,7 +3253,19 @@ struct AddEditVaultItemView: View {
                     .font(.caption.weight(.semibold))
                 }
                 .padding(.vertical, 6)
+                .moveDisabled(customFields.count < 2)
+                #if os(macOS)
+                .dropDestination(for: String.self) { draggedIDs, _ in
+                    guard let draggedID = draggedIDs.first.flatMap(UUID.init(uuidString:)) else { return false }
+                    return moveCustomField(draggedID, to: field.id)
+                }
+                #endif
             }
+            #if os(iOS)
+            .onMove { offsets, destination in
+                customFields.move(fromOffsets: offsets, toOffset: destination)
+            }
+            #endif
 
             Button {
                 customFields.append(VaultCustomField())
@@ -3251,6 +3274,16 @@ struct AddEditVaultItemView: View {
             }
         }
     }
+
+    #if os(macOS)
+    private func moveCustomField(_ draggedID: UUID, to targetID: UUID) -> Bool {
+        guard let source = customFields.firstIndex(where: { $0.id == draggedID }),
+              let target = customFields.firstIndex(where: { $0.id == targetID }),
+              source != target else { return false }
+        customFields.move(fromOffsets: IndexSet(integer: source), toOffset: source < target ? target + 1 : target)
+        return true
+    }
+    #endif
 
     private func booleanBinding(for value: Binding<String>) -> Binding<Bool> {
         Binding(
