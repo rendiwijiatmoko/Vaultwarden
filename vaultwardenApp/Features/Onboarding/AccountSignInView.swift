@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// Authentication-only screen shown after an explicit logout.
-/// Onboarding remains a first-install flow and cannot be reopened from Settings.
+/// Authentication screen used after logout or when a saved session expires.
 struct AccountSignInView: View {
     @EnvironmentObject private var store: AppStore
+    var onSuccess: (() -> Void)? = nil
     @State private var serverURL = ""
     @State private var email = ""
     @State private var masterPassword = ""
@@ -131,6 +131,7 @@ struct AccountSignInView: View {
                 )
                 masterPassword = ""
                 verificationCode = ""
+                onSuccess?()
             } catch {
                 if case VaultwardenServiceError.twoFactorRequired = error {
                     requiresTwoFactor = true

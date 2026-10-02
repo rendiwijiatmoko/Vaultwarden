@@ -39,6 +39,7 @@ final class AppStore: ObservableObject {
     @Published var lastSync = Date()
     @Published private(set) var authenticatedSession: AuthenticatedSession?
     @Published private(set) var lastSyncError: String?
+    @Published private(set) var sessionNeedsSignIn = false
     @Published private(set) var lastUnlockError: String?
     @Published private(set) var lastSyncUsedOfflineCache = false
     @Published private(set) var discoveredServerVersion: String?
@@ -570,6 +571,7 @@ final class AppStore: ObservableObject {
         settings.sessionReference = session.tokenReference
         authenticatedSession = session
         apply(snapshot)
+        sessionNeedsSignIn = false
         await updatePendingMutationCount()
         isLocked = false
         backgroundedAt = nil
@@ -617,6 +619,7 @@ final class AppStore: ObservableObject {
             await updatePendingMutationCount()
             userFacingNotice = flush.problemNotice
             lastSyncError = nil
+            sessionNeedsSignIn = false
             SecureLog.event("Vault sync completed", logger: SecureLog.sync)
         } catch is CancellationError {
             // A caller can intentionally cancel a sync (for example when its view disappears).
@@ -624,6 +627,9 @@ final class AppStore: ObservableObject {
             SecureLog.event("Vault sync cancelled by caller", logger: SecureLog.sync)
         } catch {
             lastSyncError = error.localizedDescription
+            if case VaultwardenServiceError.sessionExpired = error {
+                sessionNeedsSignIn = true
+            }
             userFacingNotice = "Sync failed: \(error.localizedDescription)"
             SecureLog.failure("Vault sync", error: error, logger: SecureLog.sync)
         }
@@ -944,6 +950,7 @@ final class AppStore: ObservableObject {
         isSyncing = false
         lastSync = Date()
         lastSyncError = nil
+        sessionNeedsSignIn = false
         lastUnlockError = nil
         lastSyncUsedOfflineCache = false
         discoveredServerVersion = nil

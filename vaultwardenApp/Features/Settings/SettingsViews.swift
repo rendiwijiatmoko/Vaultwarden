@@ -208,6 +208,7 @@ private struct AccountServerSettingsView: View {
     @State private var testState: TestState = .idle
     @State private var confirmLogout = false
     @State private var isLoggingOut = false
+    @State private var showingSignIn = false
 
     private enum TestState {
         case idle
@@ -231,7 +232,7 @@ private struct AccountServerSettingsView: View {
             }
             #endif
             Section("Vaultwarden Server") {
-                TextField("https://vault.example.com", text: $store.settings.serverURL)
+                TextField("Server URL", text: $store.settings.serverURL, prompt: Text("https://vault.example.com"))
                     .vaultKeyboardType(.URL)
                     .vaultTextInputAutocapitalization(.never)
                     .autocorrectionDisabled()
@@ -252,6 +253,9 @@ private struct AccountServerSettingsView: View {
                     case let .success(message): Label(message, systemImage: "checkmark.circle.fill").foregroundStyle(Color.vaultGreen)
                     case let .failed(message): Label(message, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
                     }
+                }
+                if store.sessionNeedsSignIn {
+                    Button("Sign In Again") { showingSignIn = true }
                 }
             }
             Section {
@@ -285,6 +289,10 @@ private struct AccountServerSettingsView: View {
             }
         } message: {
             Text("This removes the local vault, offline changes, cached files, AutoFill data, account details, and local preferences from this device. Data on your Vaultwarden server will not be deleted.")
+        }
+        .sheet(isPresented: $showingSignIn) {
+            AccountSignInView(onSuccess: { showingSignIn = false })
+                .environmentObject(store)
         }
     }
 }
@@ -464,6 +472,7 @@ private struct SecuritySettingsView: View {
 
 private struct SyncSettingsView: View {
     @EnvironmentObject private var store: AppStore
+    @State private var showingSignIn = false
 
     var body: some View {
         Form {
@@ -487,6 +496,9 @@ private struct SyncSettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.red)
                 }
+                if store.sessionNeedsSignIn {
+                    Button("Sign In Again") { showingSignIn = true }
+                }
             }
             Section("Automatic Sync") {
                 Toggle("Automatic sync", isOn: $store.settings.autoSync)
@@ -507,6 +519,10 @@ private struct SyncSettingsView: View {
         }
         .navigationTitle("Sync")
         .vaultNavigationTitleDisplayMode(.inline)
+        .sheet(isPresented: $showingSignIn) {
+            AccountSignInView(onSuccess: { showingSignIn = false })
+                .environmentObject(store)
+        }
     }
 }
 

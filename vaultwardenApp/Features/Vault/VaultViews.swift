@@ -121,11 +121,7 @@ struct VaultCollectionView: View {
     @State private var showingArchiveConfirmation = false
     @State private var pendingRowAction: VaultRowAction?
     @State private var showingRowAlert = false
-    #if os(macOS)
-    @State private var sortOrder: VaultSortOrder = .nameAscending
-    #else
     @State private var sortOrder: VaultSortOrder = .newestFirst
-    #endif
 
     init(
         filter: VaultFilter,

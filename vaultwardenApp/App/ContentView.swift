@@ -10,6 +10,7 @@ struct ContentView: View {
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @State private var queuedCodeSetup: OTPAuthSetupRequest?
     @State private var presentedCodeSetup: OTPAuthSetupRequest?
+    @State private var showingSignInAgain = false
     #if os(macOS)
     @AppStorage("hasRequestedAutoFillSetup") private var hasRequestedAutoFillSetup = false
     @State private var isCheckingAutoFillSetup = false
@@ -78,6 +79,10 @@ struct ContentView: View {
             )
             .environmentObject(store)
         }
+        .sheet(isPresented: $showingSignInAgain) {
+            AccountSignInView(onSuccess: { showingSignInAgain = false })
+                .environmentObject(store)
+        }
         .onAppear {
             #if os(macOS)
             MacVaultLifecycle.start(store: store)
@@ -92,6 +97,12 @@ struct ContentView: View {
             get: { store.userFacingNotice != nil },
             set: { if !$0 { store.userFacingNotice = nil } }
         )) {
+            if store.sessionNeedsSignIn {
+                Button("Sign In Again") {
+                    store.userFacingNotice = nil
+                    showingSignInAgain = true
+                }
+            }
             Button("OK", role: .cancel) { store.userFacingNotice = nil }
         } message: {
             Text(store.userFacingNotice ?? "")

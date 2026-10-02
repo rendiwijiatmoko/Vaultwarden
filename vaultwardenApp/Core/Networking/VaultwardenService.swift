@@ -174,6 +174,21 @@ enum VaultwardenServiceError: LocalizedError {
     }
 }
 
+private actor SessionRefreshGate {
+    private var inFlight: [String: Task<StoredSessionCredentials, Error>] = [:]
+
+    func run(
+        reference: String,
+        operation: @escaping @Sendable () async throws -> StoredSessionCredentials
+    ) async throws -> StoredSessionCredentials {
+        if let task = inFlight[reference] { return try await task.value }
+        let task = Task { try await operation() }
+        inFlight[reference] = task
+        defer { inFlight[reference] = nil }
+        return try await task.value
+    }
+}
+
 struct DefaultVaultwardenService: VaultwardenService {
     private let httpClient: any HTTPClient
     private let cryptoProvider: any VaultCryptoProvider
@@ -182,6 +197,7 @@ struct DefaultVaultwardenService: VaultwardenService {
     private let cacheStore: any VaultCacheStore
     private let keyMemory: VaultKeyMemory
     private let unlockPresentationAllowed: @MainActor @Sendable () -> Bool
+    private let refreshGate = SessionRefreshGate()
 
     init(
         httpClient: any HTTPClient = URLSessionHTTPClient(),
@@ -1522,7 +1538,21 @@ struct DefaultVaultwardenService: VaultwardenService {
         current: StoredSessionCredentials,
         reference: String
     ) async throws -> StoredSessionCredentials {
-        guard let refreshToken = current.refreshToken else {
+        try await refreshGate.run(reference: reference) {
+            try await performCredentialRefresh(baseURL: baseURL, current: current, reference: reference)
+        }
+    }
+
+    private func performCredentialRefresh(
+        baseURL: URL,
+        current: StoredSessionCredentials,
+        reference: String
+    ) async throws -> StoredSessionCredentials {
+        // Another request (or the AutoFill extension) may have rotated the token
+        // since this request loaded its credentials.
+        let latest = try sessionStore.load(reference: reference)
+        if latest.refreshToken != current.refreshToken { return latest }
+        guard let refreshToken = latest.refreshToken else {
             throw VaultwardenServiceError.sessionExpired
         }
         var request = URLRequest(url: endpoint(baseURL, path: "identity/connect/token"))
@@ -1535,18 +1565,29 @@ struct DefaultVaultwardenService: VaultwardenService {
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         applyCommonHeaders(to: &request)
         let (data, response) = try await httpClient.data(for: request)
-        try validate(response: response, data: data)
+        do {
+            try validate(response: response, data: data)
+        } catch {
+            if response.statusCode == 400,
+               let identityError = try? JSONDecoder().decode(IdentityErrorDTO.self, from: data),
+               identityError.error == "invalid_grant" {
+                let recovered = try sessionStore.load(reference: reference)
+                if recovered.refreshToken != refreshToken { return recovered }
+                throw VaultwardenServiceError.sessionExpired
+            }
+            throw error
+        }
         let token = try decodeTokenResponse(data)
         let refreshed = StoredSessionCredentials(
-            userID: current.userID ?? token.userID,
+            userID: latest.userID ?? token.userID,
             accessToken: token.accessToken,
-            refreshToken: token.refreshToken ?? current.refreshToken,
+            refreshToken: token.refreshToken ?? latest.refreshToken,
             tokenType: token.tokenType,
             expiresAt: Date().addingTimeInterval(TimeInterval(token.expiresIn)),
-            protectedUserKey: token.protectedUserKey ?? current.protectedUserKey,
-            protectedPrivateKey: token.protectedPrivateKey ?? current.protectedPrivateKey,
-            kdf: current.kdf,
-            accountKeys: current.accountKeys
+            protectedUserKey: token.protectedUserKey ?? latest.protectedUserKey,
+            protectedPrivateKey: token.protectedPrivateKey ?? latest.protectedPrivateKey,
+            kdf: latest.kdf,
+            accountKeys: latest.accountKeys
         )
         try sessionStore.save(refreshed, reference: reference)
         return refreshed
