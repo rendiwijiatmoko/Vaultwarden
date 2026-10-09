@@ -1,0 +1,50 @@
+name: Vaultwarden PR Build
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-ios-build-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 20
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Verify Xcode
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphonesimulator --show-sdk-version
+
+      # The project references this ignored local package, even for iOS builds.
+      - name: Prepare Bitwarden SDK
+        env:
+          MACOS_ARCHS: arm64
+        run: bash Scripts/prepare-macos-sdk.sh
+
+      - name: Build app without signing
+        run: |
+          xcodebuild build \
+            -project vaultwardenApp.xcodeproj \
+            -scheme vaultwardenApp \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO
