@@ -1,0 +1,60 @@
+name: Vaultwarden iOS Build and Tests
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Verify Xcode and simulator
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphonesimulator --show-sdk-version
+          xcrun simctl list devices available
+
+      - name: Prepare Bitwarden SDK
+        env:
+          MACOS_ARCHS: arm64
+        run: bash Scripts/prepare-macos-sdk.sh
+
+      # iOS 26.2 matches the app, extension, and test deployment targets.
+      # Ad-hoc simulator signing requires no Apple certificate or profile.
+      - name: Build and run all scheme tests
+        run: |
+          xcodebuild test \
+            -project vaultwardenApp.xcodeproj \
+            -scheme vaultwardenApp \
+            -configuration Debug \
+            -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.2' \
+            -destination-timeout 120 \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            -resultBundlePath "$RUNNER_TEMP/VaultwardenTests.xcresult" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY=- \
+            CODE_SIGNING_ALLOWED=YES \
+            DEVELOPMENT_TEAM=
+
+      - name: Upload test results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-test-results-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/VaultwardenTests.xcresult
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
