@@ -95,6 +95,8 @@ For AutoFill request routing, validate a signed build on a physical iPhone:
 
 - With the vault locked, tap a specific keyboard login suggestion. Authenticate and verify it fills without another login selection. Repeat with multiple accounts on the same website.
 - Open the password picker without selecting a specific suggestion. Verify the list still appears and the selected login fills.
+- On a website with an active passkey request (such as Facebook), open the keyboard key/password picker. Verify Passwords opens first and fills a saved username/password. Switch to Passkeys and back without another unlock; verify the switch remains available when either list is empty. Only passkeys matching the requested relying party and allowed credential IDs should appear, including when the page uses a subdomain.
+- Select a passkey directly from the keyboard suggestion and verify it still follows the passkey sign-in flow. In the picker, verify New Password is available only under Passwords.
 - Retry an interrupted authentication and verify the original suggestion is retained. Cancel during authentication and verify no credential is filled afterward.
 - Exercise a stale suggestion whose record is absent from the shared vault. Verify the request fails instead of filling a different account.
 - Repeat with an OTP suggestion; verify the selected item's current code fills. Check passkey selection still works.

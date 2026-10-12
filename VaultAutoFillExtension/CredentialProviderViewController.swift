@@ -129,6 +129,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         mode = .configuration
         pendingRequest = nil
         pendingCredentialSelection = nil
+        passkeyRequestParameters = nil
         serviceIdentifiers = []
         unlockVault(reason: L10n.string("Enable Vaultwarden as your password provider"))
     }
@@ -142,8 +143,13 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         for serviceIdentifiers: [ASCredentialServiceIdentifier],
         requestParameters: ASPasskeyCredentialRequestParameters
     ) {
-        passkeyRequestParameters = requestParameters
-        prepareList(mode: .passkey, serviceIdentifiers: serviceIdentifiers)
+        // This callback supports both passwords and passkeys, even when Safari
+        // has an active passkey request. Keep passwords available in the picker.
+        prepareList(
+            mode: .password,
+            serviceIdentifiers: serviceIdentifiers,
+            passkeyRequestParameters: requestParameters
+        )
     }
 
     @available(iOSApplicationExtension 17.0, *)
@@ -221,6 +227,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     override func prepareInterfaceToProvideCredential(for credentialRequest: any ASCredentialRequest) {
         pendingRequest = credentialRequest
         pendingCredentialSelection = nil
+        passkeyRequestParameters = nil
         if let request = credentialRequest as? ASPasswordCredentialRequest {
             mode = .password
             pendingCredentialSelection = .password(recordIdentifier: request.credentialIdentity.recordIdentifier)
@@ -265,7 +272,8 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
 
     private func prepareList(
         mode: RequestMode,
-        serviceIdentifiers: [ASCredentialServiceIdentifier]
+        serviceIdentifiers: [ASCredentialServiceIdentifier],
+        passkeyRequestParameters: ASPasskeyCredentialRequestParameters? = nil
     ) {
         self.mode = mode
         pendingRequest = nil
@@ -273,7 +281,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         viewModel.searchText = ""
         viewModel.showsAllCredentials = false
         viewModel.selectedTextCredential = nil
-        if mode != .passkey { passkeyRequestParameters = nil }
+        self.passkeyRequestParameters = passkeyRequestParameters
         self.serviceIdentifiers = serviceIdentifiers.map(\.identifier)
         let reasonKey: String = switch mode {
         case .oneTimeCode: "Authenticate to choose a verification code"
@@ -430,11 +438,14 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         updateAccountAvatar(payload)
         viewModel.searchText = ""
         viewModel.credentials = credentials
-        viewModel.serviceIdentifiers = serviceIdentifiers
+        // Passkeys have already been restricted to the request's RP and allow
+        // list. Password URI matching must not hide them on a subdomain page.
+        viewModel.serviceIdentifiers = mode == .passkey ? [] : serviceIdentifiers
         viewModel.defaultURIMatchType = AutoFillSharedVault.defaultURIMatchType
         viewModel.showsWebsiteIcons = AutoFillSharedVault.showsWebsiteIcons
         viewModel.websiteIconServerURL = payload.writeSession?.serverURL
         viewModel.folders = payload.folders ?? []
+        viewModel.allowsCredentialKindSelection = passkeyRequestParameters != nil
         viewModel.kind = switch mode {
         case .oneTimeCode: .oneTimeCode
         case .textInsert: .textInsert
@@ -759,6 +770,21 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
             self.viewModel.beginCreate(suggestedURI: self.serviceIdentifiers.first ?? "")
         }
         viewModel.onAccount = { [weak self] in self?.showAccountInformation() }
+        viewModel.onSelectCredentialKind = { [weak self] kind in
+            guard let self,
+                  !self.isRequestCancelled,
+                  self.passkeyRequestParameters != nil,
+                  self.pendingRequest == nil,
+                  self.mode == .password || self.mode == .passkey,
+                  let unlocked = self.unlockedVault else { return }
+            switch kind {
+            case .password: self.mode = .password
+            case .passkey: self.mode = .passkey
+            case .oneTimeCode, .textInsert: return
+            }
+            self.viewModel.showsAllCredentials = false
+            self.handleUnlocked(unlocked)
+        }
         viewModel.onSelect = { [weak self] credential in
             guard let self else { return }
             if self.mode == .textInsert {
@@ -1195,6 +1221,7 @@ private final class AutoFillCredentialListViewModel: ObservableObject {
     @Published var generatedPasswords: [AutoFillGeneratedPasswordOption] = []
     #endif
     @Published var kind: AutoFillCredentialListKind = .password
+    @Published var allowsCredentialKindSelection = false
     @Published var primaryActionTitle = L10n.string("Continue")
     @Published var isPresentingCreate = false
     @Published var isSavingNewLogin = false
@@ -1216,6 +1243,7 @@ private final class AutoFillCredentialListViewModel: ObservableObject {
     var onPrimaryAction: () -> Void = {}
     var onSelectPasskeyTarget: (AutoFillPasskeyTarget) -> Void = { _ in }
     var onSelect: (AutoFillCredentialRecord) -> Void = { _ in }
+    var onSelectCredentialKind: (AutoFillCredentialListKind) -> Void = { _ in }
     var onInsertText: (AutoFillCredentialRecord, AutoFillInsertableField) -> Void = { _, _ in }
     var onDidSaveNewLogin: (AutoFillCredentialRecord) -> Void = { _ in }
     var onCancelCreate: () -> Void = {}
@@ -1501,7 +1529,8 @@ private struct AutoFillCredentialListView: View {
                     .accessibilityLabel("Close AutoFill")
                 }
 
-                if viewModel.showsSelectionList {
+                if viewModel.showsPasskeyTargetList
+                    || (viewModel.showsCredentialList && (viewModel.kind == .password || viewModel.kind == .textInsert)) {
                     ToolbarItem(placement: .primaryAction) {
                         Button(action: viewModel.showsPasskeyTargetList ? viewModel.onPrimaryAction : viewModel.onAdd) {
                             Image(systemName: "plus")
@@ -1527,8 +1556,26 @@ private struct AutoFillCredentialListView: View {
         #endif
     }
 
-    @ViewBuilder
     private var credentialList: some View {
+        VStack(spacing: 0) {
+            if viewModel.allowsCredentialKindSelection {
+                Picker("Show credentials", selection: Binding(
+                    get: { viewModel.kind },
+                    set: { viewModel.onSelectCredentialKind($0) }
+                )) {
+                    Text("Passwords").tag(AutoFillCredentialListKind.password)
+                    Text("Passkeys").tag(AutoFillCredentialListKind.passkey)
+                }
+                .pickerStyle(.segmented)
+                .padding()
+            }
+            credentialListContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    @ViewBuilder
+    private var credentialListContent: some View {
         if viewModel.filteredCredentials.isEmpty {
             if viewModel.isSearching {
                 ContentUnavailableView.search(text: viewModel.searchText)
