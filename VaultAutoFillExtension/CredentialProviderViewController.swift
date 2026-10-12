@@ -44,6 +44,8 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     private var serviceIdentifiers: [String] = []
     private var credentials: [AutoFillCredentialRecord] = []
     private var pendingRequest: (any ASCredentialRequest)?
+    private var pendingCredentialSelection: AutoFillCredentialSelection?
+    private var isRequestCancelled = false
     #if os(iOS)
     private var pendingSavePasswordRequest: ASSavePasswordRequest?
     private var pendingGeneratePasswordsRequest: ASGeneratePasswordsRequest?
@@ -126,6 +128,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     override func prepareInterfaceForExtensionConfiguration() {
         mode = .configuration
         pendingRequest = nil
+        pendingCredentialSelection = nil
         serviceIdentifiers = []
         unlockVault(reason: L10n.string("Enable Vaultwarden as your password provider"))
     }
@@ -152,6 +155,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         }
         mode = .passkeyRegistration
         pendingRequest = request
+        pendingCredentialSelection = nil
         passkeyRequestParameters = nil
         serviceIdentifiers = [identity.relyingPartyIdentifier]
         unlockVault(reason: L10n.string("Authenticate to create this passkey"))
@@ -170,6 +174,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     override func prepareInterface(for savePasswordRequest: ASSavePasswordRequest) {
         mode = .passwordSave
         pendingRequest = nil
+        pendingCredentialSelection = nil
         pendingSavePasswordRequest = savePasswordRequest
         pendingGeneratePasswordsRequest = nil
         passkeyRequestParameters = nil
@@ -189,6 +194,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     override func prepareInterface(for generatePasswordsRequest: ASGeneratePasswordsRequest) {
         mode = .passwordGeneration
         pendingRequest = nil
+        pendingCredentialSelection = nil
         pendingSavePasswordRequest = nil
         pendingGeneratePasswordsRequest = generatePasswordsRequest
         passkeyRequestParameters = nil
@@ -214,11 +220,14 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
 
     override func prepareInterfaceToProvideCredential(for credentialRequest: any ASCredentialRequest) {
         pendingRequest = credentialRequest
+        pendingCredentialSelection = nil
         if let request = credentialRequest as? ASPasswordCredentialRequest {
             mode = .password
+            pendingCredentialSelection = .password(recordIdentifier: request.credentialIdentity.recordIdentifier)
             serviceIdentifiers = [request.credentialIdentity.serviceIdentifier.identifier]
         } else if let request = credentialRequest as? ASOneTimeCodeCredentialRequest {
             mode = .oneTimeCode
+            pendingCredentialSelection = .oneTimeCode(recordIdentifier: request.credentialIdentity.recordIdentifier)
             serviceIdentifiers = [request.credentialIdentity.serviceIdentifier.identifier]
         } else if let request = credentialRequest as? ASPasskeyCredentialRequest {
             mode = .passkey
@@ -237,9 +246,10 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     ) {
         mode = .password
         pendingRequest = nil
+        pendingCredentialSelection = .password(recordIdentifier: credentialIdentity.recordIdentifier)
         passkeyRequestParameters = nil
         serviceIdentifiers = [credentialIdentity.serviceIdentifier.identifier]
-        unlockVault(reason: L10n.string("Authenticate to choose a password"))
+        unlockVault(reason: L10n.string("Authenticate to fill this credential"))
     }
 
     override func provideCredentialWithoutUserInteraction(for credentialRequest: any ASCredentialRequest) {
@@ -259,6 +269,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     ) {
         self.mode = mode
         pendingRequest = nil
+        pendingCredentialSelection = nil
         viewModel.searchText = ""
         viewModel.showsAllCredentials = false
         viewModel.selectedTextCredential = nil
@@ -277,6 +288,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     }
 
     private func unlockVault(reason: String) {
+        isRequestCancelled = false
         ensureViewLoaded()
         showLoading(message: L10n.string("Unlocking encrypted AutoFill vault…"))
         pendingUnlockReason = reason
@@ -295,9 +307,11 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
             defer { isUnlockingVault = false }
             do {
                 let unlocked = try await AutoFillSharedVault.load(reason: reason)
+                guard !isRequestCancelled else { return }
                 unlockedVault = unlocked
                 handleUnlocked(unlocked)
             } catch {
+                guard !isRequestCancelled else { return }
                 if isRecoverableAuthenticationError(error) {
                     pendingUnlockReason = reason
                     showAuthenticationRetry(reason: reason)
@@ -401,6 +415,15 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         }
         if let passkeyRequest = pendingRequest as? ASPasskeyCredentialRequest {
             providePasskey(request: passkeyRequest, unlocked: unlocked)
+            return
+        }
+
+        if let selection = pendingCredentialSelection {
+            guard let credential = selection.resolve(in: credentials) else {
+                cancelRequest(code: .credentialIdentityNotFound)
+                return
+            }
+            provide(credential)
             return
         }
 
@@ -536,6 +559,8 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         switch mode {
         case .password:
             let credential = ASPasswordCredential(user: record.username, password: record.password)
+            pendingCredentialSelection = nil
+            pendingRequest = nil
             extensionContext.completeRequest(withSelectedCredential: credential, completionHandler: nil)
         case .oneTimeCode:
             guard let secret = record.totpSecret,
@@ -543,6 +568,8 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
                 showError("This verification code is invalid or unsupported.")
                 return
             }
+            pendingCredentialSelection = nil
+            pendingRequest = nil
             extensionContext.completeOneTimeCodeRequest(
                 using: ASOneTimeCodeCredential(code: code),
                 completionHandler: nil
@@ -591,18 +618,6 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
                 showError(error.localizedDescription)
             }
         }
-    }
-
-    private func recordIdentifier(from request: any ASCredentialRequest) -> String? {
-        let value: String?
-        if let request = request as? ASPasswordCredentialRequest {
-            value = request.credentialIdentity.recordIdentifier
-        } else if let request = request as? ASOneTimeCodeCredentialRequest {
-            value = request.credentialIdentity.recordIdentifier
-        } else {
-            value = nil
-        }
-        return value?.split(separator: "|").last.map(String.init)
     }
 
     private func replaceCredentialIdentities(_ payload: AutoFillVaultPayload) async {
@@ -850,6 +865,10 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     }
 
     private func cancelRequest(code: ASExtensionError.Code) {
+        isRequestCancelled = true
+        pendingCredentialSelection = nil
+        pendingRequest = nil
+        pendingUnlockReason = nil
         extensionContext.cancelRequest(withError: NSError(
             domain: ASExtensionErrorDomain,
             code: code.rawValue

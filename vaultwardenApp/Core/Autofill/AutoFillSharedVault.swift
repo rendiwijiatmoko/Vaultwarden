@@ -4,6 +4,45 @@ import Foundation
 import LocalAuthentication
 import Security
 
+/// A specific keyboard suggestion, retained while the shared vault authenticates.
+/// A selection with a missing/invalid identity must fail, never become a list request.
+nonisolated enum AutoFillCredentialSelection: Sendable {
+    case password(recordIdentifier: String?)
+    case oneTimeCode(recordIdentifier: String?)
+
+    func resolve(in credentials: [AutoFillCredentialRecord]) -> AutoFillCredentialRecord? {
+        let identifier: String?
+        let prefix: String
+        switch self {
+        case let .password(recordIdentifier):
+            identifier = recordIdentifier
+            prefix = "password"
+        case let .oneTimeCode(recordIdentifier):
+            identifier = recordIdentifier
+            prefix = "totp"
+        }
+        guard let identifier, !identifier.isEmpty else { return nil }
+        let components = identifier.split(separator: "|", omittingEmptySubsequences: false)
+        let recordID: String
+        if components.count == 1 {
+            // Accept unprefixed record IDs as well as the published typed identities.
+            recordID = identifier
+        } else {
+            guard components.count == 2, components[0] == prefix,
+                  !components[1].isEmpty else { return nil }
+            recordID = String(components[1])
+        }
+        guard let record = credentials.first(where: { $0.id == recordID }),
+              record.isLogin else { return nil }
+        switch self {
+        case .password:
+            return record.password.isEmpty ? nil : record
+        case .oneTimeCode:
+            return record.totpSecret?.isEmpty == false ? record : nil
+        }
+    }
+}
+
 nonisolated enum AutoFillURIMatchType: UInt8, Codable, Hashable, Sendable {
     case baseDomain = 0
     case host = 1
