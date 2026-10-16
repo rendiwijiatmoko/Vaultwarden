@@ -7,6 +7,7 @@ struct SSHKeyGeneratorFields: View {
     @Binding var publicKey: String
     @Binding var fingerprint: String
     var allowsGeneration = true
+    @State private var algorithm: SSHKeyAlgorithm = .ed25519
     @State private var comment = ""
     @State private var revealed = false
     @State private var generation: Task<Void, Never>?
@@ -17,7 +18,12 @@ struct SSHKeyGeneratorFields: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             if allowsGeneration {
-                LabeledContent("Algorithm", value: "Ed25519")
+                Picker("Algorithm", selection: $algorithm) {
+                    ForEach(SSHKeyAlgorithm.allCases) { algorithm in
+                        Text(verbatim: algorithm.title).tag(algorithm)
+                    }
+                }
+                .disabled(requestID != nil)
                 TextField("Key comment (optional)", text: $comment)
                     .autocorrectionDisabled()
                 Button {
@@ -96,10 +102,11 @@ struct SSHKeyGeneratorFields: View {
         publicKey = ""
         fingerprint = ""
         let comment = comment
+        let algorithm = algorithm
         generation = Task {
             do {
                 let key = try await Task.detached(priority: .userInitiated) {
-                    try SSHKeyGenerator.generate(comment: comment)
+                    try SSHKeyGenerator.generate(algorithm: algorithm, comment: comment)
                 }.value
                 guard !Task.isCancelled, requestID == id, !store.isLocked,
                       store.authenticatedSession?.tokenReference == session.tokenReference else { return }
@@ -125,6 +132,7 @@ struct SSHKeyGeneratorFields: View {
         publicKey = ""
         fingerprint = ""
         comment = ""
+        algorithm = .ed25519
         revealed = false
         confirmReplace = false
         generationFailed = false
