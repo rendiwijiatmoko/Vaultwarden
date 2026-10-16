@@ -101,6 +101,31 @@ final class MacPlatformTests: XCTestCase {
         XCTAssertEqual(decrypted.fields?.first?.type, .hidden)
     }
 
+    func testGeneratedSSHKeyEncryptedRoundTripPreservesNotesAndFingerprint() async throws {
+        let key = try SSHKeyGenerator.generate()
+        let userKey = try await SDKFixture.unwrapUserKey()
+        let item = VaultItem(name: "Generated SSH key", username: key.publicKey,
+                             password: key.privateKey, type: .sshKey,
+                             notes: "Independent notes", sshKeyFingerprint: key.fingerprint)
+        let encrypted = try await BitwardenCipherWriter.encrypt(
+            item: item, existing: nil, folderID: nil, email: SDKFixture.email,
+            userKey: userKey, credentials: SDKFixture.credentials, organizationKeys: [:]
+        )
+        XCTAssertNotEqual(encrypted.cipher.sshKey?.privateKey, key.privateKey)
+        let reader = BitwardenSDKClientFactory.make()
+        try await reader.crypto().initializeUserCrypto(req: InitUserCryptoRequest(
+            userId: SDKFixture.userID, kdfParams: .pbkdf2(iterations: 100_000),
+            email: SDKFixture.email,
+            accountCryptographicState: .v1(privateKey: SDKFixture.privateKey),
+            method: .decryptedKey(decryptedUserKey: userKey.base64EncodedString()), upgradeToken: nil
+        ))
+        let decrypted = try await reader.vault().ciphers().decrypt(cipher: encrypted.cipher)
+        XCTAssertEqual(decrypted.sshKey?.privateKey, key.privateKey)
+        XCTAssertEqual(decrypted.sshKey?.publicKey, key.publicKey)
+        XCTAssertEqual(decrypted.sshKey?.fingerprint, key.fingerprint)
+        XCTAssertEqual(decrypted.notes, "Independent notes")
+    }
+
     func testOTPAuthImportPreservesEncodedAccountAndParameters() throws {
         let url = try XCTUnwrap(URL(string:
             "otpauth://totp/Example%20Service:person%2Bwork%40example.com?secret=JBSWY3DPEHPK3PXP&issuer=Example%20Service&digits=8&period=60&algorithm=SHA256"

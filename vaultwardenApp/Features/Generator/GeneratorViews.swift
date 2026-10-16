@@ -4,12 +4,17 @@ private enum GeneratorMode: String, CaseIterable, Identifiable {
     case password = "Password"
     case passphrase = "Passphrase"
     case username = "Username"
+    case sshKey = "SSH Key"
     var id: String { rawValue }
     var localizedTitle: String { L10n.string(rawValue) }
 }
 
 struct GeneratorView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var store: AppStore
+    @State private var sshPrivateKey = ""
+    @State private var sshPublicKey = ""
+    @State private var sshFingerprint = ""
     @State private var mode: GeneratorMode = .password
     @State private var generated = ""
     @State private var length = 20.0
@@ -33,28 +38,42 @@ struct GeneratorView: View {
                     }
                     .pickerStyle(.segmented)
 
-                    generatedCard
+                    if mode == .sshKey {
+                        SSHKeyGeneratorFields(
+                            privateKey: $sshPrivateKey,
+                            publicKey: $sshPublicKey,
+                            fingerprint: $sshFingerprint
+                        )
+                        .padding(20)
+                        .background(Color.vaultCard, in: RoundedRectangle(cornerRadius: 22))
+                    } else {
+                        generatedCard
 
-                    Group {
-                        switch mode {
-                        case .password: passwordOptions
-                        case .passphrase: passphraseOptions
-                        case .username: usernameOptions
+                        Group {
+                            switch mode {
+                            case .password: passwordOptions
+                            case .passphrase: passphraseOptions
+                            case .username: usernameOptions
+                            case .sshKey: EmptyView()
+                            }
                         }
+                        .padding(18)
+                        .background(Color.vaultCard, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+
                     }
-                    .padding(18)
-                    .background(Color.vaultCard, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
 
                     HStack(spacing: 12) {
-                        AnimatedCopyButton(
-                            value: generated,
-                            title: "Copy",
-                            accessibilityName: "generated value",
-                            onCopy: recordCurrent,
-                            fillsWidth: true
-                        )
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
+                        if mode != .sshKey {
+                            AnimatedCopyButton(
+                                value: generated,
+                                title: "Copy",
+                                accessibilityName: "generated value",
+                                onCopy: recordCurrent,
+                                fillsWidth: true
+                            )
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.large)
+                        }
 
                         Button {
                             recordCurrent()
@@ -65,6 +84,7 @@ struct GeneratorView: View {
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.large)
+                        .disabled(mode == .sshKey && (sshPrivateKey.isEmpty || store.isLocked))
                     }
                 }
                 .padding(16)
@@ -78,17 +98,30 @@ struct GeneratorView: View {
                         .tint(nil)
                 }
                 ToolbarItem(placement: .vaultTrailing) {
-                    Button {
-                        loadHistory()
-                        showingHistory = true
-                    } label: {
-                        Label("History", systemImage: "clock.arrow.circlepath")
+                    if mode != .sshKey {
+                        Button {
+                            loadHistory()
+                            showingHistory = true
+                        } label: {
+                            Label("History", systemImage: "clock.arrow.circlepath")
+                        }
+                        .tint(nil)
                     }
-                    .tint(nil)
                 }
             }
             .onAppear { regenerate() }
-            .onChange(of: mode) { _, _ in regenerate() }
+            .onChange(of: mode) { _, _ in
+                clearSSHKey()
+                regenerate()
+            }
+            .onChange(of: store.isLocked) { _, locked in
+                if locked { clearSSHKey(); showingSave = false }
+            }
+            .onChange(of: store.authenticatedSession?.tokenReference) { _, _ in
+                clearSSHKey()
+                showingSave = false
+            }
+            .onDisappear { clearSSHKey() }
             .onChange(of: length) { _, _ in regenerate() }
             .onChange(of: useUppercase) { _, _ in regenerate() }
             .onChange(of: useNumbers) { _, _ in regenerate() }
@@ -98,7 +131,16 @@ struct GeneratorView: View {
             .onChange(of: capitalize) { _, _ in regenerate() }
             .onChange(of: includeNumber) { _, _ in regenerate() }
             .sheet(isPresented: $showingSave) {
-                AddEditVaultItemView(prefilledPassword: generated)
+                if mode == .sshKey {
+                    AddEditVaultItemView(
+                        prefilledPassword: sshPrivateKey,
+                        prefilledUsername: sshPublicKey,
+                        prefilledSSHFingerprint: sshFingerprint,
+                        prefilledType: .sshKey
+                    )
+                } else {
+                    AddEditVaultItemView(prefilledPassword: generated)
+                }
             }
             .sheet(isPresented: $showingHistory) {
                 GeneratorHistoryView(records: $history)
@@ -229,10 +271,19 @@ struct GeneratorView: View {
             generated = PasswordGenerator.passphrase(wordCount: wordCount, separator: separator.isEmpty ? "-" : separator, capitalize: capitalize, includeNumber: includeNumber)
         case .username:
             generated = PasswordGenerator.username()
+        case .sshKey:
+            generated = ""
         }
     }
 
+    private func clearSSHKey() {
+        sshPrivateKey = ""
+        sshPublicKey = ""
+        sshFingerprint = ""
+    }
+
     private func recordCurrent() {
+        guard mode != .sshKey else { return }
         try? GeneratorHistoryStore.add(value: generated, kind: mode.rawValue)
         loadHistory()
     }
