@@ -131,12 +131,118 @@ final class SSHAgentTests: XCTestCase {
         var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(settings)) as? [String: Any])
         json.removeValue(forKey: "sshAgentEnabled")
         json.removeValue(forKey: "sshAgentAllowedKeyIDs")
+        json.removeValue(forKey: "sshAgentApprovals")
         let restored = try JSONDecoder().decode(AppSettings.self, from: JSONSerialization.data(withJSONObject: json))
         XCTAssertEqual(restored.email, settings.email)
         XCTAssertEqual(restored.serverURL, settings.serverURL)
         XCTAssertEqual(restored.theme, .dark)
         XCTAssertNotEqual(restored.sshAgentEnabled, true)
         XCTAssertNil(restored.sshAgentAllowedKeyIDs)
+        XCTAssertNil(restored.sshAgentApprovals)
+    }
+
+    func testAlwaysApprovalPersistsAndRespectsScopeLockAndRevocation() async throws {
+        let suite = "SSHAgentTests-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let key = try SSHKeyGenerator.generate()
+        let item = VaultItem(name: "Remembered SSH", username: key.publicKey, password: key.privateKey, type: .sshKey)
+        var settings = AppSettings()
+        settings.serverURL = "https://example.invalid"
+        settings.email = "test@example.invalid"
+        settings.sessionReference = "ssh-agent-test-only"
+        settings.sshAgentEnabled = true
+        settings.sshAgentAllowedKeyIDs = [item.id]
+        settings.syncOnOpen = false
+        settings.backgroundRefresh = false
+        defaults.set(try JSONEncoder().encode(settings), forKey: "vaultwardenApp.settings")
+        let store = AppStore(settingsDefaults: defaults)
+        store.isLocked = false
+        store.items = [item]
+        let directory = try Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let agent = MacSSHAgent(store: store, socketPath: directory.appendingPathComponent("agent.sock").path)
+        defer { store.settings.sshAgentEnabled = false }
+        let blob = try SSHAgentSigner.publicBlob(key.publicKey)
+        let payload = Data([13]) + SSHWire.string(blob) + SSHWire.string(Data("challenge".utf8)) + SSHWire.uint32(0)
+
+        let once = Task { await agent.handle(payload) }
+        try await waitForPrompt(agent)
+        agent.resolvePrompt(approved: true)
+        let onceResult = await once.value
+        XCTAssertEqual(onceResult.first, 14)
+        XCTAssertFalse(agent.isAlwaysApproved(item))
+
+        let always = Task { await agent.handle(payload) }
+        try await waitForPrompt(agent)
+        agent.resolvePrompt(approved: true, alwaysApprove: true)
+        let alwaysResult = await always.value
+        XCTAssertEqual(alwaysResult.first, 14)
+        XCTAssertTrue(agent.isAlwaysApproved(item))
+        let repeated = await agent.handle(payload)
+        XCTAssertEqual(repeated.first, 14)
+        XCTAssertNil(agent.prompt)
+
+        // Recreate the store and agent from saved settings, as after app restart.
+        let restoredStore = AppStore(settingsDefaults: defaults)
+        restoredStore.isLocked = false
+        restoredStore.items = [item]
+        let restoredAgent = MacSSHAgent(store: restoredStore,
+                                        socketPath: directory.appendingPathComponent("restored.sock").path)
+        defer { restoredStore.settings.sshAgentEnabled = false }
+        XCTAssertTrue(restoredAgent.isAlwaysApproved(item))
+        let afterRestart = await restoredAgent.handle(payload)
+        XCTAssertEqual(afterRestart.first, 14)
+        XCTAssertNil(restoredAgent.prompt)
+
+        let grant = try XCTUnwrap(store.settings.sshAgentApprovals?.first)
+        for otherGrant in [
+            SSHAgentApproval(accountID: "other@example.invalid", serverURL: grant.serverURL,
+                             keyID: item.id, fingerprint: grant.fingerprint),
+            SSHAgentApproval(accountID: grant.accountID, serverURL: URL(string: "https://other.invalid")!,
+                             keyID: item.id, fingerprint: grant.fingerprint),
+            SSHAgentApproval(accountID: grant.accountID, serverURL: grant.serverURL,
+                             keyID: UUID(), fingerprint: grant.fingerprint),
+            SSHAgentApproval(accountID: grant.accountID, serverURL: grant.serverURL,
+                             keyID: item.id, fingerprint: "SHA256:different")
+        ] {
+            store.settings.sshAgentApprovals = [otherGrant]
+            let wrongScope = Task { await agent.handle(payload) }
+            try await waitForPrompt(agent)
+            agent.resolvePrompt(approved: false)
+            let wrongScopeResult = await wrongScope.value
+            XCTAssertEqual(wrongScopeResult, SSHAgentRequest.failure)
+        }
+        store.settings.sshAgentApprovals = [grant]
+
+        store.isLocked = true
+        let locked = Task { await agent.handle(payload) }
+        try await waitForPrompt(agent)
+        XCTAssertNil(agent.prompt?.keyName, "Remembered approval must still require unlocking")
+        agent.resolvePrompt(approved: false)
+        let lockedResult = await locked.value
+        XCTAssertEqual(lockedResult, SSHAgentRequest.failure)
+        store.isLocked = false
+
+        store.settings.sshAgentAllowedKeyIDs = []
+        let deselected = await agent.handle(payload)
+        XCTAssertEqual(deselected, SSHAgentRequest.failure)
+        store.settings.sshAgentAllowedKeyIDs = [item.id]
+        var deleted = item
+        deleted.deletedAt = Date()
+        store.items = [deleted]
+        let deletedResult = await agent.handle(payload)
+        XCTAssertEqual(deletedResult, SSHAgentRequest.failure)
+        store.items = [item]
+
+        agent.revokeAlwaysApproval(for: item.id)
+        XCTAssertFalse(agent.isAlwaysApproved(item))
+        let revoked = Task { await agent.handle(payload) }
+        try await waitForPrompt(agent)
+        agent.resolvePrompt(approved: true)
+        let revokedResult = await revoked.value
+        XCTAssertEqual(revokedResult.first, 14)
+        XCTAssertFalse(agent.isAlwaysApproved(item))
     }
 
     func testAuthorizationAndVaultPolicy() async throws {

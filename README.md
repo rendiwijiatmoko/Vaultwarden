@@ -83,8 +83,15 @@ ssh -T git@github.com
 ```
 
 Use SSH repository URLs such as `git@github.com:OWNER/REPO.git`. Keep the app
-running. Listing keys while locked prompts for vault unlock; signing requires a
-separate **Approve Once** action. Requests expire after 60 seconds. Denial,
+running. Listing keys while locked prompts for vault unlock. For signing, choose
+**Approve Once** or **Always Approve**. Always Approve remembers permission for
+that account, vault item, and public-key fingerprint on this Mac, including after
+restarting the app. It allows all local SSH clients to use that key while the
+vault is unlocked; it does not identify a specific client or destination host.
+Use **Require Approval Again** in Settings → SSH Agent to revoke permission.
+Deselecting a key also revokes its remembered approval. Replacing its public key
+requires fresh approval. Locked vaults must still be unlocked before any use.
+Requests awaiting approval expire after 60 seconds. Denial,
 locking, account changes, key changes, and disabling the agent invalidate pending
 authorization. Deleted, archived, and restricted keys cannot be used.
 

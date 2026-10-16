@@ -13,6 +13,10 @@ struct SSHAgentPrompt: Identifiable {
 /// sees request/response bytes only and never holds vault items or private keys.
 @MainActor
 final class MacSSHAgent: ObservableObject {
+    private enum ApprovalDecision {
+        case deny, once, always
+    }
+
     @Published private(set) var isRunning = false
     @Published private(set) var startupFailed = false
     @Published var prompt: SSHAgentPrompt?
@@ -23,7 +27,7 @@ final class MacSSHAgent: ObservableObject {
     private let authorizationTimeout: Duration
     private var transport: SSHAgentSocket?
     private var subscriptions: Set<AnyCancellable> = []
-    private var approval: CheckedContinuation<Bool, Never>?
+    private var approval: CheckedContinuation<ApprovalDecision, Never>?
     private var approvalID: UUID?
     private var approvalKey: VaultItem?
     private var timeoutTask: Task<Void, Never>?
@@ -39,6 +43,7 @@ final class MacSSHAgent: ObservableObject {
         store.$settings.removeDuplicates { lhs, rhs in
             (lhs.sshAgentEnabled == true) == (rhs.sshAgentEnabled == true)
                 && Set(lhs.sshAgentAllowedKeyIDs ?? []) == Set(rhs.sshAgentAllowedKeyIDs ?? [])
+                && (lhs.sshAgentApprovals ?? []) == (rhs.sshAgentApprovals ?? [])
         }.sink { [weak self] settings in
             guard let self else { return }
             invalidate()
@@ -89,7 +94,10 @@ final class MacSSHAgent: ObservableObject {
 
     func retry() { configure(enabled: store.settings.sshAgentEnabled == true) }
 
-    func resolvePrompt(approved: Bool) {
+    func resolvePrompt(approved: Bool, alwaysApprove: Bool = false) {
+        // Unlock requests never grant persistent signing permission.
+        let decision: ApprovalDecision = !approved ? .deny
+            : (alwaysApprove && approvalKey != nil ? .always : .once)
         let continuation = approval
         approval = nil
         approvalID = nil
@@ -97,7 +105,26 @@ final class MacSSHAgent: ObservableObject {
         timeoutTask?.cancel()
         timeoutTask = nil
         prompt = nil
-        continuation?.resume(returning: approved)
+        continuation?.resume(returning: decision)
+    }
+
+    func isAlwaysApproved(_ item: VaultItem) -> Bool {
+        guard let blob = try? SSHAgentSigner.publicBlob(item.username),
+              let approval = persistentApproval(for: item, blob: blob) else { return false }
+        return (store.settings.sshAgentApprovals ?? []).contains(approval)
+    }
+
+    func revokeAlwaysApproval(for keyID: UUID) {
+        guard let session = store.authenticatedSession else { return }
+        store.settings.sshAgentApprovals?.removeAll {
+            $0.accountID == session.accountID && $0.serverURL == session.serverURL && $0.keyID == keyID
+        }
+    }
+
+    private func persistentApproval(for item: VaultItem, blob: Data) -> SSHAgentApproval? {
+        guard let session = store.authenticatedSession else { return nil }
+        return SSHAgentApproval(accountID: session.accountID, serverURL: session.serverURL,
+                                keyID: item.id, fingerprint: SSHAgentSigner.fingerprint(blob))
     }
 
     func cancelPrompt(id: UUID) {
@@ -154,7 +181,7 @@ final class MacSSHAgent: ObservableObject {
         let currentRevision = revision
         if store.isLocked {
             guard !(store.settings.sshAgentAllowedKeyIDs ?? []).isEmpty,
-                  await requestApproval(keyName: nil, fingerprint: nil),
+                  await requestApproval(keyName: nil, fingerprint: nil) != .deny,
                   isValid(revision: currentRevision, session: session), !store.isLocked else {
                 return SSHAgentRequest.failure
             }
@@ -181,13 +208,31 @@ final class MacSSHAgent: ObservableObject {
                     || (algorithm == "ssh-rsa" && [UInt32(2), 4, 6].contains(flags)) else {
                 return SSHAgentRequest.failure
             }
-            guard await requestApproval(keyName: candidate.item.name, fingerprint: SSHAgentSigner.fingerprint(blob), key: candidate.item),
-                  isValid(revision: currentRevision, session: session),
+            let decision: ApprovalDecision
+            if isAlwaysApproved(candidate.item) {
+                decision = .once
+            } else {
+                decision = await requestApproval(keyName: candidate.item.name,
+                                                 fingerprint: SSHAgentSigner.fingerprint(blob), key: candidate.item)
+            }
+            guard decision != .deny, isValid(revision: currentRevision, session: session),
                   let current = eligibleItems.first(where: { $0.item.id == candidate.item.id && $0.blob == blob }),
                   current.item.password == candidate.item.password else { return SSHAgentRequest.failure }
             // No suspension between the final policy check and signing/returning.
-            return (try? SSHAgentSigner.sign(privateKey: current.item.password, publicKey: blob,
-                                             message: message, flags: flags)) ?? SSHAgentRequest.failure
+            guard let signature = try? SSHAgentSigner.sign(privateKey: current.item.password, publicKey: blob,
+                                                           message: message, flags: flags) else {
+                return SSHAgentRequest.failure
+            }
+            if decision == .always, let approval = persistentApproval(for: current.item, blob: blob) {
+                var approvals = store.settings.sshAgentApprovals ?? []
+                approvals.removeAll {
+                    $0.accountID == approval.accountID && $0.serverURL == approval.serverURL
+                        && $0.keyID == approval.keyID
+                }
+                approvals.append(approval)
+                store.settings.sshAgentApprovals = approvals
+            }
+            return signature
         case .unsupported: return SSHAgentRequest.failure
         }
     }
@@ -206,12 +251,12 @@ final class MacSSHAgent: ObservableObject {
             && lhs.isDeleted == rhs.isDeleted && lhs.isArchived == rhs.isArchived
     }
 
-    private func requestApproval(keyName: String?, fingerprint: String?, key: VaultItem? = nil) async -> Bool {
-        guard approval == nil, !Task.isCancelled else { return false }
+    private func requestApproval(keyName: String?, fingerprint: String?, key: VaultItem? = nil) async -> ApprovalDecision {
+        guard approval == nil, !Task.isCancelled else { return .deny }
         let id = UUID()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                guard !Task.isCancelled else { continuation.resume(returning: false); return }
+                guard !Task.isCancelled else { continuation.resume(returning: .deny); return }
                 approval = continuation
                 approvalID = id
                 approvalKey = key

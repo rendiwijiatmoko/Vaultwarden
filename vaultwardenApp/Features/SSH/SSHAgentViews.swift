@@ -20,7 +20,7 @@ struct SSHAgentSettingsView: View {
                 LabeledContent("Status") {
                     Text(L10n.string(agent.isRunning ? "Running" : "Stopped"))
                 }
-                Text("Use vault SSH keys with SSH and Git. Each signing request requires your approval.")
+                Text("Use vault SSH keys with SSH and Git. Approve each request or remember approval for a selected key.")
                     .foregroundStyle(.secondary)
                 if agent.startupFailed {
                     Text("Could not start SSH agent. Check App Group access, socket path length, and whether another app instance is running.")
@@ -48,25 +48,42 @@ struct SSHAgentSettingsView: View {
                     Text("Create or import an Ed25519 or RSA SSH key first.").foregroundStyle(.secondary)
                 } else {
                     ForEach(availableKeys) { item in
-                        Toggle(isOn: Binding(
-                            get: { (store.settings.sshAgentAllowedKeyIDs ?? []).contains(item.id) },
-                            set: { enabled in
-                                var ids = Set(store.settings.sshAgentAllowedKeyIDs ?? [])
-                                if enabled { ids.insert(item.id) } else { ids.remove(item.id) }
-                                store.settings.sshAgentAllowedKeyIDs = Array(ids)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Toggle(isOn: Binding(
+                                get: { (store.settings.sshAgentAllowedKeyIDs ?? []).contains(item.id) },
+                                set: { enabled in
+                                    var ids = Set(store.settings.sshAgentAllowedKeyIDs ?? [])
+                                    if enabled { ids.insert(item.id) } else { ids.remove(item.id) }
+                                    var settings = store.settings
+                                    settings.sshAgentAllowedKeyIDs = Array(ids)
+                                    if !enabled {
+                                        settings.sshAgentApprovals?.removeAll { $0.keyID == item.id }
+                                    }
+                                    store.settings = settings
+                                }
+                            )) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(item.name)
+                                    if let blob = try? SSHAgentSigner.publicBlob(item.username) {
+                                        Text(SSHAgentSigner.fingerprint(blob)).font(.caption.monospaced())
+                                            .foregroundStyle(.secondary).textSelection(.enabled)
+                                    }
+                                }
                             }
-                        )) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(item.name)
-                                if let blob = try? SSHAgentSigner.publicBlob(item.username) {
-                                    Text(SSHAgentSigner.fingerprint(blob)).font(.caption.monospaced())
-                                        .foregroundStyle(.secondary).textSelection(.enabled)
+                            if agent.isAlwaysApproved(item) {
+                                HStack {
+                                    Text("Always Approve is enabled.")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                    Spacer()
+                                    Button("Require Approval Again") { agent.revokeAlwaysApproval(for: item.id) }
                                 }
                             }
                         }
                     }
                 }
                 Text("No keys are enabled by default. Deleted, archived, and restricted keys are unavailable. RSA requires SHA-256 or SHA-512 signatures.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Text("Always Approve applies to all local SSH clients using that key while the vault is unlocked. It is saved on this Mac and can be revoked here.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -104,6 +121,8 @@ private struct SSHAgentAuthorizationView: View {
                 Text(fingerprint).font(.caption.monospaced()).textSelection(.enabled)
                 Text("Approve only requests you initiated. The agent cannot verify the destination host from this request.")
                     .font(.caption).foregroundStyle(.secondary)
+                Text("Always Approve lets local SSH clients use this key without asking again while the vault is unlocked. Change this in Settings → SSH Agent.")
+                    .font(.caption).foregroundStyle(.secondary)
             } else {
                 Text("An SSH client needs access to your available public keys. Unlock your vault to continue.")
             }
@@ -126,6 +145,8 @@ private struct SSHAgentAuthorizationView: View {
                     .keyboardShortcut(.cancelAction)
                 Spacer()
                 if prompt.keyName != nil {
+                    Button("Always Approve") { agent.resolvePrompt(approved: true, alwaysApprove: true) }
+                        .disabled(store.isLocked || unlocking)
                     Button("Approve Once") { agent.resolvePrompt(approved: true) }
                         .buttonStyle(.borderedProminent)
                         .disabled(store.isLocked || unlocking)
