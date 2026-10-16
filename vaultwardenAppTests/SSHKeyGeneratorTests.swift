@@ -18,6 +18,20 @@ final class SSHKeyGeneratorTests: XCTestCase {
         XCTAssertNotEqual(try SSHKeyGenerator.generate().publicKey, key.publicKey)
     }
 
+    func testRSAKeysAndFingerprints() throws {
+        for algorithm in [SSHKeyAlgorithm.rsa2048, .rsa4096] {
+            let key = try SSHKeyGenerator.generate(algorithm: algorithm, comment: "rsa-test")
+            let fields = key.publicKey.split(separator: " ")
+            XCTAssertEqual(fields.first, "ssh-rsa")
+            XCTAssertTrue(key.publicKey.hasSuffix(" rsa-test"))
+            let blob = try XCTUnwrap(Data(base64Encoded: String(fields[1])))
+            let expected = "SHA256:" + Data(SHA256.hash(data: blob)).base64EncodedString()
+                .replacingOccurrences(of: "=", with: "")
+            XCTAssertEqual(key.fingerprint, expected)
+            XCTAssertTrue(key.privateKey.hasPrefix("-----BEGIN OPENSSH PRIVATE KEY-----"))
+        }
+    }
+
     func testOlderCachedItemsDecodeWithoutFingerprintField() throws {
         let item = VaultItem(name: "Existing key", type: .sshKey, notes: "SHA256:legacy")
         var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(item)) as? [String: Any])
@@ -29,13 +43,19 @@ final class SSHKeyGeneratorTests: XCTestCase {
 
     #if os(macOS)
     func testOpenSSHReadsPrivateKeyAndMatchesPublicKeyAndFingerprint() throws {
-        let key = try SSHKeyGenerator.generate(comment: "test-only")
+        for algorithm in SSHKeyAlgorithm.allCases {
+            try assertOpenSSHCompatibility(algorithm)
+        }
+    }
+
+    private func assertOpenSSHCompatibility(_ algorithm: SSHKeyAlgorithm) throws {
+        let key = try SSHKeyGenerator.generate(algorithm: algorithm, comment: "test-only")
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
         defer { try? FileManager.default.removeItem(at: directory) }
-        let privateURL = directory.appendingPathComponent("id_ed25519")
-        let publicURL = directory.appendingPathComponent("id_ed25519.pub")
+        let privateURL = directory.appendingPathComponent("key")
+        let publicURL = directory.appendingPathComponent("key.pub")
         // Only disposable, generated test keys are written for interoperability testing.
         XCTAssertTrue(FileManager.default.createFile(atPath: privateURL.path,
             contents: Data(key.privateKey.utf8), attributes: [.posixPermissions: 0o600]))
@@ -45,6 +65,13 @@ final class SSHKeyGeneratorTests: XCTestCase {
                        Array(key.publicKey.split(separator: " ").prefix(2)))
         let fingerprint = try sshKeygen(["-l", "-E", "sha256", "-f", publicURL.path])
         XCTAssertTrue(fingerprint.contains(key.fingerprint))
+        let expectedBits: String
+        switch algorithm {
+        case .ed25519: expectedBits = "256"
+        case .rsa2048: expectedBits = "2048"
+        case .rsa4096: expectedBits = "4096"
+        }
+        XCTAssertEqual(fingerprint.split(separator: " ").first.map(String.init), expectedBits)
 
         let message = Data("Disposable SSH interoperability test".utf8)
         let messageURL = directory.appendingPathComponent("message")

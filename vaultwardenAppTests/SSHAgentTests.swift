@@ -44,6 +44,13 @@ final class SSHAgentTests: XCTestCase {
         try await verifyWithOpenSSH(privateKey: key.privateKey, publicKey: key.publicKey)
     }
 
+    func testGeneratedAlgorithmsWorkThroughSSHAgent() async throws {
+        for algorithm in SSHKeyAlgorithm.allCases {
+            let key = try SSHKeyGenerator.generate(algorithm: algorithm)
+            try await verifyWithOpenSSH(privateKey: key.privateKey, publicKey: key.publicKey)
+        }
+    }
+
     func testOpenSSHVerifiesRSA2048And4096WithoutSHA1() async throws {
         for bits in [2048, 4096] {
             let directory = try Self.directory()
