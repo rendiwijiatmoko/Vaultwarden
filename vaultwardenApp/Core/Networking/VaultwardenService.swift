@@ -1687,6 +1687,7 @@ struct DefaultVaultwardenService: VaultwardenService {
     private func applyCommonHeaders(to request: inout URLRequest) {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue(ClientPlatform.userAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue(ClientPlatform.bitwardenCompatibilityVersion, forHTTPHeaderField: "Bitwarden-Client-Version")
     }
 
     private func validate(response: HTTPURLResponse, data: Data) throws {

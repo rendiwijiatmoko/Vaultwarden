@@ -13,7 +13,7 @@ struct MacSettingsView: View {
     @State private var selectedTab = Tab.account
 
     private enum Tab: Hashable {
-        case account, security, autoFill, sync, appearance, data, about
+        case account, security, autoFill, sshAgent, sync, appearance, data, about
 
         var requiresUnlockedVault: Bool {
             self == .security || self == .sync || self == .data
@@ -62,6 +62,9 @@ struct MacSettingsView: View {
             AutoFillSettingsView(canManageVault: canManageVault)
                 .tabItem { Label("AutoFill", systemImage: "rectangle.and.pencil.and.ellipsis") }
                 .tag(Tab.autoFill)
+            SSHAgentSettingsView()
+                .tabItem { Label("SSH Agent", systemImage: "terminal") }
+                .tag(Tab.sshAgent)
             if canManageVault {
                 SyncSettingsView()
                     .tabItem { Label("Sync", systemImage: "arrow.triangle.2.circlepath") }

@@ -314,6 +314,15 @@ enum VaultTimeout: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+/// Persistent SSH approval is scoped to an account, vault item, and public key.
+/// This contains no private key material and grants no access while locked.
+struct SSHAgentApproval: Codable, Equatable {
+    let accountID: String
+    let serverURL: URL
+    let keyID: UUID
+    let fingerprint: String
+}
+
 struct AppSettings: Codable {
     var serverURL = ""
     var email = ""
@@ -329,6 +338,10 @@ struct AppSettings: Codable {
     var backgroundRefresh = true
     /// Nil preserves compatibility with settings saved before URI detection was configurable.
     var defaultURIMatchDetection: AutoFillURIMatchType?
+    /// Optional so existing settings retain their values when upgrading.
+    var sshAgentEnabled: Bool?
+    var sshAgentAllowedKeyIDs: [UUID]?
+    var sshAgentApprovals: [SSHAgentApproval]?
     var theme: AppTheme = .system
     var vaultTimeout: VaultTimeout = .immediately
 }

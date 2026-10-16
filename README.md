@@ -68,6 +68,54 @@ The app and AutoFill extension must use the same App Group and shared Keychain a
 - Background refresh runs while the app is running and stops when it quits. Sleep, screen lock, and user-session switching lock the vault; switching apps follows the selected vault timeout.
 - macOS AutoFill supports passwords, passkeys, and verification codes. Apple's iOS-only system password-save/generation callbacks are omitted on Mac; manual creation and the in-app generator remain available.
 
+## macOS SSH agent
+
+Open **Settings → SSH Agent**, enable the agent, and select the SSH keys that
+may be used. No keys are selected by default. Copy the exact shell configuration
+shown in Settings into `~/.zshrc`, then open a new terminal. This changes only
+that shell's agent selection; the app does not edit your shell configuration.
+
+Register the selected public key with GitHub, GitLab, or your SSH server, then test:
+
+```sh
+ssh-add -L
+ssh -T git@github.com
+```
+
+Use SSH repository URLs such as `git@github.com:OWNER/REPO.git`. Keep the app
+running. Listing keys while locked prompts for vault unlock. For signing, choose
+**Approve Once** or **Always Approve**. Always Approve remembers permission for
+that account, vault item, and public-key fingerprint on this Mac, including after
+restarting the app. It allows all local SSH clients to use that key while the
+vault is unlocked; it does not identify a specific client or destination host.
+Use **Require Approval Again** in Settings → SSH Agent to revoke permission.
+Deselecting a key also revokes its remembered approval. Replacing its public key
+requires fresh approval. Locked vaults must still be unlocked before any use.
+Requests awaiting approval expire after 60 seconds. Denial,
+locking, account changes, key changes, and disabling the agent invalidate pending
+authorization. Deleted, archived, and restricted keys cannot be used.
+
+The agent supports Ed25519 and existing RSA keys from 2048 through 4096 bits,
+using RSA-SHA2-256 or RSA-SHA2-512 signatures. Encrypted standalone private keys
+must first be imported into the vault in a format supported by the app's SDK.
+Private keys are never exported to the socket or written to temporary files.
+Key management through `ssh-add`, forwarding extensions, and automatic Git signing
+configuration are not implemented.
+
+API requests include the minimum Bitwarden compatibility version required for SSH
+key synchronization (`2024.12.0`). This is independent of the app's bundle version;
+Vaultwarden otherwise omits SSH keys from `/sync` even when they exist on the server.
+
+The socket lives in a private directory inside the configured App Group container
+with user-only permissions. The macOS target needs its existing App Group and
+sandbox entitlements plus the server network entitlement for the listener. No TCP
+or UDP port is opened. A correctly signed build is required to validate App Group
+access and Terminal interoperability under the actual macOS sandbox. An unsigned
+unit-test build verifies protocol and signing behavior but cannot verify deployment
+entitlements. If the agent cannot start, Settings shows an error and a Retry action;
+another running instance, missing App Group access, or an overlong socket path can
+prevent startup.
+
 ## Testing
 
 Build and test on the current Mac:
