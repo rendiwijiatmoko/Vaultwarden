@@ -1316,6 +1316,15 @@ struct VaultItemDetailView: View {
                         }
                     }
 
+                    if item.type == .sshKey {
+                        Section("SSH Key") {
+                            DetailValueRow(title: "Public Key", value: item.username)
+                            DetailValueRow(title: "Fingerprint", value: item.displayedSSHFingerprint)
+                            SecretFieldRow(title: "Private Key", value: item.password, revealed: revealPassword) {
+                                revealPassword.toggle()
+                            }
+                        }
+                    }
                     if !item.notes.isEmpty {
                         Section("Notes") { Text(item.notes) }
                     }
@@ -1763,7 +1772,13 @@ private extension VaultItemDetailView {
                 macValue("Postal code", identity.postalCode)
                 macValue("Country", identity.country)
             }
-        case .secureNote, .sshKey:
+        case .sshKey:
+            macValue("Public Key", item.username)
+            macValue("Fingerprint", item.displayedSSHFingerprint)
+            SecretFieldRow(title: "Private Key", value: item.password, revealed: revealPassword) {
+                revealPassword.toggle()
+            }
+        case .secureNote:
             EmptyView()
         }
     }
@@ -2540,6 +2555,7 @@ struct AddEditVaultItemView: View {
         let type: VaultItemType
         let folder: String?
         let notes: String
+        let sshKeyFingerprint: String?
         let isFavorite: Bool
         let totpSecret: String?
         let card: CardDetails?
@@ -2561,6 +2577,7 @@ struct AddEditVaultItemView: View {
     @State private var type: VaultItemType
     @State private var folder: String
     @State private var notes: String
+    @State private var sshKeyFingerprint: String
     @State private var isFavorite: Bool
     @State private var totpSecret: String
     @State private var card: CardDetails
@@ -2590,6 +2607,7 @@ struct AddEditVaultItemView: View {
         prefilledName: String = "",
         prefilledUsername: String = "",
         prefilledTOTPSecret: String = "",
+        prefilledSSHFingerprint: String = "",
         prefilledType: VaultItemType = .login,
         prefilledFolder: String = "",
         presentation: Presentation = .sheet,
@@ -2610,6 +2628,7 @@ struct AddEditVaultItemView: View {
         _type = State(initialValue: existingItem?.type ?? prefilledType)
         _folder = State(initialValue: existingItem?.folder ?? prefilledFolder)
         _notes = State(initialValue: existingItem?.notes ?? "")
+        _sshKeyFingerprint = State(initialValue: existingItem?.displayedSSHFingerprint ?? prefilledSSHFingerprint)
         _isFavorite = State(initialValue: existingItem?.isFavorite ?? false)
         _totpSecret = State(initialValue: existingItem?.totpSecret ?? prefilledTOTPSecret)
         _card = State(initialValue: existingItem?.card ?? CardDetails())
@@ -2638,7 +2657,7 @@ struct AddEditVaultItemView: View {
                 Section {
                     if existingItem == nil {
                         Picker("Type", selection: $type) {
-                            ForEach(VaultItemType.allCases.filter { $0 != .sshKey }) {
+                            ForEach(VaultItemType.allCases) {
                                 Text($0.localizedTitle).tag($0)
                             }
                         }
@@ -2734,6 +2753,15 @@ struct AddEditVaultItemView: View {
                     cardForm
                 } else if type == .identity {
                     identityForm
+                } else if type == .sshKey {
+                    Section("SSH Key") {
+                        SSHKeyGeneratorFields(
+                            privateKey: $password,
+                            publicKey: $username,
+                            fingerprint: $sshKeyFingerprint,
+                            allowsGeneration: existingItem == nil
+                        )
+                    }
                 }
 
                 Section("Organization") {
@@ -2915,7 +2943,9 @@ struct AddEditVaultItemView: View {
                     .accessibilityLabel("Save")
                     .buttonStyle(.borderedProminent)
                     .tint(nil)
-                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving)
+                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving
+                              || (type == .sshKey && (password.isEmpty || username.isEmpty))
+                              || store.isLocked || store.authenticatedSession == nil)
                 }
             }
             .sheet(isPresented: $showingGenerator) {
@@ -2978,6 +3008,14 @@ struct AddEditVaultItemView: View {
                 isKeyboardVisible = false
             }
             #endif
+            .onDisappear { clearSSHDraft() }
+            .onChange(of: store.isLocked) { _, locked in
+                if locked { clearSSHDraft() }
+            }
+            .onChange(of: store.authenticatedSession?.tokenReference) { _, _ in clearSSHDraft() }
+            .onChange(of: type) { oldType, newType in
+                if oldType == .sshKey || newType == .sshKey { clearSSHDraft(force: true) }
+            }
             .onChange(of: focusedCredentialField) { oldValue, newValue in
                 guard let newValue,
                       newValue.supportsGeneratorSuggestion,
@@ -3062,9 +3100,16 @@ struct AddEditVaultItemView: View {
         }
     }
 
-    /// Inline hosts stay on screen, so hand control back to them instead of
-    /// dismissing a presentation that does not exist.
+    private func clearSSHDraft(force: Bool = false) {
+        guard force || type == .sshKey else { return }
+        password = ""
+        username = ""
+        sshKeyFingerprint = ""
+    }
+
+    /// Inline hosts hand control back instead of dismissing a presentation.
     private func finish() {
+        clearSSHDraft()
         for attachment in pendingAttachments {
             try? FileManager.default.removeItem(at: attachment.url.deletingLastPathComponent())
         }
@@ -3301,6 +3346,7 @@ struct AddEditVaultItemView: View {
         item.type = type
         item.folder = folder.isEmpty ? nil : folder
         item.notes = notes
+        item.sshKeyFingerprint = type == .sshKey ? sshKeyFingerprint : nil
         item.isFavorite = isFavorite
         item.totpSecret = totpSecret.isEmpty ? nil : totpSecret
         item.card = type == .card ? card : nil
@@ -3321,6 +3367,7 @@ struct AddEditVaultItemView: View {
             type: item.type,
             folder: item.folder?.isEmpty == false ? item.folder : nil,
             notes: item.notes,
+            sshKeyFingerprint: item.sshKeyFingerprint,
             isFavorite: item.isFavorite,
             totpSecret: item.totpSecret?.isEmpty == false ? item.totpSecret : nil,
             card: item.type == .card ? (item.card ?? CardDetails()) : nil,
@@ -3332,6 +3379,8 @@ struct AddEditVaultItemView: View {
     }
 
     private func save() async {
+        guard !store.isLocked, store.authenticatedSession != nil,
+              type != .sshKey || (!password.isEmpty && !username.isEmpty) else { return }
         let item = draftItem
         if let existingItem,
            pendingAttachments.isEmpty,

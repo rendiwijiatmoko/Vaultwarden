@@ -231,7 +231,7 @@ nonisolated enum BitwardenCipherWriter {
         let sshKey: SshKeyView? = item.type == .sshKey ? SshKeyView(
             privateKey: item.password,
             publicKey: item.username,
-            fingerprint: item.notes
+            fingerprint: item.displayedSSHFingerprint
         ) : nil
 
         return CipherView(

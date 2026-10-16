@@ -47,6 +47,7 @@ enum VaultFilter: Hashable, Identifiable {
         case .category(.cards): .card
         case .category(.identities): .identity
         case .category(.secureNotes): .secureNote
+        case .category(.sshKeys): .sshKey
         default: .login
         }
     }

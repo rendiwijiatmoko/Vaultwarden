@@ -119,6 +119,8 @@ nonisolated struct VaultItem: Identifiable, Hashable, Codable, Sendable {
     var organization: String?
     var collectionIDs: [String] = []
     var notes: String = ""
+    /// Optional for compatibility with older encrypted caches and exports.
+    var sshKeyFingerprint: String? = nil
     var isFavorite = false
     var totpSecret: String?
     var passkeyCount = 0
@@ -131,6 +133,10 @@ nonisolated struct VaultItem: Identifiable, Hashable, Codable, Sendable {
     var deletedAt: Date? = nil
     var archivedAt: Date? = nil
     var updatedAt = Date()
+
+    var displayedSSHFingerprint: String {
+        sshKeyFingerprint ?? (type == .sshKey && notes.hasPrefix("SHA256:") ? notes : "")
+    }
 
     var isDeleted: Bool { deletedAt != nil }
     var isArchived: Bool { archivedAt != nil }

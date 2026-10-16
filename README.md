@@ -16,6 +16,7 @@ A native SwiftUI client for connecting to a user-selected, self-hosted Vaultward
 - Passkey registration and authentication through AuthenticationServices
 - Text and file Sends with password, expiration, and deletion options
 - Password and username generators with local history
+- Local Ed25519 SSH key generation with public key and SHA-256 fingerprint display
 - Biometric or device authentication and configurable automatic locking
 - Encrypted, device-only offline cache and mutation queue
 - Password-protected AES-256-GCM vault exports
