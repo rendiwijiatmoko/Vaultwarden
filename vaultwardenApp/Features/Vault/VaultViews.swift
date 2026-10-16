@@ -2595,6 +2595,7 @@ struct AddEditVaultItemView: View {
     @State private var showingTOTPScanner = false
     @State private var totpScanError: String?
     @State private var isSaving = false
+    @State private var saveError: String?
     @State private var passwordSuggestion: String
     @State private var usernameSuggestion: String
     @State private var notesFocusID = UUID()
@@ -2947,6 +2948,14 @@ struct AddEditVaultItemView: View {
                               || (type == .sshKey && (password.isEmpty || username.isEmpty))
                               || store.isLocked || store.authenticatedSession == nil)
                 }
+            }
+            .alert("Unable to Save", isPresented: Binding(
+                get: { saveError != nil },
+                set: { if !$0 { saveError = nil } }
+            )) {
+                Button("OK", role: .cancel) { saveError = nil }
+            } message: {
+                Text(saveError ?? "Please try again.")
             }
             .sheet(isPresented: $showingGenerator) {
                 QuickPasswordGeneratorView { generated in
@@ -3396,7 +3405,11 @@ struct AddEditVaultItemView: View {
             editableSnapshot(for: item) != editableSnapshot(for: $0)
         } ?? true
         if needsCipherSave {
-            guard await store.save(item) else { return }
+            guard await store.save(item) else {
+                saveError = store.userFacingNotice ?? store.lastSyncError ?? L10n.string("Please try again.")
+                store.userFacingNotice = nil
+                return
+            }
         }
         for attachment in existingItem?.attachments ?? []
         where attachmentsMarkedForRemoval.contains(attachment.id) {

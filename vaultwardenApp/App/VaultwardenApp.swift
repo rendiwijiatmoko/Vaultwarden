@@ -7,6 +7,9 @@ struct VaultwardenApp: App {
     #endif
     @StateObject private var store: AppStore
     @StateObject private var quickActions: HomeQuickActionRouter
+    #if os(macOS)
+    @StateObject private var sshAgent: MacSSHAgent
+    #endif
 
     init() {
         #if DEBUG
@@ -20,6 +23,9 @@ struct VaultwardenApp: App {
         let store = AppStore()
         _store = StateObject(wrappedValue: store)
         _quickActions = StateObject(wrappedValue: .shared)
+        #if os(macOS)
+        _sshAgent = StateObject(wrappedValue: MacSSHAgent(store: store))
+        #endif
         BackgroundSyncManager.register { await store.performBackgroundRefresh() }
     }
 
@@ -28,7 +34,10 @@ struct VaultwardenApp: App {
         // A single vault window keeps all commands and lock state in one place.
         Window("Vaultwarden", id: "vault") {
             ContentView(store: store)
+                .modifier(SSHAgentPresentation())
                 .environmentObject(quickActions)
+                .environmentObject(store)
+                .environmentObject(sshAgent)
                 .frame(minWidth: 940, minHeight: 640)
         }
         .defaultSize(width: 1180, height: 780)
@@ -58,6 +67,7 @@ struct VaultwardenApp: App {
         Settings {
             MacSettingsView()
                 .environmentObject(store)
+                .environmentObject(sshAgent)
         }
         #else
         WindowGroup {

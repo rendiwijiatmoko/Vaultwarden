@@ -329,6 +329,9 @@ struct AppSettings: Codable {
     var backgroundRefresh = true
     /// Nil preserves compatibility with settings saved before URI detection was configurable.
     var defaultURIMatchDetection: AutoFillURIMatchType?
+    /// Optional so existing settings retain their values when upgrading.
+    var sshAgentEnabled: Bool?
+    var sshAgentAllowedKeyIDs: [UUID]?
     var theme: AppTheme = .system
     var vaultTimeout: VaultTimeout = .immediately
 }

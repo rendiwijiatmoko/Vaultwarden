@@ -7197,6 +7197,17 @@
         }
       }
     },
+    "Add this command to ~/.zshrc and open a new terminal. Keep Vaultwarden running. Test with ssh-add -L, then ssh -T git@github.com after registering your public key." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tambahkan perintah ini ke ~/.zshrc lalu buka terminal baru. Biarkan Vaultwarden berjalan. Uji dengan ssh-add -L, lalu ssh -T git@github.com setelah mendaftarkan public key Anda."
+          }
+        }
+      }
+    },
     "Add vault item" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -9841,6 +9852,17 @@
         }
       }
     },
+    "Allow this SSH client to use the following key?" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Izinkan klien SSH ini menggunakan key berikut?"
+          }
+        }
+      }
+    },
     "Ambiguous characters such as 0, O, 1 and l are excluded." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -10076,6 +10098,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已排除 0、O、1 和 l 等容易混淆的字元。"
+          }
+        }
+      }
+    },
+    "An SSH client needs access to your available public keys. Unlock your vault to continue." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Klien SSH memerlukan akses ke public key Anda yang tersedia. Buka kunci vault untuk melanjutkan."
           }
         }
       }
@@ -11271,6 +11304,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "批准登入要求"
+          }
+        }
+      }
+    },
+    "Approve Once" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Setujui Sekali"
+          }
+        }
+      }
+    },
+    "Approve only requests you initiated. The agent cannot verify the destination host from this request." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Setujui hanya permintaan yang Anda mulai. Agent tidak dapat memverifikasi host tujuan dari permintaan ini."
           }
         }
       }
@@ -15098,6 +15153,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "自動同步"
+          }
+        }
+      }
+    },
+    "Available SSH Keys" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SSH Key yang Tersedia"
           }
         }
       }
@@ -30649,6 +30715,17 @@
         }
       }
     },
+    "Copy Configuration" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Salin Konfigurasi"
+          }
+        }
+      }
+    },
     "Copy Link" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -31373,6 +31450,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tidak dapat membuat SSH key. Silakan coba lagi."
+          }
+        }
+      }
+    },
+    "Could not start SSH agent. Check App Group access, socket path length, and whether another app instance is running." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tidak dapat memulai SSH agent. Periksa akses App Group, panjang path socket, dan apakah instans aplikasi lain sedang berjalan."
+          }
+        }
+      }
+    },
+    "Could not unlock vault. Please try again." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tidak dapat membuka vault. Silakan coba lagi."
           }
         }
       }
@@ -32568,6 +32667,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "建立資料夾"
+          }
+        }
+      }
+    },
+    "Create or import an Ed25519 or RSA SSH key first." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Buat atau impor SSH key Ed25519 atau RSA terlebih dahulu."
           }
         }
       }
@@ -38794,6 +38904,17 @@
         }
       }
     },
+    "Deny" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tolak"
+          }
+        }
+      }
+    },
     "Deselect All" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -42144,6 +42265,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "電子郵件"
+          }
+        }
+      }
+    },
+    "Enable SSH Agent" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aktifkan SSH Agent"
           }
         }
       }
@@ -72849,6 +72981,17 @@
         }
       }
     },
+    "No keys are enabled by default. Deleted, archived, and restricted keys are unavailable. RSA requires SHA-256 or SHA-512 signatures." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tidak ada key yang diaktifkan secara default. Key yang dihapus, diarsipkan, atau dibatasi tidak tersedia. RSA memerlukan signature SHA-256 atau SHA-512."
+          }
+        }
+      }
+    },
     "No Passkey Selected" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -93943,6 +94086,9 @@
         }
       }
     },
+    "Retry" : {
+
+    },
     "Reused password" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -94895,6 +95041,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "修訂版本"
+          }
+        }
+      }
+    },
+    "Running" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Berjalan"
           }
         }
       }
@@ -106170,6 +106327,28 @@
         }
       }
     },
+    "SSH Agent" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SSH Agent"
+          }
+        }
+      }
+    },
+    "SSH Agent Request" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Permintaan SSH Agent"
+          }
+        }
+      }
+    },
     "SSH Key" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -106644,6 +106823,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "SSH 金鑰"
+          }
+        }
+      }
+    },
+    "SSH socket is unavailable. Run a signed build with the configured App Group entitlement." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Socket SSH tidak tersedia. Jalankan build yang ditandatangani dengan entitlement App Group yang sesuai."
           }
         }
       }
@@ -107361,6 +107551,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "狀態"
+          }
+        }
+      }
+    },
+    "Stopped" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Berhenti"
           }
         }
       }
@@ -109751,6 +109952,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "系統"
+          }
+        }
+      }
+    },
+    "Terminal Setup" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pengaturan Terminal"
           }
         }
       }
@@ -118139,6 +118351,9 @@
         }
       }
     },
+    "Unable to Save" : {
+
+    },
     "Unable to Scan Code" : {
 
     },
@@ -120061,6 +120276,9 @@
       "comment" : "A title for a dialog that requests a password to unlock a file send.",
       "isCommentAutoGenerated" : true
     },
+    "Unlock Vault" : {
+
+    },
     "Unlock with biometrics" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -120296,6 +120514,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "使用生物辨識解鎖"
+          }
+        }
+      }
+    },
+    "Unlock with Master Password" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Buka dengan Master Password"
           }
         }
       }
@@ -120542,6 +120771,17 @@
     "Unlock your vault to manage account, security, sync, and data settings." : {
       "comment" : "A description of the benefits of unlocking the vault.",
       "isCommentAutoGenerated" : true
+    },
+    "Unlock your vault to select SSH keys." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Buka kunci vault untuk memilih SSH key."
+          }
+        }
+      }
     },
     "Unlocked" : {
       "extractionState" : "manual",
@@ -124841,6 +125081,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "使用此使用者名稱"
+          }
+        }
+      }
+    },
+    "Use vault SSH keys with SSH and Git. Each signing request requires your approval." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gunakan SSH key dari vault untuk SSH dan Git. Setiap permintaan penandatanganan memerlukan persetujuan Anda."
           }
         }
       }

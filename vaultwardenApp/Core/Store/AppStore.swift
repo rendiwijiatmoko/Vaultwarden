@@ -4,6 +4,7 @@ import Foundation
 @MainActor
 final class AppStore: ObservableObject {
     private static let settingsStorageKey = "vaultwardenApp.settings"
+    private let settingsDefaults: UserDefaults
     private let vaultwardenService: any VaultwardenService
     private let syncEngine: VaultSyncEngine
     private var retryTask: Task<Void, Never>?
@@ -27,7 +28,7 @@ final class AppStore: ObservableObject {
     @Published var settings: AppSettings {
         didSet {
             guard let data = try? JSONEncoder().encode(settings) else { return }
-            UserDefaults.standard.set(data, forKey: Self.settingsStorageKey)
+            settingsDefaults.set(data, forKey: Self.settingsStorageKey)
             AutoFillSharedVault.setDefaultURIMatchType(
                 settings.defaultURIMatchDetection ?? .baseDomain
             )
@@ -48,10 +49,11 @@ final class AppStore: ObservableObject {
     @Published private(set) var unlockPromptGeneration = 0
     @Published private(set) var shouldAutomaticallyPromptUnlock = true
 
-    init(vaultwardenService: any VaultwardenService = DefaultVaultwardenService()) {
+    init(vaultwardenService: any VaultwardenService = DefaultVaultwardenService(), settingsDefaults: UserDefaults = .standard) {
+        self.settingsDefaults = settingsDefaults
         self.vaultwardenService = vaultwardenService
         syncEngine = VaultSyncEngine(service: vaultwardenService)
-        if let data = UserDefaults.standard.data(forKey: Self.settingsStorageKey),
+        if let data = settingsDefaults.data(forKey: Self.settingsStorageKey),
            let savedSettings = try? JSONDecoder().decode(AppSettings.self, from: data) {
             settings = savedSettings
         } else {
@@ -153,6 +155,13 @@ final class AppStore: ObservableObject {
 
     func collection(withID identifier: String) -> VaultCollection? {
         collections.first { $0.id == identifier }
+    }
+
+    /// Organization keys require explicit permission metadata from the current session.
+    func canUseSSHKey(_ item: VaultItem) -> Bool {
+        guard item.type == .sshKey, !item.isDeleted, !item.isArchived, !item.password.isEmpty else { return false }
+        if let remote = remoteCiphers[item.id] { return remote.canViewPassword }
+        return item.organization == nil && item.collectionIDs.isEmpty
     }
 
     func search(_ query: String) -> [VaultItem] {
