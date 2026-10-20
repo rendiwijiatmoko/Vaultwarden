@@ -14,6 +14,8 @@ final class AppStore: ObservableObject {
     private var remoteSends: [UUID: RemoteSendState] = [:]
     private var temporarySendPasswords: [UUID: String] = [:]
     private var organizationKeys: [String: String] = [:]
+    // Invalidates results started before a lock, even if the vault unlocks again.
+    private var vaultGeneration: UInt64 = 0
     private var backgroundedAt: Date?
 
     /// Sidebar selection. `nil` keeps the split view collapsed on the sidebar,
@@ -176,6 +178,8 @@ final class AppStore: ObservableObject {
 
     @discardableResult
     func save(_ item: VaultItem) async -> Bool {
+        let generation = vaultGeneration
+        guard !isLocked else { return false }
         guard let session = authenticatedSession else { return false }
         if let existing = remoteCiphers[item.id], !existing.canEdit {
             userFacingNotice = "This organization item is read-only and cannot be edited."
@@ -192,7 +196,7 @@ final class AppStore: ObservableObject {
                 organizationKeys: organizationKeys,
                 session: session
             )
-            return await enqueueAndAttempt(mutation)
+            return await enqueueAndAttempt(mutation, generation: generation)
         } catch {
             userFacingNotice = "Could not prepare the encrypted update: \(error.localizedDescription)"
             return false
@@ -200,6 +204,8 @@ final class AppStore: ObservableObject {
     }
 
     func addAttachment(to itemID: UUID, fileURL: URL, fileName: String) async -> Bool {
+        let generation = vaultGeneration
+        guard !isLocked else { return false }
         guard let session = authenticatedSession else { return false }
         guard pendingMutationCount == 0 else {
             userFacingNotice = "Sync pending vault changes before uploading an attachment."
@@ -210,7 +216,7 @@ final class AppStore: ObservableObject {
         do {
             if remoteCiphers[itemID] == nil {
                 let snapshot = try await vaultwardenService.sync(session: session)
-                apply(snapshot)
+                guard apply(snapshot, generation: generation) else { return false }
             }
             guard let cipher = remoteCiphers[itemID], cipher.canEdit else {
                 userFacingNotice = "Save and sync this item before adding an attachment."
@@ -221,8 +227,8 @@ final class AppStore: ObservableObject {
                 cipher: cipher, organizationKeys: organizationKeys, session: session
             )
             let snapshot = try await vaultwardenService.sync(session: session)
-            apply(snapshot)
-            await applyPendingProjectionsAndPublish()
+            guard apply(snapshot, generation: generation) else { return false }
+            await applyPendingProjectionsAndPublish(generation: generation)
             return true
         } catch {
             userFacingNotice = "Attachment upload failed: \(error.localizedDescription)"
@@ -232,6 +238,8 @@ final class AppStore: ObservableObject {
     }
 
     func removeAttachment(_ attachment: VaultAttachment, from itemID: UUID) async -> Bool {
+        let generation = vaultGeneration
+        guard !isLocked else { return false }
         guard let session = authenticatedSession else { return false }
         guard pendingMutationCount == 0 else {
             userFacingNotice = "Sync pending vault changes before removing an attachment."
@@ -257,11 +265,12 @@ final class AppStore: ObservableObject {
         // even if the subsequent vault refresh is delayed or unavailable.
         do {
             let snapshot = try await vaultwardenService.sync(session: session)
-            apply(snapshot)
+            guard apply(snapshot, generation: generation) else { return false }
         } catch {
             lastSyncError = error.localizedDescription
             SecureLog.failure("Attachment refresh", error: error, logger: SecureLog.sync)
         }
+        guard acceptsVaultResult(generation) else { return false }
         if let index = items.firstIndex(where: { $0.id == itemID }) {
             items[index].attachments?.removeAll { $0.id == attachment.id }
         }
@@ -290,6 +299,8 @@ final class AppStore: ObservableObject {
 
     @discardableResult
     func trash(_ item: VaultItem) async -> Bool {
+        let generation = vaultGeneration
+        guard !isLocked else { return false }
         guard let session = authenticatedSession else { return false }
         if remoteCiphers[item.id] == nil {
             var updated = item
@@ -297,12 +308,15 @@ final class AppStore: ObservableObject {
             return await save(updated)
         } else {
             return await enqueueAndAttempt(
-                vaultwardenService.prepareCipherAction(id: item.id, action: .trash, session: session)
+                vaultwardenService.prepareCipherAction(id: item.id, action: .trash, session: session),
+                generation: generation
             )
         }
     }
 
     func restore(_ item: VaultItem) async {
+        let generation = vaultGeneration
+        guard !isLocked else { return }
         guard let session = authenticatedSession else { return }
         if remoteCiphers[item.id] == nil {
             var updated = item
@@ -310,12 +324,15 @@ final class AppStore: ObservableObject {
             _ = await save(updated)
         } else {
             _ = await enqueueAndAttempt(
-                vaultwardenService.prepareCipherAction(id: item.id, action: .restore, session: session)
+                vaultwardenService.prepareCipherAction(id: item.id, action: .restore, session: session),
+                generation: generation
             )
         }
     }
 
     func archive(_ item: VaultItem) async {
+        let generation = vaultGeneration
+        guard !isLocked else { return }
         guard let session = authenticatedSession, !item.isDeleted else { return }
         if remoteCiphers[item.id] == nil {
             var updated = item
@@ -323,12 +340,15 @@ final class AppStore: ObservableObject {
             _ = await save(updated)
         } else {
             _ = await enqueueAndAttempt(
-                vaultwardenService.prepareCipherAction(id: item.id, action: .archive, session: session)
+                vaultwardenService.prepareCipherAction(id: item.id, action: .archive, session: session),
+                generation: generation
             )
         }
     }
 
     func unarchive(_ item: VaultItem) async {
+        let generation = vaultGeneration
+        guard !isLocked else { return }
         guard let session = authenticatedSession else { return }
         if remoteCiphers[item.id] == nil {
             var updated = item
@@ -336,16 +356,20 @@ final class AppStore: ObservableObject {
             _ = await save(updated)
         } else {
             _ = await enqueueAndAttempt(
-                vaultwardenService.prepareCipherAction(id: item.id, action: .unarchive, session: session)
+                vaultwardenService.prepareCipherAction(id: item.id, action: .unarchive, session: session),
+                generation: generation
             )
         }
     }
 
     @discardableResult
     func permanentlyDelete(_ item: VaultItem) async -> Bool {
+        let generation = vaultGeneration
+        guard !isLocked else { return false }
         guard let session = authenticatedSession else { return false }
         return await enqueueAndAttempt(
-            vaultwardenService.prepareCipherAction(id: item.id, action: .delete, session: session)
+            vaultwardenService.prepareCipherAction(id: item.id, action: .delete, session: session),
+            generation: generation
         )
     }
 
@@ -357,6 +381,8 @@ final class AppStore: ObservableObject {
 
     @discardableResult
     func addFolder(named name: String) async -> Bool {
+        let generation = vaultGeneration
+        guard !isLocked else { return false }
         guard !name.isEmpty, !folders.contains(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) else {
             return false
         }
@@ -370,7 +396,7 @@ final class AppStore: ObservableObject {
                 organizationKeys: organizationKeys,
                 session: session
             )
-            return await enqueueAndAttempt(mutation)
+            return await enqueueAndAttempt(mutation, generation: generation)
         } catch {
             userFacingNotice = "Could not prepare the encrypted folder: \(error.localizedDescription)"
             return false
@@ -379,6 +405,8 @@ final class AppStore: ObservableObject {
 
     @discardableResult
     func renameFolder(_ folder: VaultFolder, to rawName: String) async -> Bool {
+        let generation = vaultGeneration
+        guard !isLocked else { return false }
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty,
               !folders.contains(where: { $0.id != folder.id && $0.name.caseInsensitiveCompare(name) == .orderedSame }) else {
@@ -395,7 +423,7 @@ final class AppStore: ObservableObject {
                 organizationKeys: organizationKeys,
                 session: session
             )
-            return await enqueueAndAttempt(mutation)
+            return await enqueueAndAttempt(mutation, generation: generation)
         } catch {
             userFacingNotice = "Could not prepare the encrypted folder update: \(error.localizedDescription)"
             return false
@@ -403,18 +431,23 @@ final class AppStore: ObservableObject {
     }
 
     func deleteFolder(_ folder: VaultFolder) async {
+        let generation = vaultGeneration
+        guard !isLocked else { return }
         guard let session = authenticatedSession else { return }
         _ = await enqueueAndAttempt(
             vaultwardenService.prepareFolderDelete(
                 folder: folder,
                 serverID: folderIDsByName[folder.name],
                 session: session
-            )
+            ),
+            generation: generation
         )
     }
 
     @discardableResult
     func addSend(_ send: SendItem, password: String? = nil, fileURL: URL? = nil) async -> Bool {
+        let generation = vaultGeneration
+        guard !isLocked else { return false }
         guard let session = authenticatedSession else { return false }
         if send.kind == .file {
             guard let fileURL else {
@@ -431,7 +464,7 @@ final class AppStore: ObservableObject {
                     session: session
                 )
                 let snapshot = try await vaultwardenService.sync(session: session)
-                apply(snapshot)
+                guard apply(snapshot, generation: generation) else { return false }
                 if let password, !password.isEmpty,
                    let createdSend = sends.first(where: { $0.id == createdSendID }),
                    let createdRemote = remoteSends[createdSendID] {
@@ -444,7 +477,8 @@ final class AppStore: ObservableObject {
                         existing: createdRemote,
                         session: session
                     )
-                    guard await enqueueAndAttempt(passwordMutation) else { return false }
+                    guard await enqueueAndAttempt(passwordMutation, generation: generation),
+                          acceptsVaultResult(generation) else { return false }
                     temporarySendPasswords[createdSendID] = password
                 }
                 return true
@@ -463,7 +497,7 @@ final class AppStore: ObservableObject {
                 existing: nil,
                 session: session
             )
-            guard await enqueueAndAttempt(mutation) else { return false }
+            guard await enqueueAndAttempt(mutation, generation: generation) else { return false }
             if let password, !password.isEmpty,
                let createdSend = sends.first(where: {
                    !sendIDsBeforeCreate.contains($0.id)
@@ -479,7 +513,8 @@ final class AppStore: ObservableObject {
                     existing: createdRemote,
                     session: session
                 )
-                guard await enqueueAndAttempt(passwordMutation) else { return false }
+                guard await enqueueAndAttempt(passwordMutation, generation: generation),
+                          acceptsVaultResult(generation) else { return false }
                 temporarySendPasswords[createdSend.id] = password
             }
             return true
@@ -491,6 +526,8 @@ final class AppStore: ObservableObject {
 
     @discardableResult
     func updateSend(_ send: SendItem, passwordUpdate: SendPasswordUpdate = .preserve) async -> Bool {
+        let generation = vaultGeneration
+        guard !isLocked else { return false }
         guard let session = authenticatedSession else { return false }
         do {
             let mutation = try await vaultwardenService.prepareSendWrite(
@@ -504,8 +541,8 @@ final class AppStore: ObservableObject {
             if passwordUpdate == .remove {
                 mutations.append(vaultwardenService.prepareSendPasswordRemoval(item: send, session: session))
             }
-            let didSave = await enqueueAndAttempt(mutations)
-            guard didSave else { return false }
+            let didSave = await enqueueAndAttempt(mutations, generation: generation)
+            guard didSave, acceptsVaultResult(generation) else { return false }
             switch passwordUpdate {
             case let .set(password):
                 temporarySendPasswords[send.id] = password
@@ -522,8 +559,10 @@ final class AppStore: ObservableObject {
     }
 
     func deleteSend(_ send: SendItem) async {
+        let generation = vaultGeneration
+        guard !isLocked else { return }
         guard let session = authenticatedSession else { return }
-        _ = await enqueueAndAttempt(vaultwardenService.prepareSendDelete(id: send.id, session: session))
+        _ = await enqueueAndAttempt(vaultwardenService.prepareSendDelete(id: send.id, session: session), generation: generation)
     }
 
     func downloadSendFile(_ send: SendItem, password: String?) async -> URL? {
@@ -555,6 +594,7 @@ final class AppStore: ObservableObject {
         masterPassword: String,
         twoFactorCode: String? = nil
     ) async throws {
+        let generation = vaultGeneration
         guard let url = URL(string: serverURL.trimmingCharacters(in: .whitespacesAndNewlines)) else {
             throw VaultwardenServiceError.invalidServerURL
         }
@@ -575,14 +615,16 @@ final class AppStore: ObservableObject {
             throw error
         }
 
+        guard generation == vaultGeneration else { throw CancellationError() }
         settings.serverURL = session.serverURL.absoluteString
         settings.email = normalizedEmail
         settings.sessionReference = session.tokenReference
         authenticatedSession = session
-        apply(snapshot)
+        isLocked = false
+        guard apply(snapshot, generation: generation) else { throw CancellationError() }
         sessionNeedsSignIn = false
         await updatePendingMutationCount()
-        isLocked = false
+        guard acceptsVaultResult(generation) else { throw CancellationError() }
         backgroundedAt = nil
         lastUnlockError = nil
     }
@@ -615,6 +657,8 @@ final class AppStore: ObservableObject {
     }
 
     func sync() async {
+        let generation = vaultGeneration
+        guard !isLocked else { return }
         guard !isSyncing else { return }
         guard let authenticatedSession else { return }
         isSyncing = true
@@ -623,8 +667,8 @@ final class AppStore: ObservableObject {
             try? await syncEngine.retryBlocked(reference: authenticatedSession.tokenReference)
             let flush = await syncEngine.flush(session: authenticatedSession)
             let snapshot = try await vaultwardenService.sync(session: authenticatedSession)
-            apply(snapshot)
-            await applyPendingProjectionsAndPublish()
+            guard apply(snapshot, generation: generation) else { return }
+            await applyPendingProjectionsAndPublish(generation: generation)
             await updatePendingMutationCount()
             userFacingNotice = flush.problemNotice
             lastSyncError = nil
@@ -684,22 +728,26 @@ final class AppStore: ObservableObject {
     }
 
     func importEncryptedVault(data: Data, password: String) async throws -> VaultArchiveImportSummary {
+        let generation = vaultGeneration
         guard authenticatedSession != nil else { throw VaultArchiveError.signedOut }
         guard !isLocked else { throw VaultArchiveError.vaultLocked }
         let payload = try await Task.detached(priority: .userInitiated) {
             try EncryptedVaultArchive.open(data, password: password)
         }.value
+        guard acceptsVaultResult(generation) else { throw CancellationError() }
 
         var importedFolders = 0
         for folder in payload.folders where !folders.contains(where: {
             $0.name.caseInsensitiveCompare(folder.name) == .orderedSame
         }) {
+            guard acceptsVaultResult(generation) else { throw CancellationError() }
             if await addFolder(named: folder.name) { importedFolders += 1 }
         }
 
         var importedItems = 0
         var failedItems = 0
         for archivedItem in payload.items {
+            guard acceptsVaultResult(generation) else { throw CancellationError() }
             var item = archivedItem
             item.id = UUID()
             item.organization = nil
@@ -719,7 +767,13 @@ final class AppStore: ObservableObject {
         )
     }
 
-    private func apply(_ snapshot: EncryptedVaultSnapshot) {
+    private func acceptsVaultResult(_ generation: UInt64) -> Bool {
+        !isLocked && generation == vaultGeneration
+    }
+
+    @discardableResult
+    private func apply(_ snapshot: EncryptedVaultSnapshot, generation: UInt64) -> Bool {
+        guard acceptsVaultResult(generation) else { return false }
         items = VaultSecurityAnalyzer.analyze(snapshot.decrypted.items)
         folders = snapshot.decrypted.folders
         collections = snapshot.decrypted.collections
@@ -732,9 +786,11 @@ final class AppStore: ObservableObject {
         lastSyncError = nil
         lastSyncUsedOfflineCache = snapshot.isFromOfflineCache
         discardSelectionForMissingItem()
+        return true
     }
 
-    private func apply(_ projection: VaultMutationProjection) {
+    private func apply(_ projection: VaultMutationProjection, generation: UInt64) {
+        guard acceptsVaultResult(generation) else { return }
         var state = VaultProjectionState(items: items, folders: folders, sends: sends)
         VaultProjectionReducer.apply(projection, to: &state)
         items = VaultSecurityAnalyzer.analyze(state.items)
@@ -769,19 +825,22 @@ final class AppStore: ObservableObject {
         organizationKeys = [:]
     }
 
-    private func enqueueAndAttempt(_ mutation: PreparedVaultMutation) async -> Bool {
-        await enqueueAndAttempt([mutation])
+    private func enqueueAndAttempt(_ mutation: PreparedVaultMutation, generation: UInt64) async -> Bool {
+        await enqueueAndAttempt([mutation], generation: generation)
     }
 
-    private func enqueueAndAttempt(_ mutations: [PreparedVaultMutation]) async -> Bool {
+    private func enqueueAndAttempt(_ mutations: [PreparedVaultMutation], generation: UInt64) async -> Bool {
+        guard acceptsVaultResult(generation) else { return false }
         do {
             for mutation in mutations {
                 try await syncEngine.enqueue(mutation)
-                apply(mutation.projection)
+                guard acceptsVaultResult(generation) else { return false }
+                apply(mutation.projection, generation: generation)
             }
-            await publishLocalAutoFillIndex()
+            await publishLocalAutoFillIndex(generation: generation)
             await updatePendingMutationCount()
             await flushPendingMutations(refreshVault: true, showDeferredNotice: true)
+            guard acceptsVaultResult(generation) else { return false }
             return true // Safely queued is a successful local save, even when offline.
         } catch {
             userFacingNotice = "The encrypted offline change could not be saved: \(error.localizedDescription)"
@@ -791,6 +850,7 @@ final class AppStore: ObservableObject {
     }
 
     private func flushPendingMutations(refreshVault: Bool, showDeferredNotice: Bool) async {
+        let generation = vaultGeneration
         guard let session = authenticatedSession else { return }
         let mutationsBeforeFlush = (try? await syncEngine.mutations(reference: session.tokenReference)) ?? []
         let queuedBeforeFlush = (try? await syncEngine.pendingCount(reference: session.tokenReference)) ?? 0
@@ -803,7 +863,7 @@ final class AppStore: ObservableObject {
         if (result.madeServerChanges || result.removedTerminalMutations > 0), refreshVault, !isLocked {
             do {
                 let snapshot = try await vaultwardenService.sync(session: session)
-                apply(snapshot)
+                guard apply(snapshot, generation: generation) else { return }
                 // A successful write can be followed by an eventually-consistent
                 // `/sync` response that still contains the previous item state.
                 // Keep completed non-create projections through this first refresh
@@ -811,9 +871,9 @@ final class AppStore: ObservableObject {
                 let completedIDs = Set(result.completedMutationIDs)
                 for mutation in mutationsBeforeFlush
                 where completedIDs.contains(mutation.id) && !mutation.isCreate {
-                    apply(mutation.projection)
+                    apply(mutation.projection, generation: generation)
                 }
-                await applyPendingProjectionsAndPublish()
+                await applyPendingProjectionsAndPublish(generation: generation)
             } catch {
                 // Server writes are already committed. Keep the optimistic projection until retry sync succeeds.
                 lastSyncError = error.localizedDescription
@@ -828,16 +888,18 @@ final class AppStore: ObservableObject {
         }
     }
 
-    private func applyPendingProjectionsAndPublish() async {
+    private func applyPendingProjectionsAndPublish(generation: UInt64) async {
         guard let reference = authenticatedSession?.tokenReference,
               let mutations = try? await syncEngine.mutations(reference: reference) else { return }
+        guard acceptsVaultResult(generation) else { return }
         for mutation in mutations.sorted(by: { $0.createdAt < $1.createdAt }) {
-            apply(mutation.projection)
+            apply(mutation.projection, generation: generation)
         }
-        if !mutations.isEmpty { await publishLocalAutoFillIndex() }
+        if !mutations.isEmpty { await publishLocalAutoFillIndex(generation: generation) }
     }
 
-    private func publishLocalAutoFillIndex() async {
+    private func publishLocalAutoFillIndex(generation: UInt64) async {
+        guard acceptsVaultResult(generation) else { return }
         guard let session = authenticatedSession else { return }
         let snapshot = DecryptedVaultSnapshot(
             items: items,
@@ -915,8 +977,11 @@ final class AppStore: ObservableObject {
     func lock(requestAutomaticUnlock: Bool = true) {
         shouldAutomaticallyPromptUnlock = requestAutomaticUnlock
         if requestAutomaticUnlock { unlockPromptGeneration &+= 1 }
-        temporarySendPasswords = [:]
+        vaultGeneration &+= 1
         isLocked = true
+        clearVisibleVault()
+        selectedItemID = nil
+        selectedFilter = nil
         let session = authenticatedSession
         let previousLockTask = lockTask
         lockTask = Task { [vaultwardenService] in
@@ -927,6 +992,7 @@ final class AppStore: ObservableObject {
 
     func logoutAndDeleteLocalData() async {
         guard let session = authenticatedSession else { return }
+        lock(requestAutomaticUnlock: false)
         if let lockTask { await lockTask.value }
         lockTask = nil
         var cleanupFailure: Error?
@@ -1012,9 +1078,11 @@ final class AppStore: ObservableObject {
     }
 
     func unlockWithBiometrics() async -> Bool {
+        let generation = vaultGeneration
         guard UnlockPresentationPolicy.isAllowed, !Task.isCancelled else { return false }
         do {
             if let lockTask { await lockTask.value }
+            guard generation == vaultGeneration else { return false }
             lockTask = nil
             // Focus may have changed while the preceding lock finished.
             guard UnlockPresentationPolicy.isAllowed, !Task.isCancelled else { return false }
@@ -1027,12 +1095,17 @@ final class AppStore: ObservableObject {
                 )
                 guard success else { return false }
             }
+            guard generation == vaultGeneration else {
+                if isLocked { await vaultwardenService.lock(session: authenticatedSession) }
+                return false
+            }
             lastUnlockError = nil
             isLocked = false
             backgroundedAt = nil
             if items.isEmpty {
                 await restoreCachedVaultIfAvailable()
             }
+            guard acceptsVaultResult(generation) else { return false }
             if items.isEmpty || settings.syncOnOpen {
                 Task { await sync() }
             } else {
@@ -1046,9 +1119,11 @@ final class AppStore: ObservableObject {
     }
 
     func unlock(masterPassword: String) async -> Bool {
+        let generation = vaultGeneration
         guard !masterPassword.isEmpty else { return false }
         do {
             if let lockTask { await lockTask.value }
+            guard generation == vaultGeneration else { return false }
             lockTask = nil
             if let authenticatedSession {
                 try await vaultwardenService.unlock(
@@ -1056,12 +1131,17 @@ final class AppStore: ObservableObject {
                     masterPassword: masterPassword
                 )
             }
+            guard generation == vaultGeneration else {
+                if isLocked { await vaultwardenService.lock(session: authenticatedSession) }
+                return false
+            }
             lastUnlockError = nil
             isLocked = false
             backgroundedAt = nil
             if items.isEmpty {
                 await restoreCachedVaultIfAvailable()
             }
+            guard acceptsVaultResult(generation) else { return false }
             if items.isEmpty || settings.syncOnOpen {
                 Task { await sync() }
             } else {
@@ -1075,11 +1155,12 @@ final class AppStore: ObservableObject {
     }
 
     private func restoreCachedVaultIfAvailable() async {
+        let generation = vaultGeneration
         guard let session = authenticatedSession else { return }
         do {
             let snapshot = try await vaultwardenService.loadCachedVault(session: session)
-            apply(snapshot)
-            await applyPendingProjectionsAndPublish()
+            guard apply(snapshot, generation: generation) else { return }
+            await applyPendingProjectionsAndPublish(generation: generation)
             await updatePendingMutationCount()
             SecureLog.event("Encrypted offline vault restored", logger: SecureLog.sync)
         } catch {
