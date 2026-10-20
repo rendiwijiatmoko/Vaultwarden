@@ -555,7 +555,7 @@ struct VaultHomeView: View {
                         newFolderButton.buttonStyle(.plain)
                     }
                     desktopSidebarRow(.unfoldered)
-                    ForEach(store.folders) { folder in
+                    ForEach(store.sortedFolders) { folder in
                         desktopSidebarRow(.folder(folder.name))
                             .contextMenu { folderActions(for: folder) }
                     }
@@ -732,7 +732,7 @@ struct VaultHomeView: View {
                         Divider().padding(.leading, 52)
                     }
 
-                    ForEach(Array(store.folders.enumerated()), id: \.element.id) { index, folder in
+                    ForEach(Array(store.sortedFolders.enumerated()), id: \.element.id) { index, folder in
                         let filter = VaultFilter.folder(folder.name)
                         sectionLink(filter) {
                             FolderRow(

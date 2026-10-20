@@ -538,6 +538,9 @@ private struct AppearanceSettingsView: View {
                 Picker("Theme", selection: $store.settings.theme) {
                     ForEach(AppTheme.allCases) { Text($0.localizedTitle).tag($0) }
                 }
+                Picker("Sort vault items", selection: $store.settings.vaultSortOrder) {
+                    ForEach(VaultSortOrder.allCases) { Text($0.title).tag($0) }
+                }
                 Toggle("Show website icons", isOn: $store.settings.showFavicons)
                 #if os(iOS)
                 Toggle("Haptic feedback", isOn: $store.settings.haptics)

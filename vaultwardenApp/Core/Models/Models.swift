@@ -323,6 +323,59 @@ struct SSHAgentApproval: Codable, Equatable {
     let fingerprint: String
 }
 
+enum VaultSortOrder: String, CaseIterable, Identifiable, Codable {
+    case nameAscending
+    case nameDescending
+    case newestFirst
+    case oldestFirst
+
+    var id: String { rawValue }
+
+    var title: String {
+        let key: String = switch self {
+        case .nameAscending: "Name (A–Z)"
+        case .nameDescending: "Name (Z–A)"
+        case .newestFirst: "Newest First"
+        case .oldestFirst: "Oldest First"
+        }
+        return L10n.string(key)
+    }
+
+    var icon: String {
+        switch self {
+        case .nameAscending: "textformat.abc"
+        case .nameDescending: "textformat.abc"
+        case .newestFirst: "clock.arrow.trianglehead.counterclockwise.rotate.90"
+        case .oldestFirst: "clock.arrow.trianglehead.2.counterclockwise.rotate.90"
+        }
+    }
+
+    func areInIncreasingOrder(_ lhs: VaultItem, _ rhs: VaultItem) -> Bool {
+        let comparison: ComparisonResult
+        switch self {
+        case .nameAscending, .nameDescending:
+            comparison = lhs.name.localizedStandardCompare(rhs.name)
+        case .newestFirst, .oldestFirst:
+            comparison = lhs.updatedAt.compare(rhs.updatedAt)
+        }
+        if comparison == .orderedSame {
+            return lhs.id.uuidString < rhs.id.uuidString
+        }
+        return comparison == (self == .nameDescending || self == .newestFirst
+            ? .orderedDescending : .orderedAscending)
+    }
+
+    func sortedFolders(_ folders: [VaultFolder]) -> [VaultFolder] {
+        // The server supplies no folder timestamps; date modes retain its order.
+        guard self == .nameAscending || self == .nameDescending else { return folders }
+        return folders.sorted { lhs, rhs in
+            let comparison = lhs.name.localizedStandardCompare(rhs.name)
+            if comparison == .orderedSame { return lhs.id.uuidString < rhs.id.uuidString }
+            return comparison == (self == .nameAscending ? .orderedAscending : .orderedDescending)
+        }
+    }
+}
+
 struct AppSettings: Codable {
     var serverURL = ""
     var email = ""
@@ -342,6 +395,12 @@ struct AppSettings: Codable {
     var sshAgentEnabled: Bool?
     var sshAgentAllowedKeyIDs: [UUID]?
     var sshAgentApprovals: [SSHAgentApproval]?
+    /// Optional storage allows settings from older versions to decode unchanged.
+    var savedVaultSortOrder: VaultSortOrder?
+    var vaultSortOrder: VaultSortOrder {
+        get { savedVaultSortOrder ?? .newestFirst }
+        set { savedVaultSortOrder = newValue }
+    }
     var theme: AppTheme = .system
     var vaultTimeout: VaultTimeout = .immediately
 }

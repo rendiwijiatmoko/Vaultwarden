@@ -60,47 +60,6 @@ private enum VaultRowAction: Equatable {
     }
 }
 
-private enum VaultSortOrder: String, CaseIterable, Identifiable {
-    case nameAscending
-    case nameDescending
-    case newestFirst
-    case oldestFirst
-
-    var id: String { rawValue }
-
-    var title: String {
-        let key: String = switch self {
-        case .nameAscending: "Name (A–Z)"
-        case .nameDescending: "Name (Z–A)"
-        case .newestFirst: "Newest First"
-        case .oldestFirst: "Oldest First"
-        }
-        return L10n.string(key)
-    }
-
-    var icon: String {
-        switch self {
-        case .nameAscending: "textformat.abc"
-        case .nameDescending: "textformat.abc"
-        case .newestFirst: "clock.arrow.trianglehead.counterclockwise.rotate.90"
-        case .oldestFirst: "clock.arrow.trianglehead.2.counterclockwise.rotate.90"
-        }
-    }
-
-    func areInIncreasingOrder(_ lhs: VaultItem, _ rhs: VaultItem) -> Bool {
-        switch self {
-        case .nameAscending:
-            return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
-        case .nameDescending:
-            return lhs.name.localizedStandardCompare(rhs.name) == .orderedDescending
-        case .newestFirst:
-            return lhs.updatedAt > rhs.updatedAt
-        case .oldestFirst:
-            return lhs.updatedAt < rhs.updatedAt
-        }
-    }
-}
-
 struct VaultCollectionView: View {
     @EnvironmentObject private var store: AppStore
     let filter: VaultFilter
@@ -121,7 +80,6 @@ struct VaultCollectionView: View {
     @State private var showingArchiveConfirmation = false
     @State private var pendingRowAction: VaultRowAction?
     @State private var showingRowAlert = false
-    @State private var sortOrder: VaultSortOrder = .newestFirst
 
     init(
         filter: VaultFilter,
@@ -159,7 +117,7 @@ struct VaultCollectionView: View {
                 || $0.websiteURIs.contains { $0.localizedCaseInsensitiveContains(query) }
                 || $0.type.rawValue.localizedCaseInsensitiveContains(query)
         }
-        return matches.sorted(by: sortOrder.areInIncreasingOrder)
+        return matches.sorted(by: store.settings.vaultSortOrder.areInIncreasingOrder)
     }
 
     private var selectedItems: [VaultItem] {
@@ -414,7 +372,7 @@ struct VaultCollectionView: View {
 
     private var sortMenu: some View {
         Menu {
-            Picker("Sort vault items", selection: $sortOrder) {
+            Picker("Sort vault items", selection: $store.settings.vaultSortOrder) {
                 ForEach(VaultSortOrder.allCases) { order in
                     Label(order.title, systemImage: order.icon)
                         .tag(order)
@@ -2768,7 +2726,7 @@ struct AddEditVaultItemView: View {
                 Section("Organization") {
                     Picker("Folder", selection: $folder) {
                         Text("No Folder").tag("")
-                        ForEach(store.folders) { Text($0.name).tag($0.name) }
+                        ForEach(store.sortedFolders) { Text($0.name).tag($0.name) }
                     }
                 }
 
