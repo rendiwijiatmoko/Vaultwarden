@@ -76,6 +76,8 @@ final class AppStore: ObservableObject {
         startAutomaticRetry()
     }
 
+    var sortedFolders: [VaultFolder] { settings.vaultSortOrder.sortedFolders(folders) }
+
     var activeItems: [VaultItem] { items.filter { !$0.isDeleted && !$0.isArchived } }
     var unfolderedItems: [VaultItem] {
         activeItems.filter { item in
