@@ -20,7 +20,6 @@ struct ContentView: View {
         Group {
             if hasCompletedOnboarding {
                 if store.isAuthenticated {
-                    #if os(macOS)
                     if store.isLocked {
                         LockView()
                             .environmentObject(store)
@@ -29,21 +28,6 @@ struct ContentView: View {
                         RootSplitView()
                             .environmentObject(store)
                     }
-                    #else
-                    ZStack {
-                        RootSplitView()
-                            .environmentObject(store)
-                            .blur(radius: store.isLocked ? 12 : 0)
-                            .allowsHitTesting(!store.isLocked)
-                            .accessibilityHidden(store.isLocked)
-
-                        if store.isLocked {
-                            LockView()
-                                .environmentObject(store)
-                                .transition(.opacity.combined(with: .scale(scale: 1.02)))
-                        }
-                    }
-                    #endif
                 } else {
                     AccountSignInView()
                         .environmentObject(store)

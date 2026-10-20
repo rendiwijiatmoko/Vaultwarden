@@ -169,7 +169,8 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the dependency direction, security bo
 - Master passwords are not persisted as plain text.
 - Session tokens and locally wrapped keys are stored in device-only Keychain items.
 - Cached vault data and queued mutations are encrypted at rest.
-- Decrypted vault records are cleared from application memory when the vault locks.
+- Locking drops the app store’s decrypted vault records and organization keys, removes vault views, and schedules removal of the in-memory account key. Results from operations started before locking are rejected when updating vault state.
+- Unlocking restores vault data from the encrypted local cache after authentication. This reference cleanup does not guarantee zeroization of every sensitive byte or temporary copy in process memory.
 - AutoFill receives a minimal encrypted credential index through the shared App Group.
 
 Security-sensitive software deserves independent review. Do not rely on this project as your only copy of important credentials, and test it against a dedicated non-production server before using real data.
