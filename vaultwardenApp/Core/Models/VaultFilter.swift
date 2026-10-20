@@ -90,3 +90,30 @@ enum VaultFilter: Hashable, Identifiable {
         !hiddenCategories.contains($0)
     }
 }
+
+struct VaultCollectionGroup: Identifiable {
+    var id: String
+    var name: String
+    var filters: [VaultFilter]
+
+    static func grouped(collections: [VaultCollection], organizations: [String]) -> [Self] {
+        let grouped = Dictionary(grouping: collections) {
+            $0.organizationID.map { "id:\($0)" } ?? "name:\($0.organization)"
+        }
+        var groups = grouped.map { id, collections in
+            Self(id: id, name: collections[0].organization, filters: collections.sorted {
+                let order = $0.name.localizedStandardCompare($1.name)
+                return order == .orderedSame ? $0.id < $1.id : order == .orderedAscending
+            }.map { .collection($0.id) })
+        }
+        // Preserve navigation for organizations that have no visible collections.
+        let representedNames = Set(collections.map(\.organization))
+        groups += organizations.filter { !representedNames.contains($0) }.map {
+            Self(id: "name:\($0)", name: $0, filters: [.organization($0)])
+        }
+        return groups.sorted {
+            let order = $0.name.localizedStandardCompare($1.name)
+            return order == .orderedSame ? $0.id < $1.id : order == .orderedAscending
+        }
+    }
+}

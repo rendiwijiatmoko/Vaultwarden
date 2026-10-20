@@ -105,11 +105,20 @@ nonisolated struct IdentityDetails: Hashable, Codable, Sendable {
     }
 }
 
+nonisolated struct VaultPasswordHistoryEntry: Hashable, Codable, Sendable {
+    var password: String
+    var lastUsedDate: Date
+}
+
 nonisolated struct VaultItem: Identifiable, Hashable, Codable, Sendable {
     var id = UUID()
     var name: String
     var username: String = ""
     var password: String = ""
+    /// Optional to preserve compatibility with older encrypted caches and exports.
+    var passwordHistory: [VaultPasswordHistoryEntry]?
+    /// Server login.passwordRevisionDate; optional for older caches.
+    var passwordUpdatedAt: Date?
     var uri: String = ""
     /// Additional login websites after the primary `uri`. Optional keeps
     /// cached items written by older app versions decodable.
@@ -133,6 +142,21 @@ nonisolated struct VaultItem: Identifiable, Hashable, Codable, Sendable {
     var deletedAt: Date? = nil
     var archivedAt: Date? = nil
     var updatedAt = Date()
+
+    /// Base history on the latest local item so consecutive offline edits retain
+    /// every change even while the remote cipher still represents an older sync.
+    mutating func recordPasswordChange(from previous: VaultItem, at date: Date) {
+        passwordHistory = previous.passwordHistory
+        passwordUpdatedAt = previous.passwordUpdatedAt
+        if type == .login, previous.type != .login || previous.password != password {
+            passwordUpdatedAt = date
+        }
+        guard previous.type == .login, type == .login,
+              !previous.password.isEmpty, previous.password != password else { return }
+        var history = previous.passwordHistory ?? []
+        history.insert(VaultPasswordHistoryEntry(password: previous.password, lastUsedDate: date), at: 0)
+        passwordHistory = Array(history.prefix(5))
+    }
 
     var displayedSSHFingerprint: String {
         sshKeyFingerprint ?? (type == .sshKey && notes.hasPrefix("SHA256:") ? notes : "")
@@ -198,6 +222,8 @@ nonisolated struct VaultCollection: Identifiable, Hashable, Codable, Sendable {
     var organization: String
     var isReadOnly: Bool
     var hidesPasswords: Bool
+    /// Server identity keeps organizations with identical names separate.
+    var organizationID: String? = nil
 }
 
 enum VaultCategory: String, CaseIterable, Identifiable {

@@ -101,6 +101,25 @@ final class VaultLockTests: XCTestCase {
         XCTAssertEqual(store.pendingMutationCount, 0)
     }
 
+    func testSaveRecordsPreviousPasswordBeforePreparingEncryptedMutation() async throws {
+        let service = LockTestService()
+        let store = try await connectedStore(service)
+        let previous = try XCTUnwrap(store.items.first)
+        var edited = previous
+        edited.password = "replacement test password"
+        await service.saveGate.pauseNext()
+        let save = Task { await store.save(edited) }
+        await service.saveGate.waitUntilSuspended()
+        let prepared = await service.preparedItem
+        XCTAssertEqual(prepared?.passwordHistory?.first?.password, previous.password)
+        XCTAssertEqual(prepared?.passwordHistory?.first?.lastUsedDate, prepared?.updatedAt)
+        XCTAssertEqual(prepared?.passwordUpdatedAt, prepared?.updatedAt)
+        store.lock(requestAutomaticUnlock: false)
+        await service.saveGate.resume()
+        let saved = await save.value
+        XCTAssertFalse(saved)
+    }
+
     func testFailedUnlockKeepsVaultEmpty() async throws {
         let service = LockTestService()
         let store = try await connectedStore(service)
@@ -158,6 +177,7 @@ private actor LockTestService: VaultwardenService {
     let lockGate = LockTestGate()
     let cacheGate = LockTestGate()
     let saveGate = LockTestGate()
+    var preparedItem: VaultItem?
     var failUnlock = false
     func setFailUnlock(_ value: Bool) { failUnlock = value }
 
@@ -239,6 +259,7 @@ private actor LockTestService: VaultwardenService {
         organizationKeys: [String: String],
         session: AuthenticatedSession
     ) async throws -> PreparedVaultMutation {
+        preparedItem = item
         await saveGate.suspendIfRequested()
         let accountReference = await session.tokenReference
         return PreparedVaultMutation(

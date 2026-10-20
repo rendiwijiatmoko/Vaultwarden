@@ -52,6 +52,8 @@ final class MacPlatformTests: XCTestCase {
             name: "Native SDK · 登录",
             username: "person@example.com",
             password: "test-only secret 🔐 123!",
+            passwordHistory: [VaultPasswordHistoryEntry(password: "previous synthetic password", lastUsedDate: SDKFixture.date)],
+            passwordUpdatedAt: SDKFixture.date,
             uri: "https://example.com/sign-in",
             additionalURIs: ["https://accounts.example.com"],
             notes: "Line one\nLine two",
@@ -88,6 +90,49 @@ final class MacPlatformTests: XCTestCase {
             )
         )
         let decrypted = try await reader.vault().ciphers().decrypt(cipher: encrypted.cipher)
+        XCTAssertNotEqual(encrypted.cipher.passwordHistory?.first?.password, "previous synthetic password")
+        XCTAssertEqual(decrypted.passwordHistory?.first?.password, "previous synthetic password")
+        XCTAssertEqual(decrypted.passwordHistory?.first?.lastUsedDate, SDKFixture.date)
+
+        // Exercise the real sync DTO -> SDK -> local cache model path.
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        var cipher = try XCTUnwrap(JSONSerialization.jsonObject(with: encoder.encode(CipherWriteRequestDTO(context: encrypted))) as? [String: Any])
+        cipher["creationDate"] = ISO8601DateFormatter().string(from: SDKFixture.date)
+        cipher["revisionDate"] = ISO8601DateFormatter().string(from: SDKFixture.date)
+        cipher["id"] = item.id.uuidString
+        let payload = try JSONSerialization.data(withJSONObject: ["profile": ["id": SDKFixture.userID], "ciphers": [cipher]])
+        let snapshot = try await BitwardenVaultPayloadDecoder().decode(
+            payload: payload, serverURL: URL(string: "https://example.com")!,
+            email: SDKFixture.email, userKey: userKey, credentials: SDKFixture.credentials
+        )
+        XCTAssertEqual(snapshot.items.first?.passwordHistory, item.passwordHistory)
+        XCTAssertEqual(snapshot.items.first?.passwordUpdatedAt, SDKFixture.date)
+        let cached = try JSONDecoder().decode(VaultItem.self, from: JSONEncoder().encode(snapshot.items[0]))
+        XCTAssertEqual(cached.passwordHistory, item.passwordHistory)
+        XCTAssertEqual(cached.passwordUpdatedAt, item.passwordUpdatedAt)
+        var changedItem = snapshot.items[0]
+        changedItem.password = "new synthetic password"
+        changedItem.recordPasswordChange(from: snapshot.items[0], at: SDKFixture.date.addingTimeInterval(60))
+        let updated = try await BitwardenCipherWriter.encrypt(
+            item: changedItem, existing: snapshot.remoteCiphers[item.id], folderID: folderID,
+            email: SDKFixture.email, userKey: userKey, credentials: SDKFixture.credentials, organizationKeys: [:]
+        )
+        let updatedView = try await reader.vault().ciphers().decrypt(cipher: updated.cipher)
+        XCTAssertEqual(updatedView.login?.password, changedItem.password)
+        XCTAssertEqual(updatedView.login?.passwordRevisionDate, changedItem.passwordUpdatedAt)
+        XCTAssertEqual(updatedView.passwordHistory?.map(\.password), [item.password, "previous synthetic password"])
+        XCTAssertEqual(updatedView.passwordHistory?.first?.lastUsedDate, SDKFixture.date.addingTimeInterval(60))
+        XCTAssertNotEqual(updated.cipher.passwordHistory?.first?.password, item.password)
+
+        cipher["viewPassword"] = false
+        let restrictedPayload = try JSONSerialization.data(withJSONObject: ["profile": ["id": SDKFixture.userID], "ciphers": [cipher]])
+        let restricted = try await BitwardenVaultPayloadDecoder().decode(
+            payload: restrictedPayload, serverURL: URL(string: "https://example.com")!,
+            email: SDKFixture.email, userKey: userKey, credentials: SDKFixture.credentials
+        )
+        XCTAssertNil(restricted.items.first?.passwordHistory)
+
         XCTAssertEqual(decrypted.name, item.name)
         XCTAssertEqual(decrypted.login?.username, item.username)
         XCTAssertEqual(decrypted.login?.password, item.password)

@@ -129,6 +129,7 @@ nonisolated struct SyncCipherDTO: Decodable, Sendable {
     let viewPassword: Bool
     let fields: [SyncFieldDTO]?
     let attachments: [SyncAttachmentDTO]?
+    let passwordHistory: [SyncPasswordHistoryDTO]?
     let creationDate: String
     let deletedDate: String?
     let revisionDate: String
@@ -138,7 +139,7 @@ nonisolated struct SyncCipherDTO: Decodable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id, organizationId, folderId, collectionIds, key, name, notes, type, login, identity, card
         case secureNote, sshKey, favorite, reprompt, organizationUseTotp, edit, viewPassword, fields
-        case creationDate, deletedDate, revisionDate, archivedDate, data, attachments
+        case creationDate, deletedDate, revisionDate, archivedDate, data, attachments, passwordHistory
     }
 
     init(from decoder: Decoder) throws {
@@ -169,6 +170,8 @@ nonisolated struct SyncCipherDTO: Decodable, Sendable {
         viewPassword = try container.decodeIfPresent(Bool.self, forKey: .viewPassword) ?? true
         fields = try container.decodeIfPresent([SyncFieldDTO].self, forKey: .fields) ?? legacyData?.fields
         attachments = try container.decodeIfPresent([SyncAttachmentDTO].self, forKey: .attachments)
+        passwordHistory = try container.decodeIfPresent([SyncPasswordHistoryDTO].self, forKey: .passwordHistory)
+            ?? legacyData?.passwordHistory
         creationDate = try container.decode(String.self, forKey: .creationDate)
         deletedDate = try container.decodeIfPresent(String.self, forKey: .deletedDate)
         revisionDate = try container.decode(String.self, forKey: .revisionDate)
@@ -179,6 +182,11 @@ nonisolated struct SyncCipherDTO: Decodable, Sendable {
         // merged into the legacy properties above.
         data = try? container.decode(String.self, forKey: .data)
     }
+}
+
+nonisolated struct SyncPasswordHistoryDTO: Decodable, Sendable {
+    let password: String
+    let lastUsedDate: String
 }
 
 nonisolated struct SyncAttachmentDTO: Decodable, Sendable {
@@ -200,6 +208,7 @@ nonisolated struct SyncCipherLegacyDataDTO: Decodable, Sendable {
     let name: String?
     let notes: String?
     let fields: [SyncFieldDTO]?
+    let passwordHistory: [SyncPasswordHistoryDTO]?
     let login: SyncLoginDTO?
     let identity: SyncIdentityDTO?
     let card: SyncCardDTO?
@@ -245,7 +254,7 @@ nonisolated struct SyncCipherLegacyDataDTO: Decodable, Sendable {
     let keyFingerprint: String?
 
     private enum CodingKeys: String, CodingKey {
-        case name, notes, fields, login, identity, card, sshKey
+        case name, notes, fields, passwordHistory, login, identity, card, sshKey
         case username, password, passwordRevisionDate, uris, uri, totp, autofillOnPageLoad, fido2Credentials
         case cardholderName, expMonth, expYear, code, brand, number
         case title, firstName, middleName, lastName, address1, address2, address3, city, state
