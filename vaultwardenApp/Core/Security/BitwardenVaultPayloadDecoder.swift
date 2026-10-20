@@ -116,7 +116,8 @@ nonisolated struct BitwardenVaultPayloadDecoder: VaultPayloadDecoder {
                         name: view.name,
                         organization: organizationNames[collection.organizationId] ?? "Shared Vault",
                         isReadOnly: view.readOnly,
-                        hidesPasswords: view.hidePasswords
+                        hidesPasswords: view.hidePasswords,
+                        organizationID: collection.organizationId
                     )
                 )
             } catch {
@@ -287,6 +288,10 @@ nonisolated struct BitwardenVaultPayloadDecoder: VaultPayloadDecoder {
             name: view.name,
             username: login?.username ?? ssh?.publicKey ?? "",
             password: login?.password ?? ssh?.privateKey ?? "",
+            passwordHistory: view.viewPassword ? view.passwordHistory?.map {
+                VaultPasswordHistoryEntry(password: $0.password, lastUsedDate: $0.lastUsedDate)
+            }.sorted { $0.lastUsedDate > $1.lastUsedDate } : nil,
+            passwordUpdatedAt: login?.passwordRevisionDate,
             uri: firstURI,
             additionalURIs: loginURIs.count > 1 ? Array(loginURIs.dropFirst()) : nil,
             type: view.localItemType,
@@ -469,7 +474,10 @@ private extension SyncCipherDTO {
             localData: nil,
             attachments: attachments?.map(\.sdkAttachment),
             fields: fields?.map(\.sdkField),
-            passwordHistory: nil,
+            passwordHistory: passwordHistory?.compactMap {
+                guard let date = ServerDateParser.parse($0.lastUsedDate) else { return nil }
+                return PasswordHistory(password: $0.password, lastUsedDate: date)
+            },
             creationDate: creationDate,
             deletedDate: ServerDateParser.parse(deletedDate),
             revisionDate: revisionDate,

@@ -192,9 +192,11 @@ nonisolated enum BitwardenCipherWriter {
         let login: LoginView? = item.type == .login ? LoginView(
             username: item.username.nilIfEmpty,
             password: item.password.nilIfEmpty,
-            passwordRevisionDate: existing?.login?.password == item.password
-                ? existing?.login?.passwordRevisionDate
-                : now,
+            passwordRevisionDate: item.passwordUpdatedAt ?? (
+                existing?.login?.password == item.password
+                    ? existing?.login?.passwordRevisionDate
+                    : now
+            ),
             uris: loginURIs.isEmpty ? nil : loginURIs,
             totp: item.totpSecret?.nilIfEmpty,
             autofillOnPageLoad: existing?.login?.autofillOnPageLoad,
@@ -261,7 +263,9 @@ nonisolated enum BitwardenCipherWriter {
             attachments: existing?.attachments,
             attachmentDecryptionFailures: existing?.attachmentDecryptionFailures,
             fields: item.customFields.map(\.sdkFieldForWrites),
-            passwordHistory: existing?.passwordHistory,
+            passwordHistory: item.passwordHistory?.map {
+                PasswordHistoryView(password: $0.password, lastUsedDate: $0.lastUsedDate)
+            } ?? existing?.passwordHistory,
             creationDate: existing?.creationDate ?? item.createdAt ?? now,
             deletedDate: item.deletedAt ?? existing?.deletedDate,
             revisionDate: existing?.revisionDate ?? now,

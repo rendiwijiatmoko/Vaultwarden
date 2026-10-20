@@ -544,7 +544,13 @@ struct VaultHomeView: View {
                 if !store.sharedFilters.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         desktopSectionTitle("Shared Groups")
-                        ForEach(store.sharedFilters) { filter in desktopSidebarRow(filter) }
+                        ForEach(store.sharedCollectionGroups) { group in
+                            Text(group.name)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .padding(.top, 8)
+                            ForEach(group.filters) { filter in desktopSidebarRow(filter) }
+                        }
                     }
                 }
 
@@ -765,18 +771,23 @@ struct VaultHomeView: View {
 
                 if sharedVaultsExpanded {
                     VStack(spacing: 0) {
-                        ForEach(Array(shared.enumerated()), id: \.element.id) { index, filter in
-                            sectionLink(filter) {
-                                FolderRow(
-                                    icon: icon(for: filter),
-                                    name: store.title(for: filter),
-                                    count: store.count(for: filter),
-                                    color: filter.color,
-                                    isSelected: isSelected(filter)
-                                )
-                            }
-
-                            if index < shared.count - 1 {
+                        ForEach(store.sharedCollectionGroups) { group in
+                            Text(group.name)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 12)
+                            ForEach(group.filters) { filter in
+                                sectionLink(filter) {
+                                    FolderRow(
+                                        icon: icon(for: filter),
+                                        name: store.title(for: filter),
+                                        count: store.count(for: filter),
+                                        color: filter.color,
+                                        isSelected: isSelected(filter)
+                                    )
+                                }
                                 Divider().padding(.leading, 52)
                             }
                         }

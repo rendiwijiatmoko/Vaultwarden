@@ -1133,6 +1133,13 @@ struct VaultItemDetailView: View {
                             }
                         }
 
+                        if let history = item.passwordHistory, !history.isEmpty {
+                            Section("Password History") {
+                                PasswordHistoryRows(entries: history)
+                                    .id(item.id)
+                            }
+                        }
+
                         if let secret = item.totpSecret {
                             Section("Verification Code") {
                                 TOTPCodeView(secret: secret)
@@ -1388,6 +1395,9 @@ struct VaultItemDetailView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(L10n.format("Created %@", (item.createdAt ?? item.updatedAt).formatted(date: .abbreviated, time: .shortened)))
                             Text(L10n.format("Last edited %@", item.updatedAt.formatted(date: .abbreviated, time: .shortened)))
+                            if item.type == .login, let passwordUpdatedAt = item.passwordUpdatedAt {
+                                Text(L10n.format("Password updated %@", passwordUpdatedAt.formatted(date: .abbreviated, time: .standard)))
+                            }
                         }
                         .textCase(nil)
                     }
@@ -1537,6 +1547,9 @@ private extension VaultItemDetailView {
                         DetailValueRow(title: "Created", value: createdAt.formatted(date: .abbreviated, time: .omitted), canCopy: false)
                     }
                     DetailValueRow(title: "Modified", value: item.updatedAt.formatted(date: .abbreviated, time: .omitted), canCopy: false)
+                    if item.type == .login, let passwordUpdatedAt = item.passwordUpdatedAt {
+                        DetailValueRow(title: "Password updated", value: passwordUpdatedAt.formatted(date: .abbreviated, time: .standard), canCopy: false)
+                    }
                     if item.isArchived {
                         DetailValueRow(title: "Status", value: L10n.string("Archived"), canCopy: false)
                     } else if item.isDeleted {
@@ -1672,6 +1685,13 @@ private extension VaultItemDetailView {
                 SecretFieldRow(title: "Password", value: item.password, revealed: revealPassword) {
                     revealPassword.toggle()
                 }
+            }
+            if let history = item.passwordHistory, !history.isEmpty {
+                DisclosureGroup("Password History") {
+                    PasswordHistoryRows(entries: history)
+                        .id(item.id)
+                }
+                .padding(.vertical, 8)
             }
             if let secret = item.totpSecret {
                 MacDetailRow(title: "Code") {
@@ -1937,6 +1957,32 @@ private struct CustomFieldDetailRow: View {
         case .text, .linked:
             DetailValueRow(title: field.name, value: resolvedValue, localizesTitle: false)
         }
+    }
+}
+
+private struct PasswordHistoryRows: View {
+    let entries: [VaultPasswordHistoryEntry]
+
+    var body: some View {
+        ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
+            PasswordHistoryRow(entry: entry)
+        }
+    }
+}
+
+private struct PasswordHistoryRow: View {
+    let entry: VaultPasswordHistoryEntry
+    @State private var revealed = false
+
+    var body: some View {
+        SecretFieldRow(
+            title: entry.lastUsedDate.formatted(date: .abbreviated, time: .shortened),
+            value: entry.password,
+            revealed: revealed,
+            toggleReveal: { revealed.toggle() },
+            localizesTitle: false
+        )
+        .onChange(of: entry) { _, _ in revealed = false }
     }
 }
 

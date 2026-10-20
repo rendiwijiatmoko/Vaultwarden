@@ -4,6 +4,93 @@ import XCTest
 
 @MainActor
 final class VaultSortingTests: XCTestCase {
+    func testCollectionsGroupByOrganizationIdentityAndKeepFallbackOrganizations() {
+        let collections = [
+            VaultCollection(id: "b", name: "Shared", organization: "Same name", isReadOnly: true, hidesPasswords: true, organizationID: "org2"),
+            VaultCollection(id: "a", name: "Shared", organization: "Same name", isReadOnly: false, hidesPasswords: false, organizationID: "org1"),
+            VaultCollection(id: "z", name: "Zulu", organization: "Same name", isReadOnly: false, hidesPasswords: false, organizationID: "org1")
+        ]
+        let groups = VaultCollectionGroup.grouped(collections: collections, organizations: ["Same name", "Without collections"])
+        XCTAssertEqual(groups.map(\.id), ["id:org1", "id:org2", "name:Without collections"])
+        XCTAssertEqual(groups[0].filters, [.collection("a"), .collection("z")])
+        XCTAssertEqual(groups[1].filters, [.collection("b")])
+        XCTAssertEqual(groups[2].filters, [.organization("Without collections")])
+    }
+
+    func testPasswordChangesRetainFiveMostRecentValuesAcrossOfflineEdits() {
+        var previous = VaultItem(name: "Login", password: "password-0")
+        for index in 1...7 {
+            var edited = previous
+            // An editor may have started with an older snapshot's history.
+            edited.passwordHistory = nil
+            edited.password = "password-\(index)"
+            let date = Date(timeIntervalSince1970: Double(index))
+            edited.recordPasswordChange(from: previous, at: date)
+            XCTAssertEqual(edited.passwordHistory?.first?.password, previous.password)
+            XCTAssertEqual(edited.passwordHistory?.first?.lastUsedDate, date)
+            XCTAssertEqual(edited.passwordUpdatedAt, date)
+            previous = edited
+        }
+        XCTAssertEqual(previous.passwordHistory?.map(\.password), ["password-6", "password-5", "password-4", "password-3", "password-2"])
+
+        var renamed = previous
+        renamed.name = "Renamed"
+        renamed.recordPasswordChange(from: previous, at: .now)
+        XCTAssertEqual(renamed.passwordHistory, previous.passwordHistory)
+        XCTAssertEqual(renamed.passwordUpdatedAt, previous.passwordUpdatedAt)
+    }
+
+    func testPasswordHistoryIgnoresEmptyPasswordsAndOtherItemTypes() {
+        for type in VaultItemType.allCases {
+            let previous = VaultItem(name: "Item", password: type == .login ? "" : "private value", type: type)
+            var updated = previous
+            updated.password = "new value"
+            updated.recordPasswordChange(from: previous, at: .now)
+            XCTAssertNil(updated.passwordHistory)
+        }
+        let previous = VaultItem(name: "Login", password: "old password")
+        var cleared = previous
+        cleared.password = ""
+        cleared.recordPasswordChange(from: previous, at: .now)
+        XCTAssertEqual(cleared.passwordHistory?.first?.password, "old password")
+        XCTAssertNotNil(cleared.passwordUpdatedAt)
+
+        var filled = VaultItem(name: "Empty", password: "new password")
+        let changedAt = Date(timeIntervalSince1970: 1234)
+        filled.recordPasswordChange(from: VaultItem(name: "Empty"), at: changedAt)
+        XCTAssertEqual(filled.passwordUpdatedAt, changedAt)
+        XCTAssertNil(filled.passwordHistory)
+    }
+
+    func testLegacySyncHistoryAndMissingHistoryDecode() throws {
+        let history = [["password": "2.synthetic-encrypted-value", "lastUsedDate": "2026-10-01T12:00:00Z"]]
+        let base: [String: Any] = [
+            "id": "cipher", "type": 1,
+            "creationDate": "2026-10-01T12:00:00Z", "revisionDate": "2026-10-01T12:00:00Z"
+        ]
+        for legacy in [false, true] {
+            var cipher = base
+            if legacy { cipher["data"] = ["passwordHistory": history] }
+            else { cipher["passwordHistory"] = history }
+            let decoded = try JSONDecoder().decode(SyncCipherDTO.self, from: JSONSerialization.data(withJSONObject: cipher))
+            XCTAssertEqual(decoded.passwordHistory?.first?.password, "2.synthetic-encrypted-value")
+        }
+        let old = try JSONDecoder().decode(SyncCipherDTO.self, from: JSONSerialization.data(withJSONObject: base))
+        XCTAssertNil(old.passwordHistory)
+    }
+
+    func testOlderCachesDecodeWithoutHistoryOrOrganizationID() throws {
+        let item = VaultItem(name: "Old cache")
+        let decoded = try JSONDecoder().decode(VaultItem.self, from: JSONEncoder().encode(item))
+        XCTAssertNil(decoded.passwordHistory)
+        XCTAssertNil(decoded.passwordUpdatedAt)
+        let collection = try JSONDecoder().decode(VaultCollection.self, from: Data(
+            #"{"id":"c","name":"Team","organization":"Company","isReadOnly":false,"hidesPasswords":false}"#.utf8
+        ))
+        XCTAssertNil(collection.organizationID)
+        XCTAssertEqual(VaultCollectionGroup.grouped(collections: [collection], organizations: []).first?.name, "Company")
+    }
+
     func testAlphabeticalSortingUsesNaturalOrderForItemsAndFolders() {
         let names = ["Zulu", "account 10", "Account 2", "alpha"]
         let items = names.map { VaultItem(name: $0) }

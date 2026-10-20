@@ -143,10 +143,12 @@ final class AppStore: ObservableObject {
 
     /// Shared vaults are modelled as collections when the server exposes them
     /// and fall back to plain organization names otherwise.
+    var sharedCollectionGroups: [VaultCollectionGroup] {
+        VaultCollectionGroup.grouped(collections: collections, organizations: organizations)
+    }
+
     var sharedFilters: [VaultFilter] {
-        collections.isEmpty
-            ? organizations.map(VaultFilter.organization)
-            : collections.map { VaultFilter.collection($0.id) }
+        sharedCollectionGroups.flatMap(\.filters)
     }
 
     func items(inFolder folder: String) -> [VaultItem] {
@@ -191,6 +193,12 @@ final class AppStore: ObservableObject {
             var updated = item
             updated.updatedAt = Date()
             if updated.createdAt == nil { updated.createdAt = updated.updatedAt }
+            if let previous = items.first(where: { $0.id == item.id }),
+               remoteCiphers[item.id]?.canViewPassword != false {
+                updated.recordPasswordChange(from: previous, at: updated.updatedAt)
+            } else if items.allSatisfy({ $0.id != item.id }), updated.type == .login, !updated.password.isEmpty {
+                updated.passwordUpdatedAt = updated.passwordUpdatedAt ?? updated.updatedAt
+            }
             let mutation = try await vaultwardenService.prepareSaveCipher(
                 item: updated,
                 existing: remoteCiphers[item.id],
