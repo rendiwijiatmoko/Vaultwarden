@@ -1,6 +1,7 @@
 #if os(macOS)
 import AppKit
 import Combine
+import CoreGraphics
 
 /// One application-wide observer, shared by every vault and Settings window.
 /// Scene inactivity alone is insufficient on Mac: another app window can be active.
@@ -16,8 +17,9 @@ final class MacVaultLifecycle {
     private let store: AppStore
     private let applicationIsActive: @MainActor () -> Bool
     private var subscriptions: Set<AnyCancellable> = []
-    private var timeoutTask: Task<Void, Never>?
-    private var inactiveSince: Date?
+    private let idleSeconds: @MainActor () -> TimeInterval
+    private let now: @MainActor () -> Date
+    private var unlockedAt: Date?
     private var timeout: VaultTimeout
 
     init(
@@ -25,10 +27,17 @@ final class MacVaultLifecycle {
         applicationIsActive: @escaping @MainActor () -> Bool = { NSApplication.shared.isActive },
         applicationNotifications: NotificationCenter = .default,
         workspaceNotifications: NotificationCenter = NSWorkspace.shared.notificationCenter,
-        screenLockNotifications: NotificationCenter = DistributedNotificationCenter.default()
+        screenLockNotifications: NotificationCenter = DistributedNotificationCenter.default(),
+        idleSeconds: @escaping @MainActor () -> TimeInterval = {
+            CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: UInt32.max)!)
+        },
+        now: @escaping @MainActor () -> Date = Date.init
     ) {
         self.store = store
         self.applicationIsActive = applicationIsActive
+        self.idleSeconds = idleSeconds
+        self.now = now
+        unlockedAt = store.isLocked ? nil : now()
         timeout = store.settings.vaultTimeout
 
         applicationNotifications.publisher(for: NSApplication.didResignActiveNotification)
@@ -68,8 +77,18 @@ final class MacVaultLifecycle {
             .sink { [weak self] timeout in
                 guard let self else { return }
                 self.timeout = timeout
-                self.scheduleTimeout()
+                self.checkInactivity()
             }
+            .store(in: &subscriptions)
+
+        store.$isLocked.removeDuplicates()
+            .sink { [weak self] locked in
+                guard let self else { return }
+                self.unlockedAt = locked ? nil : self.now()
+            }
+            .store(in: &subscriptions)
+        Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+            .sink { [weak self] _ in self?.checkInactivity() }
             .store(in: &subscriptions)
 
         Publishers.CombineLatest(
@@ -87,46 +106,31 @@ final class MacVaultLifecycle {
     }
 
     private func applicationDidResignActive() {
-        guard !applicationIsActive(), inactiveSince == nil, store.isAuthenticated else { return }
-        let now = Date()
-        inactiveSince = now
-        store.appDidEnterBackground(at: now)
-        scheduleTimeout()
+        guard !applicationIsActive(), store.isAuthenticated, !store.isLocked else { return }
+        if timeout == .immediately { store.lock(requestAutomaticUnlock: false) }
     }
 
     private func applicationDidBecomeActive() {
-        timeoutTask?.cancel()
-        timeoutTask = nil
-        inactiveSince = nil
+        checkInactivity()
         Task { await store.refreshAfterBecomingActive() }
     }
 
-    private func scheduleTimeout() {
-        timeoutTask?.cancel()
-        timeoutTask = nil
-        guard let inactiveSince,
-              !applicationIsActive(),
-              store.isAuthenticated,
-              !store.isLocked,
-              let interval = timeout.timeInterval else { return }
-
-        let remaining = max(0, interval - Date().timeIntervalSince(inactiveSince))
-        if remaining == 0 {
-            store.lock()
+    /// Timed modes measure session input inactivity, independent of app focus.
+    /// Unlocking starts a fresh interval even if the Mac had already been idle.
+    func checkInactivity() {
+        guard store.isAuthenticated, !store.isLocked else { return }
+        if timeout == .immediately {
+            if !applicationIsActive() { store.lock(requestAutomaticUnlock: false) }
             return
         }
-        timeoutTask = Task { [weak self] in
-            do { try await Task.sleep(for: .seconds(remaining)) }
-            catch { return }
-            guard let self, !Task.isCancelled,
-                  !applicationIsActive(), store.isAuthenticated, !store.isLocked else { return }
-            store.lock()
+        guard let interval = timeout.timeInterval, let unlockedAt else { return }
+        let elapsed = max(0, now().timeIntervalSince(unlockedAt))
+        if min(idleSeconds(), elapsed) >= interval {
+            store.lock(requestAutomaticUnlock: false)
         }
     }
 
     private func lockForSystemEvent() {
-        timeoutTask?.cancel()
-        timeoutTask = nil
         guard store.isAuthenticated else { return }
         // Waking or dismissing the system lock screen must not start a new
         // biometric prompt before the user explicitly unlocks their vault.

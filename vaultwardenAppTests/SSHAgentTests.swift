@@ -305,6 +305,8 @@ final class SSHAgentTests: XCTestCase {
 
         let denied = Task { await agent.handle(payload) }
         try await waitForPrompt(agent)
+        agent.resolvePrompt(id: previousPromptID, approved: true, alwaysApprove: true)
+        XCTAssertNotNil(agent.prompt, "A stale unlock callback must not approve a newer SSH request")
         agent.cancelPrompt(id: previousPromptID)
         XCTAssertNotNil(agent.prompt, "Dismissing an earlier sheet must not cancel a new request")
         agent.resolvePrompt(approved: false)

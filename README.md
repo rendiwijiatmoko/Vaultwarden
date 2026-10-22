@@ -61,11 +61,12 @@ The app and AutoFill extension must use the same App Group and shared Keychain a
 
 - The resizable vault window has a native sidebar, item list, and detail column. Arrow keys navigate items; Command/Shift selection supports bulk actions.
 - **⌘N** creates a password, **⌘F** focuses search, **⌘R** syncs, **⇧⌘L** locks, and **⌘,** opens Settings.
+- The menu bar opens a compact panel with vault search, username/password copying, a password generator, and SSH agent controls. Incoming SSH requests open this panel for unlock and approval without opening the main vault window. If the menu bar is hidden, requests use the main window instead. Enable or hide the icon in **Settings → Appearance → Show in Menu Bar** (enabled by default). Closing the vault window keeps the app and enabled SSH agent running while the icon is enabled; use Quit Vaultwarden to exit.
 - Touch ID or the Mac login password protects device authentication. Vault keys and tokens use the macOS data-protection Keychain, with matching sharing groups for AutoFill.
 - Copying a secret clears that clipboard item after 30 seconds without deleting a newer copy. Copied secrets are marked concealed for clipboard managers.
 - QR setup imports an image through a native file picker and decodes it locally. iOS retains camera scanning.
 - Encrypted exports use a Save dialog; Send supports native file selection. The Mac sandbox allows outbound networking and user-selected files.
-- Background refresh runs while the app is running and stops when it quits. Sleep, screen lock, and user-session switching lock the vault; switching apps follows the selected vault timeout.
+- Background refresh runs while the app is running and stops when it quits. Sleep, screen lock, and user-session switching lock the vault. **Settings → Security → Vault timeout** offers Immediately, 1, 5, 10, or 15 minutes, and Never. Timed options measure Mac input inactivity, including while Vaultwarden is focused; switching to Terminal does not itself lock the vault. Immediately locks when leaving the app or dismissing the menu bar panel. New macOS settings default to 5 minutes; existing saved choices are preserved.
 - macOS AutoFill supports passwords, passkeys, and verification codes. Apple's iOS-only system password-save/generation callbacks are omitted on Mac; manual creation and the in-app generator remain available.
 
 ## macOS SSH agent

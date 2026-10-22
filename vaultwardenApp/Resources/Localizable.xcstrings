@@ -1,6 +1,278 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Copy Username" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy Username"
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Salin Nama Pengguna"
+          }
+        }
+      }
+    },
+    "Timed locking uses Mac inactivity, even while the vault is open. Immediately locks when you leave Vaultwarden. Sleep and screen lock always lock the vault." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Timed locking uses Mac inactivity, even while the vault is open. Immediately locks when you leave Vaultwarden. Sleep and screen lock always lock the vault."
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Penguncian terjadwal mengikuti waktu tanpa aktivitas di Mac, termasuk saat brankas terbuka. Segera mengunci saat Anda meninggalkan Vaultwarden. Tidur dan penguncian layar selalu mengunci brankas."
+          }
+        }
+      }
+    },
+    "Copy vault credential" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy vault credential"
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Salin kredensial brankas"
+          }
+        }
+      }
+    },
+    "SSH requests appear here. Unlock and approve without opening the main window." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SSH requests appear here. Unlock and approve without opening the main window."
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Permintaan SSH muncul di sini. Buka kunci dan setujui tanpa membuka jendela utama."
+          }
+        }
+      }
+    },
+    "Sign in to access your vault." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sign in to access your vault."
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Masuk untuk mengakses brankas Anda."
+          }
+        }
+      }
+    },
+    "Refine your search to see more items." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Refine your search to see more items."
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Persempit pencarian untuk melihat item lainnya."
+          }
+        }
+      }
+    },
+    "No matching items" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No matching items"
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tidak ada item yang cocok"
+          }
+        }
+      }
+    },
+    "Search vault" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Search vault"
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cari di brankas"
+          }
+        }
+      }
+    },
+    "Quick access" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quick access"
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Akses cepat"
+          }
+        }
+      }
+    },
+    "10 minutes" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "10 minutes"
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "10 menit"
+          }
+        }
+      }
+    },
+    "Keep Vaultwarden running when the vault window is closed. Open it again from the menu bar, or choose Quit Vaultwarden to exit.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep Vaultwarden running when the vault window is closed. Open it again from the menu bar, or choose Quit Vaultwarden to exit."
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Biarkan Vaultwarden berjalan saat jendela brankas ditutup. Buka kembali dari bar menu, atau pilih Keluar dari Vaultwarden untuk keluar."
+          }
+        }
+      }
+    },
+    "Settings…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings…"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pengaturan…"
+          }
+        }
+      }
+    },
+    "Vault Unlocked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vault Unlocked"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brankas Terbuka"
+          }
+        }
+      }
+    },
+    "Show in Menu Bar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show in Menu Bar"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tampilkan di Bar Menu"
+          }
+        }
+      }
+    },
+    "Quit Vaultwarden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quit Vaultwarden"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keluar dari Vaultwarden"
+          }
+        }
+      }
+    },
+    "Open Vaultwarden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Vaultwarden"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buka Vaultwarden"
+          }
+        }
+      }
+    },
     "" : {
 
     },
@@ -64175,7 +64447,15 @@
     },
     "Lock Vault" : {
       "comment" : "A button that locks the vault.",
-      "isCommentAutoGenerated" : true
+      "isCommentAutoGenerated" : true,
+      "localizations" : {
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kunci Brankas"
+          }
+        }
+      }
     },
     "Lock Vault Now" : {
       "extractionState" : "manual",
@@ -127851,7 +128131,15 @@
     },
     "Vault Locked" : {
       "comment" : "The title of a view that appears when the vault is locked.",
-      "isCommentAutoGenerated" : true
+      "isCommentAutoGenerated" : true,
+      "localizations" : {
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Brankas Terkunci"
+          }
+        }
+      }
     },
     "Vault timeout" : {
       "extractionState" : "manual",

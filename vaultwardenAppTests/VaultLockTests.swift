@@ -1,9 +1,109 @@
 import Foundation
 import XCTest
+#if os(macOS)
+import AppKit
+#endif
 @testable import vaultwardenApp
 
 @MainActor
 final class VaultLockTests: XCTestCase {
+    #if os(macOS)
+    func testMacDefaultTimeoutAndSavedPreference() throws {
+        XCTAssertEqual(AppSettings().vaultTimeout, .fiveMinutes)
+        var settings = AppSettings()
+        settings.vaultTimeout = .immediately
+        XCTAssertEqual(try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(settings)).vaultTimeout, .immediately)
+    }
+
+    func testMacTimedLockUsesIdleTimeWhileFocusedAndIgnoresFocusLoss() async throws {
+        let store = try await connectedStore(LockTestService())
+        store.settings.vaultTimeout = .fiveMinutes
+        let notifications = NotificationCenter()
+        var active = true
+        var now = Date()
+        var idle: TimeInterval = 0
+        let lifecycle = MacVaultLifecycle(
+            store: store, applicationIsActive: { active },
+            applicationNotifications: notifications,
+            workspaceNotifications: NotificationCenter(), screenLockNotifications: NotificationCenter(),
+            idleSeconds: { idle }, now: { now }
+        )
+        active = false
+        notifications.post(name: NSApplication.didResignActiveNotification, object: nil)
+        XCTAssertFalse(store.isLocked)
+        now = now.addingTimeInterval(600)
+        idle = 10 // User is actively working in Terminal.
+        lifecycle.checkInactivity()
+        XCTAssertFalse(store.isLocked)
+        active = true // Idle timeout also applies with the vault in the foreground.
+        idle = 300
+        lifecycle.checkInactivity()
+        XCTAssertTrue(store.isLocked)
+        XCTAssertFalse(store.shouldAutomaticallyPromptUnlock)
+    }
+
+    func testMacUnlockRestartsIdleGracePeriod() async throws {
+        let store = try await connectedStore(LockTestService())
+        store.settings.vaultTimeout = .oneMinute
+        var now = Date()
+        let lifecycle = MacVaultLifecycle(
+            store: store, applicationIsActive: { true },
+            applicationNotifications: NotificationCenter(),
+            workspaceNotifications: NotificationCenter(), screenLockNotifications: NotificationCenter(),
+            idleSeconds: { 600 }, now: { now }
+        )
+        now = now.addingTimeInterval(59)
+        lifecycle.checkInactivity()
+        XCTAssertFalse(store.isLocked)
+        store.lock(requestAutomaticUnlock: false)
+        let success = await store.unlock(masterPassword: "test")
+        XCTAssertTrue(success)
+        now = now.addingTimeInterval(59)
+        lifecycle.checkInactivity()
+        XCTAssertFalse(store.isLocked)
+        now = now.addingTimeInterval(1)
+        lifecycle.checkInactivity()
+        XCTAssertTrue(store.isLocked)
+    }
+
+    func testMacImmediateAndSystemSleepStillLock() async throws {
+        let store = try await connectedStore(LockTestService())
+        store.settings.vaultTimeout = .immediately
+        var active = true
+        let notifications = NotificationCenter()
+        let workspace = NotificationCenter()
+        let lifecycle = MacVaultLifecycle(
+            store: store, applicationIsActive: { active },
+            applicationNotifications: notifications, workspaceNotifications: workspace,
+            screenLockNotifications: NotificationCenter(), idleSeconds: { 0 }
+        )
+        active = false
+        notifications.post(name: NSApplication.didResignActiveNotification, object: nil)
+        XCTAssertTrue(store.isLocked)
+        active = true
+        let success = await store.unlock(masterPassword: "test")
+        XCTAssertTrue(success)
+        store.settings.vaultTimeout = .never
+        lifecycle.checkInactivity()
+        XCTAssertFalse(store.isLocked)
+        workspace.post(name: NSWorkspace.willSleepNotification, object: nil)
+        XCTAssertTrue(store.isLocked)
+    }
+    #endif
+
+    func testQuickCopyRejectsLockedArchivedAndRestrictedItems() async throws {
+        let store = try await connectedStore(LockTestService())
+        var item = try XCTUnwrap(store.items.first)
+        XCTAssertTrue(store.canCopyLoginPassword(item))
+        item.organization = "restricted-organization"
+        XCTAssertFalse(store.canCopyLoginPassword(item))
+        item.organization = nil
+        item.archivedAt = Date()
+        XCTAssertFalse(store.canCopyLoginPassword(item))
+        item.archivedAt = nil
+        store.lock(requestAutomaticUnlock: false)
+        XCTAssertFalse(store.canCopyLoginPassword(item))
+    }
     private func connectedStore(_ service: LockTestService) async throws -> AppStore {
         let defaults = UserDefaults(suiteName: "vault-lock-\(UUID().uuidString)")!
         let store = AppStore(vaultwardenService: service, settingsDefaults: defaults)

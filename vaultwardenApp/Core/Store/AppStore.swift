@@ -15,7 +15,7 @@ final class AppStore: ObservableObject {
     private var temporarySendPasswords: [UUID: String] = [:]
     private var organizationKeys: [String: String] = [:]
     // Invalidates results started before a lock, even if the vault unlocks again.
-    private var vaultGeneration: UInt64 = 0
+    private(set) var vaultGeneration: UInt64 = 0
     private var backgroundedAt: Date?
 
     /// Sidebar selection. `nil` keeps the split view collapsed on the sidebar,
@@ -178,6 +178,14 @@ final class AppStore: ObservableObject {
                 || $0.websiteURIs.contains { $0.localizedCaseInsensitiveContains(query) }
                 || ($0.folder?.localizedCaseInsensitiveContains(query) ?? false)
         }
+    }
+
+    /// Quick access must honor the same organization password restriction as SSH.
+    func canCopyLoginPassword(_ item: VaultItem) -> Bool {
+        guard isAuthenticated, !isLocked, item.type == .login,
+              !item.isDeleted, !item.isArchived else { return false }
+        if let remote = remoteCiphers[item.id] { return remote.canViewPassword }
+        return item.organization == nil && item.collectionIDs.isEmpty
     }
 
     @discardableResult
