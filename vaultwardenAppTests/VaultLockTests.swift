@@ -97,12 +97,19 @@ final class VaultLockTests: XCTestCase {
         XCTAssertTrue(store.canCopyLoginPassword(item))
         item.organization = "restricted-organization"
         XCTAssertFalse(store.canCopyLoginPassword(item))
+        item.totpSecret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
+        item.customFields = [VaultCustomField(name: "Hidden", value: "secret", type: .hidden),
+                             VaultCustomField(name: "Linked", value: "password", type: .linked)]
+        let restricted = store.quickCopyFields(for: item)
+        XCTAssertTrue(restricted.contains { $0.id == "username" })
+        XCTAssertFalse(restricted.contains { $0.isSensitive })
         item.organization = nil
         item.archivedAt = Date()
         XCTAssertFalse(store.canCopyLoginPassword(item))
         item.archivedAt = nil
         store.lock(requestAutomaticUnlock: false)
         XCTAssertFalse(store.canCopyLoginPassword(item))
+        XCTAssertTrue(store.quickCopyFields(for: item).isEmpty)
     }
     private func connectedStore(_ service: LockTestService) async throws -> AppStore {
         let defaults = UserDefaults(suiteName: "vault-lock-\(UUID().uuidString)")!

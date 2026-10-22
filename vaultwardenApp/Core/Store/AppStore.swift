@@ -182,10 +182,20 @@ final class AppStore: ObservableObject {
 
     /// Quick access must honor the same organization password restriction as SSH.
     func canCopyLoginPassword(_ item: VaultItem) -> Bool {
-        guard isAuthenticated, !isLocked, item.type == .login,
+        item.type == .login && canCopyVaultSecrets(item)
+    }
+
+    func canCopyVaultSecrets(_ item: VaultItem) -> Bool {
+        guard isAuthenticated, !isLocked,
               !item.isDeleted, !item.isArchived else { return false }
         if let remote = remoteCiphers[item.id] { return remote.canViewPassword }
         return item.organization == nil && item.collectionIDs.isEmpty
+    }
+
+    func quickCopyFields(for item: VaultItem, date: Date = Date()) -> [VaultQuickCopyField] {
+        guard isAuthenticated, !isLocked, !item.isDeleted, !item.isArchived else { return [] }
+        return VaultQuickCopyField.fields(for: item, date: date)
+            .filter { !$0.isSensitive || canCopyVaultSecrets(item) }
     }
 
     @discardableResult

@@ -11,6 +11,8 @@ struct MacMenuBarView: View {
     @State private var query = ""
     @State private var copyNotice: String?
     @State private var copying = false
+    @State private var selectedItemID: UUID?
+    @State private var copiedFieldID: String?
 
     private enum Tab: String, CaseIterable {
         case vault = "Vault", generator = "Generator", ssh = "SSH Agent"
@@ -55,8 +57,10 @@ struct MacMenuBarView: View {
         }
         .frame(width: 390, height: 550)
         .preferredColorScheme(store.settings.theme == .system ? nil : (store.settings.theme == .dark ? .dark : .light))
-        .onChange(of: store.isLocked) { _, _ in query = ""; copyNotice = nil }
-        .onChange(of: store.authenticatedSession?.tokenReference) { _, _ in query = ""; copyNotice = nil }
+        .onChange(of: tab) { _, _ in selectedItemID = nil; copyNotice = nil; copiedFieldID = nil }
+        .onChange(of: store.isLocked) { _, _ in query = ""; copyNotice = nil; selectedItemID = nil; copiedFieldID = nil }
+        .onChange(of: store.authenticatedSession?.tokenReference) { _, _ in query = ""; copyNotice = nil; selectedItemID = nil; copiedFieldID = nil }
+        .onDisappear { selectedItemID = nil; copiedFieldID = nil; copyNotice = nil }
     }
 
     private var header: some View {
@@ -79,51 +83,133 @@ struct MacMenuBarView: View {
         .padding(16)
     }
 
-    private var vault: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            TextField("Search vault", text: $query)
-                .textFieldStyle(.roundedBorder)
-            let results = store.search(query)
-            if results.isEmpty {
-                Text("No matching items").foregroundStyle(.secondary).padding(.vertical)
+    @ViewBuilder private var vault: some View {
+        if let id = selectedItemID, let item = store.activeItems.first(where: { $0.id == id }) {
+            itemDetail(item)
+        } else {
+            VStack(alignment: .leading, spacing: 14) {
+                TextField("Search vault", text: $query)
+                    .textFieldStyle(.roundedBorder)
+                let sections = VaultQuickAccessSections(items: store.search(query), sortOrder: store.settings.vaultSortOrder)
+                if sections.favorites.isEmpty && sections.otherItems.isEmpty {
+                    Text("No matching items").foregroundStyle(.secondary).padding(.vertical)
+                }
+                if !sections.favorites.isEmpty {
+                    itemSection("Favorites", symbol: "star.fill", items: sections.favorites)
+                }
+                if !sections.otherItems.isEmpty {
+                    itemSection("Other Items", symbol: "square.stack", items: sections.otherItems)
+                }
             }
-            ForEach(Array(results.prefix(30))) { item in
-                HStack(spacing: 10) {
-                    Image(systemName: item.type == .sshKey ? "terminal" : "key.fill")
-                        .foregroundStyle(.secondary).frame(width: 22)
-                    Button {
-                        store.selectedItemID = item.id
-                        controller.openVault()
-                    } label: {
+        }
+    }
+
+    private func itemSection(_ title: String, symbol: String, items: [VaultItem]) -> some View {
+        LazyVStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label(L10n.string(title), systemImage: symbol)
+                Spacer()
+                Text(items.count, format: .number).monospacedDigit()
+            }
+            .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            ForEach(items) { item in
+                Button {
+                    selectedItemID = item.id
+                    copyNotice = nil
+                    copiedFieldID = nil
+                } label: {
+                    HStack(spacing: 10) {
+                        thumbnail(item, size: 34)
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(item.name).fontWeight(.medium).lineLimit(1)
+                            HStack(spacing: 4) {
+                                Text(item.name).fontWeight(.medium).lineLimit(1)
+                                if item.isFavorite {
+                                    Image(systemName: "star.fill").font(.caption2).foregroundStyle(.yellow)
+                                }
+                            }
                             Text(item.displaySubtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
+                        Spacer(minLength: 4)
+                        if item.totpSecret?.isEmpty == false {
+                            Image(systemName: "lock.rotation").foregroundStyle(.secondary)
+                                .accessibilityLabel("Verification code")
+                        }
+                        Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
                     }
-                    .buttonStyle(.plain)
-                    if item.type == .login {
-                        if !item.username.isEmpty {
-                            Button { copy(itemID: item.id, password: false) } label: {
-                                Image(systemName: "person.crop.circle")
+                    .padding(10)
+                    .contentShape(Rectangle())
+                    .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func thumbnail(_ item: VaultItem, size: CGFloat) -> some View {
+        VaultItemThumbnail(item: item, showsWebsiteIcon: store.settings.showFavicons,
+                           serverURL: store.authenticatedSession?.serverURL, size: size)
+    }
+
+    private func itemDetail(_ item: VaultItem) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Button {
+                    selectedItemID = nil
+                    copyNotice = nil
+                    copiedFieldID = nil
+                } label: { Label("Back", systemImage: "chevron.left") }
+                Spacer()
+                Button {
+                    store.selectedItemID = item.id
+                    controller.openVault()
+                } label: { Image(systemName: "arrow.up.forward.app") }
+                .help("Open Vaultwarden").accessibilityLabel("Open Vaultwarden")
+            }
+            .buttonStyle(.borderless)
+            HStack(spacing: 12) {
+                thumbnail(item, size: 42)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack {
+                        Text(item.name).font(.headline)
+                        if item.isFavorite { Image(systemName: "star.fill").foregroundStyle(.yellow) }
+                    }
+                    Text(item.type.localizedTitle).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Text("Choose a field to copy").font(.caption).foregroundStyle(.secondary)
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                let fields = store.quickCopyFields(for: item, date: context.date)
+                VStack(spacing: 8) {
+                    if fields.isEmpty {
+                        Text("No copyable fields").foregroundStyle(.secondary)
+                    }
+                    ForEach(fields) { field in
+                        Button { copy(itemID: item.id, fieldID: field.id) } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: field.symbol).foregroundStyle(.tint).frame(width: 22)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(field.isCustom ? field.title : L10n.string(field.title))
+                                        .font(.caption).foregroundStyle(.secondary)
+                                    Text(verbatim: field.isSensitive ? "••••••••" : field.value)
+                                        .font(.body).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                if field.id == "totp", let secret = item.totpSecret {
+                                    let period = TOTPGenerator.period(secret: secret)
+                                    Text("\(period - Int(context.date.timeIntervalSince1970) % period)s")
+                                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                                }
+                                Image(systemName: copiedFieldID == field.id ? "checkmark" : "doc.on.doc")
+                                    .foregroundStyle(copiedFieldID == field.id ? Color.green : Color.secondary)
                             }
-                            .help("Copy Username").accessibilityLabel("Copy Username")
+                            .padding(10)
+                            .contentShape(Rectangle())
+                            .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
                         }
-                        if !item.password.isEmpty && store.canCopyLoginPassword(item) {
-                            Button { copy(itemID: item.id, password: true) } label: {
-                                Image(systemName: "doc.on.doc")
-                            }
-                            .help("Copy Password").accessibilityLabel("Copy Password")
-                        }
+                        .buttonStyle(.plain)
+                        .disabled(copying)
+                        .accessibilityLabel(L10n.format("Copy %@", field.isCustom ? field.title : L10n.string(field.title)))
                     }
                 }
-                .disabled(copying)
-                .padding(10)
-                .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
-            }
-            if results.count > 30 {
-                Text("Refine your search to see more items.").font(.caption).foregroundStyle(.secondary)
             }
         }
     }
@@ -183,7 +269,7 @@ struct MacMenuBarView: View {
         .padding(12)
     }
 
-    private func copy(itemID: UUID, password: Bool) {
+    private func copy(itemID: UUID, fieldID: String) {
         guard !copying, !store.isLocked else { return }
         let session = store.authenticatedSession?.tokenReference
         let generation = store.vaultGeneration
@@ -197,12 +283,14 @@ struct MacMenuBarView: View {
             }
             // Re-resolve after authentication: locking, account or permissions may have changed.
             guard !store.isLocked, store.isAuthenticated,
+                  selectedItemID == itemID, tab == .vault,
                   generation == store.vaultGeneration,
                   session == store.authenticatedSession?.tokenReference,
                   let item = store.activeItems.first(where: { $0.id == itemID }),
-                  item.type == .login, !password || store.canCopyLoginPassword(item) else { return }
-            Clipboard.copy(password ? item.password : item.username)
-            copyNotice = L10n.string("Copied")
+                  let field = store.quickCopyFields(for: item).first(where: { $0.id == fieldID }) else { return }
+            Clipboard.copy(field.value)
+            copiedFieldID = field.id
+            copyNotice = L10n.format("%@ copied", field.isCustom ? field.title : L10n.string(field.title))
         }
     }
 }
