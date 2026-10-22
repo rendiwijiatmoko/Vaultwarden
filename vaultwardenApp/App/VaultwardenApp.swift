@@ -45,6 +45,7 @@ struct VaultwardenApp: App {
                 .environmentObject(store)
                 .environmentObject(sshAgent)
                 .environmentObject(menuBar)
+                .background(MacWindowRegistration(dockVisibility: menuBar.dockVisibility))
                 .frame(minWidth: 940, minHeight: 640)
         }
         .defaultSize(width: 1180, height: 780)
@@ -75,6 +76,7 @@ struct VaultwardenApp: App {
             MacSettingsView()
                 .environmentObject(store)
                 .environmentObject(sshAgent)
+                .background(MacWindowRegistration(dockVisibility: menuBar.dockVisibility))
         }
         #else
         WindowGroup {

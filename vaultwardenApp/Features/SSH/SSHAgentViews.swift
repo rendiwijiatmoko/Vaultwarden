@@ -102,7 +102,7 @@ struct SSHAgentPresentation: ViewModifier {
             .onAppear {
                 menuBar.openVaultWindow = { openWindow(id: "vault") }
                 menuBar.openSettingsWindow = { openSettings() }
-                agent.presentRequest = { [weak menuBar] in menuBar?.presentSSHRequest() }
+                agent.presentRequest = { [weak menuBar = menuBar] in menuBar?.presentSSHRequest() }
             }
             .sheet(item: Binding(
                 get: { menuBar.isEnabled ? nil : agent.prompt },

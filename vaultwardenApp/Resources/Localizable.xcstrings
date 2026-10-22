@@ -1,6 +1,23 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Close the vault and Settings windows to hide Vaultwarden from the Dock while keeping the menu bar and SSH agent running. Use Quit Vaultwarden to exit." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close the vault and Settings windows to hide Vaultwarden from the Dock while keeping the menu bar and SSH agent running. Use Quit Vaultwarden to exit."
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tutup jendela brankas dan Pengaturan untuk menyembunyikan Vaultwarden dari Dock sambil menjaga bar menu dan SSH agent tetap berjalan. Pilih Keluar dari Vaultwarden untuk keluar."
+          }
+        }
+      }
+    },
     "" : {
 
     },

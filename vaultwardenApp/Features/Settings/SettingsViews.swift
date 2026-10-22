@@ -551,7 +551,7 @@ private struct AppearanceSettingsView: View {
                 Toggle("Show website icons", isOn: $store.settings.showFavicons)
                 #if os(macOS)
                 Toggle("Show in Menu Bar", isOn: $showMenuBarExtra)
-                Text("Keep Vaultwarden running when the vault window is closed. Open it again from the menu bar, or choose Quit Vaultwarden to exit.")
+                Text("Close the vault and Settings windows to hide Vaultwarden from the Dock while keeping the menu bar and SSH agent running. Use Quit Vaultwarden to exit.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 #endif

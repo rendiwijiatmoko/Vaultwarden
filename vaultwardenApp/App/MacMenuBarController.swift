@@ -16,6 +16,7 @@ final class MacMenuBarController: NSObject, ObservableObject, NSPopoverDelegate 
     @Published private(set) var isEnabled = true
     var openVaultWindow: (() -> Void)?
     var openSettingsWindow: (() -> Void)?
+    let dockVisibility = MacDockVisibility()
     private let store: AppStore
     private let agent: MacSSHAgent
     private var statusItem: NSStatusItem?
@@ -46,6 +47,7 @@ final class MacMenuBarController: NSObject, ObservableObject, NSPopoverDelegate 
     private func updateVisibility() {
         let enabled = UserDefaults.standard.object(forKey: "showMenuBarExtra") as? Bool ?? true
         if isEnabled != enabled { isEnabled = enabled }
+        dockVisibility.setMenuBarEnabled(enabled)
         if enabled, statusItem == nil {
             let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
             statusItem = item
@@ -97,6 +99,7 @@ final class MacMenuBarController: NSObject, ObservableObject, NSPopoverDelegate 
         openingWindow = true
         defer { openingWindow = false }
         popover.performClose(nil)
+        dockVisibility.prepareToOpenWindow()
         openVaultWindow?()
         NSApplication.shared.activate(ignoringOtherApps: true)
     }
@@ -105,6 +108,7 @@ final class MacMenuBarController: NSObject, ObservableObject, NSPopoverDelegate 
         openingWindow = true
         defer { openingWindow = false }
         popover.performClose(nil)
+        dockVisibility.prepareToOpenWindow()
         openSettingsWindow?()
         NSApplication.shared.activate(ignoringOtherApps: true)
     }
