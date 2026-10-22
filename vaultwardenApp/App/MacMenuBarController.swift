@@ -64,8 +64,15 @@ final class MacMenuBarController: NSObject, ObservableObject, NSPopoverDelegate 
 
     private func updateIcon(locked: Bool, authenticated: Bool) {
         let symbol = authenticated && !locked ? "lock.shield" : "lock.shield.fill"
-        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Vaultwarden")
+        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Vaultwarden")?
+            .withSymbolConfiguration(.init(pointSize: 20, weight: .medium))
+        if let image, image.size.height > 0 {
+            // Use the menu bar's available height instead of the small default
+            // symbol size, preserving the shield's natural proportions.
+            image.size = NSSize(width: image.size.width * 20 / image.size.height, height: 20)
+        }
         image?.isTemplate = true
+        statusItem?.button?.imageScaling = .scaleProportionallyDown
         statusItem?.button?.image = image
         statusItem?.button?.toolTip = "Vaultwarden — " + L10n.string(
             !authenticated ? "Signed out" : (locked ? "Vault Locked" : "Vault Unlocked")

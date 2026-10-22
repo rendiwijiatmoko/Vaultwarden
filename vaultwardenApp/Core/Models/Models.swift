@@ -378,7 +378,7 @@ enum VaultSortOrder: String, CaseIterable, Identifiable, Codable {
         }
     }
 
-    func areInIncreasingOrder(_ lhs: VaultItem, _ rhs: VaultItem) -> Bool {
+    nonisolated func areInIncreasingOrder(_ lhs: VaultItem, _ rhs: VaultItem) -> Bool {
         let comparison: ComparisonResult
         switch self {
         case .nameAscending, .nameDescending:
