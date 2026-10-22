@@ -4,11 +4,14 @@ import SwiftUI
 struct VaultwardenApp: App {
     #if os(iOS)
     @UIApplicationDelegateAdaptor(VaultwardenApplicationDelegate.self) private var applicationDelegate
+    #else
+    @NSApplicationDelegateAdaptor(MacApplicationDelegate.self) private var applicationDelegate
     #endif
     @StateObject private var store: AppStore
     @StateObject private var quickActions: HomeQuickActionRouter
     #if os(macOS)
     @StateObject private var sshAgent: MacSSHAgent
+    @StateObject private var menuBar: MacMenuBarController
     #endif
 
     init() {
@@ -24,7 +27,10 @@ struct VaultwardenApp: App {
         _store = StateObject(wrappedValue: store)
         _quickActions = StateObject(wrappedValue: .shared)
         #if os(macOS)
-        _sshAgent = StateObject(wrappedValue: MacSSHAgent(store: store))
+        let agent = MacSSHAgent(store: store)
+        _sshAgent = StateObject(wrappedValue: agent)
+        _menuBar = StateObject(wrappedValue: MacMenuBarController(store: store, agent: agent))
+        MacVaultLifecycle.start(store: store)
         #endif
         BackgroundSyncManager.register { await store.performBackgroundRefresh() }
     }
@@ -38,6 +44,8 @@ struct VaultwardenApp: App {
                 .environmentObject(quickActions)
                 .environmentObject(store)
                 .environmentObject(sshAgent)
+                .environmentObject(menuBar)
+                .background(MacWindowRegistration(dockVisibility: menuBar.dockVisibility))
                 .frame(minWidth: 940, minHeight: 640)
         }
         .defaultSize(width: 1180, height: 780)
@@ -68,6 +76,7 @@ struct VaultwardenApp: App {
             MacSettingsView()
                 .environmentObject(store)
                 .environmentObject(sshAgent)
+                .background(MacWindowRegistration(dockVisibility: menuBar.dockVisibility))
         }
         #else
         WindowGroup {

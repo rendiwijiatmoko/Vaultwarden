@@ -21,7 +21,7 @@ final class MacSSHAgent: ObservableObject {
     @Published private(set) var startupFailed = false
     @Published var prompt: SSHAgentPrompt?
     let socketPath: String?
-    var openVaultWindow: (() -> Void)?
+    var presentRequest: (() -> Void)?
 
     private let store: AppStore
     private let authorizationTimeout: Duration
@@ -94,7 +94,8 @@ final class MacSSHAgent: ObservableObject {
 
     func retry() { configure(enabled: store.settings.sshAgentEnabled == true) }
 
-    func resolvePrompt(approved: Bool, alwaysApprove: Bool = false) {
+    func resolvePrompt(id: UUID? = nil, approved: Bool, alwaysApprove: Bool = false) {
+        if let id, id != approvalID { return }
         // Unlock requests never grant persistent signing permission.
         let decision: ApprovalDecision = !approved ? .deny
             : (alwaysApprove && approvalKey != nil ? .always : .once)
@@ -261,7 +262,7 @@ final class MacSSHAgent: ObservableObject {
                 approvalID = id
                 approvalKey = key
                 prompt = SSHAgentPrompt(id: id, keyName: keyName, fingerprint: fingerprint)
-                openVaultWindow?()
+                presentRequest?()
                 NSApplication.shared.activate(ignoringOtherApps: true)
                 let timeout = authorizationTimeout
                 timeoutTask = Task { [weak self] in

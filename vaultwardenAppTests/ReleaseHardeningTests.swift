@@ -198,6 +198,7 @@ final class ReleaseHardeningTests: XCTestCase {
         XCTAssertEqual(VaultTimeout.immediately.timeInterval, 0)
         XCTAssertEqual(VaultTimeout.oneMinute.timeInterval, 60)
         XCTAssertEqual(VaultTimeout.fiveMinutes.timeInterval, 300)
+        XCTAssertEqual(VaultTimeout.tenMinutes.timeInterval, 600)
         XCTAssertEqual(VaultTimeout.fifteenMinutes.timeInterval, 900)
         XCTAssertNil(VaultTimeout.never.timeInterval)
     }

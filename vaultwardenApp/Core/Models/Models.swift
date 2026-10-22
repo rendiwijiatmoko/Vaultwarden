@@ -324,6 +324,7 @@ enum VaultTimeout: String, CaseIterable, Identifiable, Codable {
     case immediately = "Immediately"
     case oneMinute = "1 minute"
     case fiveMinutes = "5 minutes"
+    case tenMinutes = "10 minutes"
     case fifteenMinutes = "15 minutes"
     case never = "Never"
     var id: String { rawValue }
@@ -334,6 +335,7 @@ enum VaultTimeout: String, CaseIterable, Identifiable, Codable {
         case .immediately: 0
         case .oneMinute: 60
         case .fiveMinutes: 5 * 60
+        case .tenMinutes: 10 * 60
         case .fifteenMinutes: 15 * 60
         case .never: nil
         }
@@ -376,7 +378,7 @@ enum VaultSortOrder: String, CaseIterable, Identifiable, Codable {
         }
     }
 
-    func areInIncreasingOrder(_ lhs: VaultItem, _ rhs: VaultItem) -> Bool {
+    nonisolated func areInIncreasingOrder(_ lhs: VaultItem, _ rhs: VaultItem) -> Bool {
         let comparison: ComparisonResult
         switch self {
         case .nameAscending, .nameDescending:
@@ -428,5 +430,9 @@ struct AppSettings: Codable {
         set { savedVaultSortOrder = newValue }
     }
     var theme: AppTheme = .system
+    #if os(macOS)
+    var vaultTimeout: VaultTimeout = .fiveMinutes
+    #else
     var vaultTimeout: VaultTimeout = .immediately
+    #endif
 }

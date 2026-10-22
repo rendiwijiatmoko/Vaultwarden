@@ -966,7 +966,7 @@ struct VaultItemRow: View {
 
 }
 
-private struct VaultItemThumbnail: View {
+struct VaultItemThumbnail: View {
     let item: VaultItem
     let showsWebsiteIcon: Bool
     let serverURL: URL?

@@ -1,6 +1,23 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Close the vault and Settings windows to hide Vaultwarden from the Dock while keeping the menu bar and SSH agent running. Use Quit Vaultwarden to exit." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close the vault and Settings windows to hide Vaultwarden from the Dock while keeping the menu bar and SSH agent running. Use Quit Vaultwarden to exit."
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tutup jendela brankas dan Pengaturan untuk menyembunyikan Vaultwarden dari Dock sambil menjaga bar menu dan SSH agent tetap berjalan. Pilih Keluar dari Vaultwarden untuk keluar."
+          }
+        }
+      }
+    },
     "" : {
 
     },
@@ -2637,60 +2654,8 @@
         }
       }
     },
-    "Always Approve" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "id" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Selalu Setujui"
-          }
-        }
-      }
-    },
-    "Always Approve applies to all local SSH clients using that key while the vault is unlocked. It is saved on this Mac and can be revoked here." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "id" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Selalu Setujui berlaku untuk semua klien SSH lokal yang menggunakan key tersebut saat vault terbuka. Persetujuan disimpan di Mac ini dan dapat dicabut di sini."
-          }
-        }
-      }
-    },
-    "Always Approve is enabled." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "id" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Selalu Setujui aktif."
-          }
-        }
-      }
-    },
-    "Always Approve lets local SSH clients use this key without asking again while the vault is unlocked. Change this in Settings → SSH Agent." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "id" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Selalu Setujui mengizinkan klien SSH lokal menggunakan key ini tanpa bertanya lagi saat vault terbuka. Ubah di Pengaturan → SSH Agent."
-          }
-        }
-      }
-    },
-    "Require Approval Again" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "id" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Minta Persetujuan Lagi"
-          }
-        }
-      }
+    "%llds" : {
+
     },
     "•" : {
       "comment" : "A separator between the name of a send and its status.",
@@ -4373,6 +4338,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "7 天"
+          }
+        }
+      }
+    },
+    "10 minutes" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "10 minutes"
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "10 menit"
           }
         }
       }
@@ -9914,6 +9896,50 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Izinkan klien SSH ini menggunakan key berikut?"
+          }
+        }
+      }
+    },
+    "Always Approve" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Selalu Setujui"
+          }
+        }
+      }
+    },
+    "Always Approve applies to all local SSH clients using that key while the vault is unlocked. It is saved on this Mac and can be revoked here." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Selalu Setujui berlaku untuk semua klien SSH lokal yang menggunakan key tersebut saat vault terbuka. Persetujuan disimpan di Mac ini dan dapat dicabut di sini."
+          }
+        }
+      }
+    },
+    "Always Approve is enabled." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Selalu Setujui aktif."
+          }
+        }
+      }
+    },
+    "Always Approve lets local SSH clients use this key without asking again while the vault is unlocked. Change this in Settings → SSH Agent." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Selalu Setujui mengizinkan klien SSH lokal menggunakan key ini tanpa bertanya lagi saat vault terbuka. Ubah di Pengaturan → SSH Agent."
           }
         }
       }
@@ -20963,6 +20989,23 @@
         }
       }
     },
+    "Choose a field to copy" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose a field to copy"
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pilih kolom untuk disalin"
+          }
+        }
+      }
+    },
     "Choose a passkey to view the account and sign-in details it protects." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -31255,6 +31298,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "複製密碼"
+          }
+        }
+      }
+    },
+    "Copy Username" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy Username"
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Salin Nama Pengguna"
+          }
+        }
+      }
+    },
+    "Copy vault credential" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy vault credential"
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Salin kredensial brankas"
           }
         }
       }
@@ -59860,6 +59937,23 @@
         }
       }
     },
+    "Keep Vaultwarden running when the vault window is closed. Open it again from the menu bar, or choose Quit Vaultwarden to exit." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keep Vaultwarden running when the vault window is closed. Open it again from the menu bar, or choose Quit Vaultwarden to exit."
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Biarkan Vaultwarden berjalan saat jendela brankas ditutup. Buka kembali dari bar menu, atau pilih Keluar dari Vaultwarden untuk keluar."
+          }
+        }
+      }
+    },
     "Key comment (optional)" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -64175,7 +64269,15 @@
     },
     "Lock Vault" : {
       "comment" : "A button that locks the vault.",
-      "isCommentAutoGenerated" : true
+      "isCommentAutoGenerated" : true,
+      "localizations" : {
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kunci Brankas"
+          }
+        }
+      }
     },
     "Lock Vault Now" : {
       "extractionState" : "manual",
@@ -71602,6 +71704,23 @@
         }
       }
     },
+    "No copyable fields" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No copyable fields"
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tidak ada kolom yang dapat disalin"
+          }
+        }
+      }
+    },
     "No Deleted Item Selected" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -73043,6 +73162,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tidak ada key yang diaktifkan secara default. Key yang dihapus, diarsipkan, atau dibatasi tidak tersedia. RSA memerlukan signature SHA-256 atau SHA-512."
+          }
+        }
+      }
+    },
+    "No matching items" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No matching items"
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tidak ada item yang cocok"
           }
         }
       }
@@ -80954,6 +81090,23 @@
       "comment" : "The text of a button that opens the vault.",
       "isCommentAutoGenerated" : true
     },
+    "Open Vaultwarden" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Vaultwarden"
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Buka Vaultwarden"
+          }
+        }
+      }
+    },
     "Open Website" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -82148,6 +82301,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "組織"
+          }
+        }
+      }
+    },
+    "Other Items" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Other Items"
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Item Lainnya"
           }
         }
       }
@@ -83350,75 +83520,6 @@
         }
       }
     },
-    "Password updated" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Password updated"
-          }
-        },
-        "id" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Kata sandi diperbarui"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Пароль обновлён"
-          }
-        }
-      }
-    },
-    "Password updated %@" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Password updated %@"
-          }
-        },
-        "id" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Kata sandi diperbarui %@"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Пароль обновлён %@"
-          }
-        }
-      }
-    },
-    "Password History" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Password History"
-          }
-        },
-        "id" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Riwayat Kata Sandi"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "История паролей"
-          }
-        }
-      }
-    },
     "Password" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -83654,6 +83755,75 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "密碼"
+          }
+        }
+      }
+    },
+    "Password History" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Password History"
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Riwayat Kata Sandi"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "История паролей"
+          }
+        }
+      }
+    },
+    "Password updated" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Password updated"
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kata sandi diperbarui"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Пароль обновлён"
+          }
+        }
+      }
+    },
+    "Password updated %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Password updated %@"
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kata sandi diperbarui %@"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Пароль обновлён %@"
           }
         }
       }
@@ -89655,6 +89825,40 @@
         }
       }
     },
+    "Quick access" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quick access"
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Akses cepat"
+          }
+        }
+      }
+    },
+    "Quit Vaultwarden" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quit Vaultwarden"
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keluar dari Vaultwarden"
+          }
+        }
+      }
+    },
     "Random username" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -89890,6 +90094,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "隨機使用者名"
+          }
+        }
+      }
+    },
+    "Refine your search to see more items." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Refine your search to see more items."
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Persempit pencarian untuk melihat item lainnya."
           }
         }
       }
@@ -92533,6 +92754,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "編輯元資料時無法替換加密檔案。"
+          }
+        }
+      }
+    },
+    "Require Approval Again" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Minta Persetujuan Lagi"
           }
         }
       }
@@ -96856,6 +97088,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "搜尋 %@"
+          }
+        }
+      }
+    },
+    "Search vault" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Search vault"
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cari di brankas"
           }
         }
       }
@@ -102843,6 +103092,23 @@
         }
       }
     },
+    "Settings…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Settings…"
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pengaturan…"
+          }
+        }
+      }
+    },
     "Share Link" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -104034,6 +104300,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "顯示 %@"
+          }
+        }
+      }
+    },
+    "Show in Menu Bar" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show in Menu Bar"
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tampilkan di Bar Menu"
           }
         }
       }
@@ -105248,6 +105531,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "快速登入，不會暴露您的登入資訊。"
+          }
+        }
+      }
+    },
+    "Sign in to access your vault." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sign in to access your vault."
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Masuk untuk mengakses brankas Anda."
           }
         }
       }
@@ -106947,6 +107247,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "SSH 金鑰"
+          }
+        }
+      }
+    },
+    "SSH requests appear here. Unlock and approve without opening the main window." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SSH requests appear here. Unlock and approve without opening the main window."
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Permintaan SSH muncul di sini. Buka kunci dan setujui tanpa membuka jendela utama."
           }
         }
       }
@@ -116555,6 +116872,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "這會從此裝置移除本機密碼庫、離線更改、快取檔案、自動填入資料、帳戶詳情和本機偏好設定。不會刪除 Vaultwarden 伺服器上的資料。"
+          }
+        }
+      }
+    },
+    "Timed locking uses Mac inactivity, even while the vault is open. Immediately locks when you leave Vaultwarden. Sleep and screen lock always lock the vault." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Timed locking uses Mac inactivity, even while the vault is open. Immediately locks when you leave Vaultwarden. Sleep and screen lock always lock the vault."
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Penguncian terjadwal mengikuti waktu tanpa aktivitas di Mac, termasuk saat brankas terbuka. Segera mengunci saat Anda meninggalkan Vaultwarden. Tidur dan penguncian layar selalu mengunci brankas."
           }
         }
       }
@@ -127851,7 +128185,15 @@
     },
     "Vault Locked" : {
       "comment" : "The title of a view that appears when the vault is locked.",
-      "isCommentAutoGenerated" : true
+      "isCommentAutoGenerated" : true,
+      "localizations" : {
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Brankas Terkunci"
+          }
+        }
+      }
     },
     "Vault timeout" : {
       "extractionState" : "manual",
@@ -128088,6 +128430,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "密碼庫逾時時間"
+          }
+        }
+      }
+    },
+    "Vault Unlocked" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vault Unlocked"
+          }
+        },
+        "id" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Brankas Terbuka"
           }
         }
       }
@@ -129294,6 +129653,10 @@
           }
         }
       }
+    },
+    "Verification code" : {
+      "comment" : "A tooltip for a button that displays a verification code.",
+      "isCommentAutoGenerated" : true
     },
     "Verification Code" : {
       "extractionState" : "manual",

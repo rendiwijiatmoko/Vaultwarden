@@ -451,6 +451,10 @@ private struct SecuritySettingsView: View {
                 Picker("Vault timeout", selection: $store.settings.vaultTimeout) {
                     ForEach(VaultTimeout.allCases) { Text($0.localizedTitle).tag($0) }
                 }
+                #if os(macOS)
+                Text("Timed locking uses Mac inactivity, even while the vault is open. Immediately locks when you leave Vaultwarden. Sleep and screen lock always lock the vault.")
+                    .font(.caption).foregroundStyle(.secondary)
+                #endif
             }
             Section("Sensitive Actions") {
                 Toggle("Authenticate before reveal or copy", isOn: $store.settings.requireBiometricForSensitiveActions)
@@ -531,6 +535,9 @@ private struct SyncSettingsView: View {
 
 private struct AppearanceSettingsView: View {
     @EnvironmentObject private var store: AppStore
+    #if os(macOS)
+    @AppStorage("showMenuBarExtra") private var showMenuBarExtra = true
+    #endif
 
     var body: some View {
         Form {
@@ -542,6 +549,12 @@ private struct AppearanceSettingsView: View {
                     ForEach(VaultSortOrder.allCases) { Text($0.title).tag($0) }
                 }
                 Toggle("Show website icons", isOn: $store.settings.showFavicons)
+                #if os(macOS)
+                Toggle("Show in Menu Bar", isOn: $showMenuBarExtra)
+                Text("Close the vault and Settings windows to hide Vaultwarden from the Dock while keeping the menu bar and SSH agent running. Use Quit Vaultwarden to exit.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                #endif
                 #if os(iOS)
                 Toggle("Haptic feedback", isOn: $store.settings.haptics)
                 #endif

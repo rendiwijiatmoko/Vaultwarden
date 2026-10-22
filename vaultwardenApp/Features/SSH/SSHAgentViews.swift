@@ -93,19 +93,29 @@ struct SSHAgentSettingsView: View {
 
 struct SSHAgentPresentation: ViewModifier {
     @EnvironmentObject private var agent: MacSSHAgent
+    @EnvironmentObject private var menuBar: MacMenuBarController
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
 
     func body(content: Content) -> some View {
         content
-            .onAppear { agent.openVaultWindow = { openWindow(id: "vault") } }
-            .sheet(item: $agent.prompt) { prompt in
+            .onAppear {
+                menuBar.openVaultWindow = { openWindow(id: "vault") }
+                menuBar.openSettingsWindow = { openSettings() }
+                agent.presentRequest = { [weak menuBar = menuBar] in menuBar?.presentSSHRequest() }
+            }
+            .sheet(item: Binding(
+                get: { menuBar.isEnabled ? nil : agent.prompt },
+                set: { if $0 == nil && !menuBar.isEnabled { agent.resolvePrompt(approved: false) } }
+            )) { prompt in
                 SSHAgentAuthorizationView(prompt: prompt)
             }
     }
 }
 
-private struct SSHAgentAuthorizationView: View {
+struct SSHAgentAuthorizationView: View {
     let prompt: SSHAgentPrompt
+    var compact = false
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var agent: MacSSHAgent
     @State private var masterPassword = ""
@@ -130,8 +140,10 @@ private struct SSHAgentAuthorizationView: View {
                 Button("Unlock Vault") {
                     Task {
                         unlocking = true
-                        unlockFailed = !(await store.unlockWithBiometrics())
+                        let success = await store.unlockWithBiometrics()
+                        unlockFailed = !success
                         unlocking = false
+                        if success && prompt.keyName == nil { agent.resolvePrompt(id: prompt.id, approved: true) }
                     }
                 }
                 SecureField("Master password", text: $masterPassword)
@@ -141,27 +153,27 @@ private struct SSHAgentAuthorizationView: View {
                 if unlockFailed { Text("Could not unlock vault. Please try again.").foregroundStyle(.red) }
             }
             HStack {
-                Button("Deny", role: .cancel) { agent.resolvePrompt(approved: false) }
+                Button("Deny", role: .cancel) { agent.resolvePrompt(id: prompt.id, approved: false) }
                     .keyboardShortcut(.cancelAction)
                 Spacer()
                 if prompt.keyName != nil {
-                    Button("Always Approve") { agent.resolvePrompt(approved: true, alwaysApprove: true) }
+                    Button("Always Approve") { agent.resolvePrompt(id: prompt.id, approved: true, alwaysApprove: true) }
                         .disabled(store.isLocked || unlocking)
-                    Button("Approve Once") { agent.resolvePrompt(approved: true) }
+                    Button("Approve Once") { agent.resolvePrompt(id: prompt.id, approved: true) }
                         .buttonStyle(.borderedProminent)
                         .disabled(store.isLocked || unlocking)
                 } else if !store.isLocked {
-                    Button("Continue") { agent.resolvePrompt(approved: true) }
+                    Button("Continue") { agent.resolvePrompt(id: prompt.id, approved: true) }
                         .buttonStyle(.borderedProminent)
+                        .disabled(unlocking)
                 }
             }
         }
-        .padding(24)
-        .frame(width: 500)
+        .padding(compact ? 0 : 24)
+        .frame(width: compact ? nil : 500)
         .disabled(unlocking)
-        .onChange(of: store.isLocked) { _, locked in
+        .onChange(of: store.isLocked) { _, _ in
             masterPassword = ""
-            if !locked && prompt.keyName == nil { agent.resolvePrompt(approved: true) }
         }
         .onDisappear {
             masterPassword = ""
@@ -175,8 +187,10 @@ private struct SSHAgentAuthorizationView: View {
         masterPassword = ""
         Task {
             unlocking = true
-            unlockFailed = !(await store.unlock(masterPassword: password))
+            let success = await store.unlock(masterPassword: password)
+            unlockFailed = !success
             unlocking = false
+            if success && prompt.keyName == nil { agent.resolvePrompt(id: prompt.id, approved: true) }
         }
     }
 }
