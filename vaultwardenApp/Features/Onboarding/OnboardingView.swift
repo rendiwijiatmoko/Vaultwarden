@@ -21,7 +21,7 @@ struct OnboardingView: View {
     @State private var masterPassword = ""
     @State private var verificationCode = ""
     @State private var requiresTwoFactor = false
-    @State private var biometricUnlock = true
+    @State private var biometricUnlock = false
     @State private var requireBiometricForFill = true
     @State private var allowPasscodeFallback = false
     @State private var isConnecting = false

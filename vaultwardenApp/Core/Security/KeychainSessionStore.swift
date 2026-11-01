@@ -27,6 +27,7 @@ enum SessionStoreError: LocalizedError {
     case notFound
     case unexpectedData
     case devicePasscodeRequired
+    case masterPasswordRequired
     case keychain(OSStatus)
 
     var errorDescription: String? {
@@ -34,6 +35,7 @@ enum SessionStoreError: LocalizedError {
         case .encodingFailed: "The session could not be encoded securely."
         case .notFound: "The saved session was not found. Please sign in again."
         case .unexpectedData: "The saved session is damaged. Please sign in again."
+        case .masterPasswordRequired: "Unlock with your master password to enable device unlock with the current security settings."
         case .devicePasscodeRequired: "Set a device passcode before saving this vault key."
         case let .keychain(status): "Keychain returned error \(status)."
         }
@@ -114,62 +116,49 @@ struct KeychainSessionStore: SessionStore {
         }
     }
 
-    private var vaultKeyAccessibility: CFString {
-        #if os(macOS)
-        kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-        #else
-        kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly
-        #endif
-    }
-
     func saveVaultKey(_ key: Data, reference: String) throws {
-        var accessControlError: Unmanaged<CFError>?
-        guard let accessControl = SecAccessControlCreateWithFlags(
-            nil,
-            vaultKeyAccessibility,
-            .userPresence,
-            &accessControlError
-        ) else {
-            throw SessionStoreError.devicePasscodeRequired
-        }
+        try DeviceUnlockPolicy.withLock {
+            // Master-password login/unlock must work even when device unlock is off.
+            let policy = DeviceUnlockPolicy.current
+            guard policy != .disabled else { return }
+            let accessControl = try policy.makeAccessControl()
 
-        let lookup = AutoFillSharedVault.vaultKeyQuery(reference: reference, shared: true)
-        for shared in [true, false] {
-            let deleteStatus = SecItemDelete(
-                AutoFillSharedVault.vaultKeyQuery(reference: reference, shared: shared) as CFDictionary
-            )
-            guard deleteStatus == errSecSuccess || deleteStatus == errSecItemNotFound else {
-                throw SessionStoreError.keychain(deleteStatus)
+            let lookup = AutoFillSharedVault.vaultKeyQuery(reference: reference, shared: true)
+            for shared in [true, false] {
+                let deleteStatus = SecItemDelete(
+                    AutoFillSharedVault.vaultKeyQuery(reference: reference, shared: shared) as CFDictionary
+                )
+                guard deleteStatus == errSecSuccess || deleteStatus == errSecItemNotFound else {
+                    throw SessionStoreError.keychain(deleteStatus)
+                }
+            }
+
+            var addQuery = lookup
+            addQuery[kSecValueData as String] = key
+            addQuery[kSecAttrAccessControl as String] = accessControl
+            let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+            guard addStatus == errSecSuccess else { throw SessionStoreError.keychain(addStatus) }
+            guard DeviceUnlockPolicy.current == policy else {
+                SecItemDelete(lookup as CFDictionary)
+                throw SessionStoreError.masterPasswordRequired
             }
         }
-
-        var addQuery = lookup
-        addQuery[kSecValueData as String] = key
-        addQuery[kSecAttrAccessControl as String] = accessControl
-        let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
-        guard addStatus == errSecSuccess else { throw SessionStoreError.keychain(addStatus) }
     }
 
     func loadVaultKey(reference: String, reason: String) throws -> Data {
+        let policy = DeviceUnlockPolicy.current
+        guard policy != .disabled else { throw SessionStoreError.masterPasswordRequired }
         let context = LAContext()
         context.localizedReason = reason
-        let sharedResult = readVaultKey(reference: reference, shared: true, context: context)
-        if let key = sharedResult.data {
-            return key
+        let result = readVaultKey(reference: reference, shared: true, context: context)
+        guard let key = result.data else {
+            if result.status == errSecItemNotFound { throw SessionStoreError.masterPasswordRequired }
+            throw SessionStoreError.keychain(result.status)
         }
-        if sharedResult.status == errSecItemNotFound {
-            // One-time migration for accounts created before the AutoFill access group existed.
-            let legacyResult = readVaultKey(reference: reference, shared: false, context: context)
-            if let key = legacyResult.data {
-                try saveVaultKey(key, reference: reference)
-                return key
-            }
-            if legacyResult.status == errSecItemNotFound {
-                throw SessionStoreError.notFound
-            }
-            throw SessionStoreError.keychain(legacyResult.status)
-        }
-        throw SessionStoreError.keychain(sharedResult.status)
+        guard DeviceUnlockPolicy.current == policy else { throw SessionStoreError.masterPasswordRequired }
+        // Legacy keys deliberately aren't migrated by device authentication:
+        // only the master password can provision the new, stricter item.
+        return key
     }
 
     private func baseQuery(reference: String) -> [String: Any] {
