@@ -78,6 +78,7 @@ nonisolated protocol VaultwardenService: Sendable {
         cipher: RemoteCipherState,
         session: AuthenticatedSession
     ) async throws
+    func verifyMasterPassword(_ password: String, session: AuthenticatedSession) async throws
     func unlock(session: AuthenticatedSession) async throws
     func unlock(session: AuthenticatedSession, masterPassword: String) async throws
     func lock(session: AuthenticatedSession?) async
@@ -98,6 +99,25 @@ nonisolated protocol VaultwardenService: Sendable {
     func createTextSend(item: SendItem, password: String?, session: AuthenticatedSession) async throws
     func updateSend(item: SendItem, existing: RemoteSendState, session: AuthenticatedSession) async throws
     func deleteSend(id: UUID, session: AuthenticatedSession) async throws
+}
+
+extension VaultwardenService {
+    func verifyMasterPassword(_ password: String, session: AuthenticatedSession) async throws {
+        // Conformers must explicitly implement password verification.
+        throw VaultwardenServiceError.vaultLocked
+    }
+}
+
+nonisolated enum LoginRequestApprovalError: LocalizedError {
+    case fingerprintRequired, authenticationRequired, requestChanged
+
+    var errorDescription: String? {
+        switch self {
+        case .fingerprintRequired: "Compare the fingerprint phrase with the requesting device before approving."
+        case .authenticationRequired: "Authentication was not completed. Try biometrics again or use your master password."
+        case .requestChanged: "This login request expired or changed. Refresh the list and compare the fingerprint phrase again."
+        }
+    }
 }
 
 nonisolated enum CipherMutationAction: Sendable {
@@ -126,6 +146,7 @@ struct PendingLoginRequest: Identifiable, Equatable, Sendable {
     let ipAddress: String
     let creationDate: Date
     let origin: String?
+    let fingerprintPhrase: String?
 }
 
 struct EncryptedVaultSnapshot: Sendable {
@@ -311,7 +332,10 @@ struct DefaultVaultwardenService: VaultwardenService {
                 deviceType: request.requestDeviceType,
                 ipAddress: request.requestIpAddress,
                 creationDate: creationDate,
-                origin: request.origin
+                origin: request.origin,
+                fingerprintPhrase: try? BitwardenSDKClientFactory.make().platform().fingerprint(
+                    req: FingerprintRequest(fingerprintMaterial: session.accountID, publicKey: request.publicKey)
+                )
             )
         }.sorted { $0.creationDate > $1.creationDate }
     }
@@ -1133,7 +1157,7 @@ struct DefaultVaultwardenService: VaultwardenService {
         await keyMemory.store(key, reference: session.tokenReference)
     }
 
-    func unlock(session: AuthenticatedSession, masterPassword: String) async throws {
+    private func deriveUserKey(session: AuthenticatedSession, masterPassword: String) async throws -> Data {
         let credentials = try sessionStore.load(reference: session.tokenReference)
         guard let kdf = credentials.kdf,
               let userID = credentials.userID,
@@ -1149,6 +1173,19 @@ struct DefaultVaultwardenService: VaultwardenService {
             protectedUserKey: protectedUserKey,
             accountKeys: accountKeys
         )
+        guard key.count == 64 else { throw VaultCryptoError.invalidUserKey }
+        return key
+    }
+
+    func verifyMasterPassword(_ password: String, session: AuthenticatedSession) async throws {
+        let key = try await deriveUserKey(session: session, masterPassword: password)
+        guard let currentKey = await keyMemory.load(reference: session.tokenReference), key == currentKey else {
+            throw VaultwardenServiceError.vaultLocked
+        }
+    }
+
+    func unlock(session: AuthenticatedSession, masterPassword: String) async throws {
+        let key = try await deriveUserKey(session: session, masterPassword: masterPassword)
         try sessionStore.saveVaultKey(key, reference: session.tokenReference)
         await keyMemory.store(key, reference: session.tokenReference)
     }

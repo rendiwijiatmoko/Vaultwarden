@@ -111,12 +111,128 @@ final class VaultLockTests: XCTestCase {
         XCTAssertFalse(store.canCopyLoginPassword(item))
         XCTAssertTrue(store.quickCopyFields(for: item).isEmpty)
     }
-    private func connectedStore(_ service: LockTestService) async throws -> AppStore {
+    private func connectedStore(
+        _ service: LockTestService,
+        authenticate: @escaping @MainActor @Sendable () async -> Bool = { false }
+    ) async throws -> AppStore {
         let defaults = UserDefaults(suiteName: "vault-lock-\(UUID().uuidString)")!
-        let store = AppStore(vaultwardenService: service, settingsDefaults: defaults)
+        let store = AppStore(vaultwardenService: service, settingsDefaults: defaults, loginApprovalAuthenticator: authenticate)
         store.settings.syncOnOpen = false
         try await store.connect(serverURL: "https://example.com", email: "test@example.com", masterPassword: "test")
         return store
+    }
+
+    private func loginRequest(key: String = "test-public-key", phrase: String? = "one-two-three-four-five") -> PendingLoginRequest {
+        PendingLoginRequest(id: "request-id", publicKey: key, deviceType: "Browser", ipAddress: "127.0.0.1",
+                            creationDate: .distantPast, origin: nil, fingerprintPhrase: phrase)
+    }
+
+    func testLoginApprovalRequiresPhraseConfirmation() async throws {
+        let service = LockTestService()
+        let store = try await connectedStore(service, authenticate: { true })
+        do {
+            try await store.respondToLoginRequest(loginRequest(), approved: true)
+            XCTFail("Approval must require phrase confirmation")
+        } catch LoginRequestApprovalError.fingerprintRequired { }
+        let count = await service.approvalCount
+        XCTAssertEqual(count, 0)
+    }
+
+    func testLoginApprovalRejectsUnavailableFingerprint() async throws {
+        let service = LockTestService()
+        let store = try await connectedStore(service, authenticate: { true })
+        do {
+            try await store.respondToLoginRequest(loginRequest(phrase: nil), approved: true, fingerprintVerified: true)
+            XCTFail("Approval must require a fingerprint")
+        } catch LoginRequestApprovalError.fingerprintRequired { }
+        let count = await service.approvalCount
+        XCTAssertEqual(count, 0)
+    }
+
+    func testCancelledBiometricApprovalDoesNotSendUserKey() async throws {
+        let service = LockTestService()
+        let store = try await connectedStore(service)
+        do {
+            try await store.respondToLoginRequest(loginRequest(), approved: true, fingerprintVerified: true)
+            XCTFail("Cancelled authentication must not approve")
+        } catch LoginRequestApprovalError.authenticationRequired { }
+        let count = await service.approvalCount
+        XCTAssertEqual(count, 0)
+    }
+
+    func testWrongMasterPasswordDoesNotApproveLogin() async throws {
+        let service = LockTestService()
+        let store = try await connectedStore(service)
+        do {
+            try await store.respondToLoginRequest(loginRequest(), approved: true, fingerprintVerified: true, masterPassword: "wrong")
+            XCTFail("Wrong password must not approve")
+        } catch { }
+        let count = await service.approvalCount
+        XCTAssertEqual(count, 0)
+    }
+
+    func testMasterPasswordApprovalWorksWithBiometricsDisabled() async throws {
+        let service = LockTestService()
+        let store = try await connectedStore(service)
+        store.settings.biometricUnlock = false
+        let request = loginRequest()
+        await service.setLoginRequests([request])
+        try await store.respondToLoginRequest(request, approved: true, fingerprintVerified: true, masterPassword: "test")
+        let count = await service.approvalCount
+        XCTAssertEqual(count, 1)
+    }
+
+    func testBiometricApprovalWorksForMatchingPendingRequest() async throws {
+        let service = LockTestService()
+        let store = try await connectedStore(service, authenticate: { true })
+        store.settings.biometricUnlock = true
+        let request = loginRequest()
+        await service.setLoginRequests([request])
+        try await store.respondToLoginRequest(request, approved: true, fingerprintVerified: true)
+        let count = await service.approvalCount
+        XCTAssertEqual(count, 1)
+    }
+
+    func testChangedOrExpiredLoginRequestCannotBeApproved() async throws {
+        let service = LockTestService()
+        let store = try await connectedStore(service)
+        for pending in [[loginRequest(key: "replacement-key")], []] {
+            await service.setLoginRequests(pending)
+            do {
+                try await store.respondToLoginRequest(loginRequest(), approved: true, fingerprintVerified: true, masterPassword: "test")
+                XCTFail("Changed or expired request must not approve")
+            } catch LoginRequestApprovalError.requestChanged { }
+        }
+        let count = await service.approvalCount
+        XCTAssertEqual(count, 0)
+    }
+
+    func testLockDuringLoginApprovalCancelsApproval() async throws {
+        let service = LockTestService()
+        let gate = LockTestGate()
+        let store = try await connectedStore(service, authenticate: {
+            await gate.suspendIfRequested()
+            return true
+        })
+        store.settings.biometricUnlock = true
+        let request = loginRequest()
+        await service.setLoginRequests([request])
+        await gate.pauseNext()
+        let task = Task { try await store.respondToLoginRequest(request, approved: true, fingerprintVerified: true) }
+        await gate.waitUntilSuspended()
+        store.lock(requestAutomaticUnlock: false)
+        await gate.resume()
+        do { try await task.value; XCTFail("Lock must cancel approval") } catch is CancellationError { }
+        let count = await service.approvalCount
+        XCTAssertEqual(count, 0)
+    }
+
+    func testRejectLoginRequestDoesNotRequireAuthentication() async throws {
+        let service = LockTestService()
+        let store = try await connectedStore(service)
+        try await store.respondToLoginRequest(loginRequest(), approved: false)
+        let count = await service.rejectionCount
+        XCTAssertEqual(count, 1)
     }
 
     func testLockClearsRecordsAndKeysBeforeServiceLockFinishes() async throws {
@@ -285,6 +401,13 @@ private actor LockTestService: VaultwardenService {
     let cacheGate = LockTestGate()
     let saveGate = LockTestGate()
     var preparedItem: VaultItem?
+    var loginRequests: [PendingLoginRequest] = []
+    var approvalCount = 0
+    var rejectionCount = 0
+    func setLoginRequests(_ requests: [PendingLoginRequest]) { loginRequests = requests }
+    func verifyMasterPassword(_ password: String, session: AuthenticatedSession) async throws {
+        guard password == "test" else { throw VaultCryptoError.invalidUserKey }
+    }
     var failUnlock = false
     func setFailUnlock(_ value: Bool) { failUnlock = value }
 
@@ -317,7 +440,7 @@ private actor LockTestService: VaultwardenService {
     }
 
     func pendingLoginRequests(session: AuthenticatedSession) async throws -> [PendingLoginRequest] {
-        throw CancellationError()
+        loginRequests
     }
 
     func respondToLoginRequest(
@@ -325,7 +448,7 @@ private actor LockTestService: VaultwardenService {
         approved: Bool,
         session: AuthenticatedSession
     ) async throws {
-        throw CancellationError()
+        if approved { approvalCount += 1 } else { rejectionCount += 1 }
     }
 
     func sync(session: AuthenticatedSession) async throws -> EncryptedVaultSnapshot {

@@ -7,24 +7,14 @@ struct PendingLoginRequestsView: View {
     @State private var isLoading = false
     @State private var processingIDs: Set<String> = []
     @State private var errorMessage: String?
-    @State private var confirmation: Confirmation?
-
-    private struct Confirmation: Identifiable {
-        enum Action {
-            case approve
-            case reject
-        }
-
-        let request: PendingLoginRequest
-        let action: Action
-        var id: String { "\(request.id)-\(action)" }
-    }
+    @State private var confirmation: PendingLoginRequest?
+    @State private var approvalRequest: PendingLoginRequest?
 
     var body: some View {
         List {
             Section {
                 Label {
-                    Text("Only approve a request you started on another device. Check the device and IP address before continuing.")
+                    Text("Only approve a request you started on another device. Compare the fingerprint phrase with the requesting device before continuing.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 } icon: {
@@ -99,33 +89,19 @@ struct PendingLoginRequestsView: View {
             }
         }
         .task { await loadRequests() }
-        .alert(item: $confirmation) { confirmation in
-            switch confirmation.action {
-            case .approve:
-                Alert(
-                    title: Text("Approve Login Request?"),
-                    message: Text(L10n.format(
-                        "This gives %@ access to your encrypted vault. Only continue if you started this login.",
-                        confirmation.request.deviceType
-                    )),
-                    primaryButton: .default(Text("Approve")) {
-                        respond(to: confirmation.request, approved: true)
-                    },
-                    secondaryButton: .cancel()
-                )
-            case .reject:
-                Alert(
-                    title: Text("Reject Login Request?"),
-                    message: Text(L10n.format(
-                        "The pending request from %@ will be denied.",
-                        confirmation.request.deviceType
-                    )),
-                    primaryButton: .destructive(Text("Reject")) {
-                        respond(to: confirmation.request, approved: false)
-                    },
-                    secondaryButton: .cancel()
-                )
+        .sheet(item: $approvalRequest) { request in
+            LoginRequestApprovalSheet(request: request) {
+                requests.removeAll { $0.id == request.id }
             }
+            .environmentObject(store)
+        }
+        .alert(item: $confirmation) { request in
+            Alert(
+                title: Text("Reject Login Request?"),
+                message: Text(L10n.format("The pending request from %@ will be denied.", request.deviceType)),
+                primaryButton: .destructive(Text("Reject")) { respond(to: request, approved: false) },
+                secondaryButton: .cancel()
+            )
         }
     }
 
@@ -163,9 +139,19 @@ struct PendingLoginRequestsView: View {
                     .lineLimit(1)
             }
 
+            if let phrase = request.fingerprintPhrase, !phrase.isEmpty {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Fingerprint Phrase").font(.caption).foregroundStyle(.secondary)
+                    Text(phrase).font(.body.monospaced()).textSelection(.enabled)
+                }
+            } else {
+                Text("The fingerprint phrase could not be generated. This request cannot be approved.")
+                    .font(.caption).foregroundStyle(.red)
+            }
+
             HStack(spacing: 10) {
                 Button(role: .destructive) {
-                    confirmation = Confirmation(request: request, action: .reject)
+                    confirmation = request
                 } label: {
                     Text("Reject")
                         .frame(maxWidth: .infinity)
@@ -173,12 +159,13 @@ struct PendingLoginRequestsView: View {
                 .buttonStyle(.bordered)
 
                 Button {
-                    confirmation = Confirmation(request: request, action: .approve)
+                    approvalRequest = request
                 } label: {
                     Text("Approve")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
+                .disabled(request.fingerprintPhrase?.isEmpty != false)
             }
             .disabled(processingIDs.contains(request.id))
         }
@@ -231,5 +218,86 @@ struct PendingLoginRequestsView: View {
             return "globe"
         }
         return "laptopcomputer"
+    }
+}
+
+private struct LoginRequestApprovalSheet: View {
+    @EnvironmentObject private var store: AppStore
+    @Environment(\.dismiss) private var dismiss
+    let request: PendingLoginRequest
+    let onApproved: () -> Void
+    @State private var phraseMatches = false
+    @State private var masterPassword = ""
+    @State private var isApproving = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Verify Request") {
+                    Text("Compare this phrase with the one on the device requesting access. Reject the request if they differ.")
+                    Text(request.fingerprintPhrase ?? "")
+                        .font(.body.monospaced()).textSelection(.enabled)
+                    LabeledContent("Device", value: request.deviceType)
+                    LabeledContent("IP Address", value: request.ipAddress)
+                    Toggle("The fingerprint phrases match", isOn: $phraseMatches)
+                }
+                Section("Confirm Your Identity") {
+                    if store.settings.biometricUnlock {
+                        Button {
+                            approve(usingMasterPassword: false)
+                        } label: {
+                            Label(L10n.format("Approve with %@", BiometricAuthenticator.displayName),
+                                  systemImage: BiometricAuthenticator.systemImage)
+                        }
+                        .disabled(!phraseMatches || isApproving)
+                    }
+                    SecureField("Master Password", text: $masterPassword)
+                        .textContentType(.password)
+                        .onSubmit { approve(usingMasterPassword: true) }
+                    Button("Approve with Master Password") { approve(usingMasterPassword: true) }
+                        .disabled(!phraseMatches || masterPassword.isEmpty || isApproving)
+                    if isApproving { ProgressView() }
+                    if let errorMessage { Text(errorMessage).foregroundStyle(.red) }
+                }
+            }
+            .navigationTitle("Approve Login Request")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }.disabled(isApproving)
+                }
+            }
+        }
+        .interactiveDismissDisabled(isApproving)
+        .onChange(of: store.isLocked) { _, locked in
+            if locked { masterPassword = ""; dismiss() }
+        }
+        .onDisappear { masterPassword = "" }
+        #if os(macOS)
+        .frame(minWidth: 520, minHeight: 480)
+        #endif
+    }
+
+    private func approve(usingMasterPassword: Bool) {
+        guard phraseMatches, !isApproving,
+              !usingMasterPassword || !masterPassword.isEmpty else { return }
+        isApproving = true
+        errorMessage = nil
+        let password = usingMasterPassword ? masterPassword : nil
+        masterPassword = ""
+        Task {
+            defer { isApproving = false }
+            do {
+                try await store.respondToLoginRequest(
+                    request, approved: true, fingerprintVerified: phraseMatches, masterPassword: password
+                )
+                onApproved()
+                dismiss()
+            } catch is CancellationError {
+                dismiss()
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
     }
 }

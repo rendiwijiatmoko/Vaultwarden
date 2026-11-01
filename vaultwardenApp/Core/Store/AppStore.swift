@@ -7,6 +7,7 @@ final class AppStore: ObservableObject {
     private let settingsDefaults: UserDefaults
     private let vaultwardenService: any VaultwardenService
     private let syncEngine: VaultSyncEngine
+    private let loginApprovalAuthenticator: @MainActor @Sendable () async -> Bool
     private var retryTask: Task<Void, Never>?
     private var lockTask: Task<Void, Never>?
     private var remoteCiphers: [UUID: RemoteCipherState] = [:]
@@ -51,8 +52,15 @@ final class AppStore: ObservableObject {
     @Published private(set) var unlockPromptGeneration = 0
     @Published private(set) var shouldAutomaticallyPromptUnlock = true
 
-    init(vaultwardenService: any VaultwardenService = DefaultVaultwardenService(), settingsDefaults: UserDefaults = .standard) {
+    init(
+        vaultwardenService: any VaultwardenService = DefaultVaultwardenService(),
+        settingsDefaults: UserDefaults = .standard,
+        loginApprovalAuthenticator: @escaping @MainActor @Sendable () async -> Bool = {
+            await BiometricAuthenticator.authenticate(reason: "Approve access to your vault on another device", allowPasscode: false)
+        }
+    ) {
         self.settingsDefaults = settingsDefaults
+        self.loginApprovalAuthenticator = loginApprovalAuthenticator
         self.vaultwardenService = vaultwardenService
         syncEngine = VaultSyncEngine(service: vaultwardenService)
         if let data = settingsDefaults.data(forKey: Self.settingsStorageKey),
@@ -673,15 +681,40 @@ final class AppStore: ObservableObject {
         return try await vaultwardenService.pendingLoginRequests(session: authenticatedSession)
     }
 
-    func respondToLoginRequest(_ request: PendingLoginRequest, approved: Bool) async throws {
-        guard let authenticatedSession else {
-            throw VaultwardenServiceError.sessionExpired
+    func respondToLoginRequest(
+        _ request: PendingLoginRequest,
+        approved: Bool,
+        fingerprintVerified: Bool = false,
+        masterPassword: String? = nil
+    ) async throws {
+        guard let session = authenticatedSession else { throw VaultwardenServiceError.sessionExpired }
+        let generation = vaultGeneration
+        if approved {
+            guard !isLocked else { throw VaultwardenServiceError.vaultLocked }
+            guard fingerprintVerified, let phrase = request.fingerprintPhrase, !phrase.isEmpty else {
+                throw LoginRequestApprovalError.fingerprintRequired
+            }
+            if let masterPassword {
+                guard !masterPassword.isEmpty else { throw LoginRequestApprovalError.authenticationRequired }
+                try await vaultwardenService.verifyMasterPassword(masterPassword, session: session)
+            } else {
+                guard settings.biometricUnlock, await loginApprovalAuthenticator() else {
+                    throw LoginRequestApprovalError.authenticationRequired
+                }
+            }
+            guard generation == vaultGeneration, !isLocked, !Task.isCancelled,
+                  authenticatedSession?.tokenReference == session.tokenReference else { throw CancellationError() }
+            // Re-fetch after authentication. Never approve a replacement public
+            // key or an expired request using a phrase the user saw earlier.
+            let pending = try await vaultwardenService.pendingLoginRequests(session: session)
+            guard let current = pending.first(where: { $0.id == request.id }),
+                  current.publicKey == request.publicKey, current.fingerprintPhrase == phrase else {
+                throw LoginRequestApprovalError.requestChanged
+            }
+            guard generation == vaultGeneration, !isLocked, !Task.isCancelled,
+                  authenticatedSession?.tokenReference == session.tokenReference else { throw CancellationError() }
         }
-        try await vaultwardenService.respondToLoginRequest(
-            request,
-            approved: approved,
-            session: authenticatedSession
-        )
+        try await vaultwardenService.respondToLoginRequest(request, approved: approved, session: session)
     }
 
     func sync() async {
