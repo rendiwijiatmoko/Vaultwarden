@@ -79,6 +79,7 @@ nonisolated protocol VaultwardenService: Sendable {
         session: AuthenticatedSession
     ) async throws
     func verifyMasterPassword(_ password: String, session: AuthenticatedSession) async throws
+    func refreshDeviceUnlock(session: AuthenticatedSession) async throws
     func unlock(session: AuthenticatedSession) async throws
     func unlock(session: AuthenticatedSession, masterPassword: String) async throws
     func lock(session: AuthenticatedSession?) async
@@ -102,6 +103,8 @@ nonisolated protocol VaultwardenService: Sendable {
 }
 
 extension VaultwardenService {
+    func refreshDeviceUnlock(session: AuthenticatedSession) async throws { }
+
     func verifyMasterPassword(_ password: String, session: AuthenticatedSession) async throws {
         // Conformers must explicitly implement password verification.
         throw VaultwardenServiceError.vaultLocked
@@ -1142,7 +1145,13 @@ struct DefaultVaultwardenService: VaultwardenService {
         return result
     }
 
+    func refreshDeviceUnlock(session: AuthenticatedSession) async throws {
+        guard let key = await keyMemory.load(reference: session.tokenReference) else { return }
+        try sessionStore.saveVaultKey(key, reference: session.tokenReference)
+    }
+
     func unlock(session: AuthenticatedSession) async throws {
+        guard DeviceUnlockPolicy.current != .disabled else { throw VaultwardenServiceError.vaultLocked }
         if await keyMemory.load(reference: session.tokenReference) != nil { return }
         // Recheck after the actor hop, immediately before Keychain can present
         // Touch ID. A queued unlock must not steal focus from another app.

@@ -445,9 +445,13 @@ private struct SecuritySettingsView: View {
                 Toggle("Unlock with biometrics", isOn: $store.settings.biometricUnlock)
                 #if os(macOS)
                 Toggle("Mac login password fallback", isOn: $store.settings.devicePasscodeFallback)
+                    .disabled(!store.settings.biometricUnlock)
                 #else
                 Toggle("Device passcode fallback", isOn: $store.settings.devicePasscodeFallback)
+                    .disabled(!store.settings.biometricUnlock)
                 #endif
+                Text("Device unlock also controls AutoFill. When it is off, unlock the vault with your master password; AutoFill is unavailable.")
+                    .font(.caption).foregroundStyle(.secondary)
                 Picker("Vault timeout", selection: $store.settings.vaultTimeout) {
                     ForEach(VaultTimeout.allCases) { Text($0.localizedTitle).tag($0) }
                 }

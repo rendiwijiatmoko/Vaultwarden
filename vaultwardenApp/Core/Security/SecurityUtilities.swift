@@ -233,22 +233,24 @@ struct LockView: View {
                 .font(.title.bold())
                 .multilineTextAlignment(.center)
 
-            Button {
-                Task { await attemptDeviceUnlock() }
-            } label: {
-                HStack {
-                    Label(
-                        biometricFailed
-                            ? biometricRetryTitle
-                            : L10n.string("Unlock"),
-                        systemImage: biometricFailed ? "lock.open.fill" : BiometricAuthenticator.systemImage
-                    )
+            if store.settings.biometricUnlock {
+                Button {
+                    Task { await attemptDeviceUnlock() }
+                } label: {
+                    HStack {
+                        Label(
+                            biometricFailed
+                                ? biometricRetryTitle
+                                : L10n.string("Unlock"),
+                            systemImage: biometricFailed ? "lock.open.fill" : BiometricAuthenticator.systemImage
+                        )
+                    }
+                    .frame(maxWidth: unlockButtonWidth)
                 }
-                .frame(maxWidth: unlockButtonWidth)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(isUnlocking)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .disabled(isUnlocking)
 
             if biometricFailed, !isPrivacyShield {
                 Text(store.lastUnlockError ?? biometricFailureMessage)
@@ -293,21 +295,25 @@ struct LockView: View {
     }
 
     private var biometricRetryTitle: String {
+        if !store.settings.devicePasscodeFallback { return L10n.format("Use %@ To Unlock", BiometricAuthenticator.displayName) }
         #if os(macOS)
-        L10n.format("Try %@ or Mac Password", BiometricAuthenticator.displayName)
+        return L10n.format("Try %@ or Mac Password", BiometricAuthenticator.displayName)
         #else
-        L10n.format("Try %@ or Device Passcode", BiometricAuthenticator.displayName)
+        return L10n.format("Try %@ or Device Passcode", BiometricAuthenticator.displayName)
         #endif
     }
 
     private var biometricFailureMessage: String {
+        if !store.settings.devicePasscodeFallback {
+            return L10n.string("Biometric authentication was not completed. Try again or use your master password.")
+        }
         #if os(macOS)
-        L10n.format(
+        return L10n.format(
             "%@ was not completed. Try again using biometrics or your Mac login password, or unlock with your master password.",
             BiometricAuthenticator.displayName
         )
         #else
-        L10n.format(
+        return L10n.format(
             "%@ was not completed. Try again using biometrics or the device passcode, or unlock with your master password.",
             BiometricAuthenticator.displayName
         )
@@ -399,18 +405,20 @@ private struct MasterPasswordUnlockView: View {
                     .background(Color.vaultCard, in: RoundedRectangle(cornerRadius: 18))
 
                     VStack(spacing: 14) {
-                        Button {
-                            Task { await unlockWithBiometrics() }
-                        } label: {
-                            Label(
-                                L10n.format("Use %@ To Unlock", BiometricAuthenticator.displayName),
-                                systemImage: BiometricAuthenticator.systemImage
-                            )
-                                .frame(maxWidth: .infinity)
+                        if store.settings.biometricUnlock {
+                            Button {
+                                Task { await unlockWithBiometrics() }
+                            } label: {
+                                Label(
+                                    L10n.format("Use %@ To Unlock", BiometricAuthenticator.displayName),
+                                    systemImage: BiometricAuthenticator.systemImage
+                                )
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.large)
+                            .disabled(isUnlocking)
                         }
-                        .buttonStyle(.bordered)
-                        .controlSize(.large)
-                        .disabled(isUnlocking)
 
                         Button {
                             Task { await unlockWithMasterPassword() }

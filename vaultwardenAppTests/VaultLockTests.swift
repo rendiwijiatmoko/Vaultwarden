@@ -235,6 +235,25 @@ final class VaultLockTests: XCTestCase {
         XCTAssertEqual(count, 1)
     }
 
+    func testDisabledDeviceUnlockCannotReachServiceAndMasterPasswordStillWorks() async throws {
+        let service = LockTestService()
+        let store = try await connectedStore(service)
+        store.settings.biometricUnlock = false
+        store.settings.devicePasscodeFallback = true
+        store.lock(requestAutomaticUnlock: false)
+
+        let deviceUnlocked = await store.unlockWithBiometrics()
+        XCTAssertFalse(deviceUnlocked)
+        XCTAssertTrue(store.isLocked)
+        XCTAssertTrue(store.items.isEmpty)
+        let calls = await service.deviceUnlockCalls
+        XCTAssertEqual(calls, 0)
+
+        let passwordUnlocked = await store.unlock(masterPassword: "test")
+        XCTAssertTrue(passwordUnlocked)
+        XCTAssertFalse(store.isLocked)
+    }
+
     func testLockClearsRecordsAndKeysBeforeServiceLockFinishes() async throws {
         let service = LockTestService()
         let store = try await connectedStore(service)
@@ -408,6 +427,7 @@ private actor LockTestService: VaultwardenService {
     func verifyMasterPassword(_ password: String, session: AuthenticatedSession) async throws {
         guard password == "test" else { throw VaultCryptoError.invalidUserKey }
     }
+    var deviceUnlockCalls = 0
     var failUnlock = false
     func setFailUnlock(_ value: Bool) { failUnlock = value }
 
@@ -581,6 +601,7 @@ private actor LockTestService: VaultwardenService {
     }
 
     func unlock(session: AuthenticatedSession) async throws {
+        deviceUnlockCalls += 1
         if failUnlock { throw VaultwardenServiceError.vaultLocked }
     }
 
