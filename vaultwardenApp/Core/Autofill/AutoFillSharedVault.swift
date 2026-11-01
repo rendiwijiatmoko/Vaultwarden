@@ -4,6 +4,91 @@ import Foundation
 import LocalAuthentication
 import Security
 
+/// Shared app/extension policy. Missing policy fails closed, including before the
+/// app has been opened after an upgrade. Keychain ACLs enforce the same policy.
+nonisolated enum DeviceUnlockPolicy: String, Sendable {
+    case disabled, biometrics, biometricsOrPasscode
+
+    init(biometricsEnabled: Bool, passcodeFallback: Bool) {
+        self = !biometricsEnabled ? .disabled : (passcodeFallback ? .biometricsOrPasscode : .biometrics)
+    }
+
+    var accessControlFlags: SecAccessControlCreateFlags {
+        self == .biometricsOrPasscode ? .userPresence : .biometryCurrentSet
+    }
+
+    var authenticationPolicy: LAPolicy {
+        self == .biometricsOrPasscode ? .deviceOwnerAuthentication : .deviceOwnerAuthenticationWithBiometrics
+    }
+
+    static let storageKey = "security.deviceUnlockPolicy.v2"
+    private static let lock = NSRecursiveLock()
+
+    static func withLock<T>(_ operation: () throws -> T) rethrows -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return try operation()
+    }
+
+    static var current: Self {
+        withLock {
+            UserDefaults(suiteName: AutoFillSharedVault.appGroupIdentifier)?
+                .string(forKey: storageKey).flatMap(Self.init(rawValue:)) ?? .disabled
+        }
+    }
+
+    /// Revoke old keys before enabling a changed policy. A failure leaves device
+    /// unlock disabled; the master password remains available.
+    static func configure(_ policy: Self) throws {
+        try withLock {
+            guard let defaults = UserDefaults(suiteName: AutoFillSharedVault.appGroupIdentifier) else {
+                throw AutoFillSharedVaultError.appGroupUnavailable
+            }
+            let changed = current != policy
+            defaults.set(Self.disabled.rawValue, forKey: storageKey)
+            let legacyServices = [
+                "xyz.0xmwehehe.vaultwardenApp.session.vault-key",
+                "xyz.0xmwehehe.vaultwardenApp.autofill.payload-key"
+            ]
+            let services = legacyServices + (changed || policy == .disabled
+                ? [AutoFillSharedVault.vaultKeyService, AutoFillSharedVault.payloadKeyService] : [])
+            var cleanupFailure: OSStatus?
+            for service in services {
+                for shared in [true, false] {
+                    var query: [String: Any] = [
+                        kSecClass as String: kSecClassGenericPassword,
+                        kSecAttrService as String: service
+                    ]
+                    if shared { query[kSecAttrAccessGroup as String] = AutoFillSharedVault.keychainAccessGroup }
+                    #if os(macOS)
+                    query[kSecUseDataProtectionKeychain as String] = true
+                    #endif
+                    let status = SecItemDelete(query as CFDictionary)
+                    if status != errSecSuccess && status != errSecItemNotFound {
+                        cleanupFailure = status
+                    }
+                }
+            }
+            if let cleanupFailure { throw AutoFillSharedVaultError.keychain(cleanupFailure) }
+            defaults.set(policy.rawValue, forKey: storageKey)
+        }
+    }
+
+    func makeAccessControl() throws -> SecAccessControl {
+        guard self != .disabled else { throw AutoFillSharedVaultError.vaultUnavailable }
+        #if os(macOS)
+        let accessibility = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        #else
+        let accessibility = kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly
+        #endif
+        var error: Unmanaged<CFError>?
+        guard let control = SecAccessControlCreateWithFlags(nil, accessibility, accessControlFlags, &error) else {
+            throw AutoFillSharedVaultError.authenticationFailed
+        }
+        return control
+    }
+}
+
 /// A specific keyboard suggestion, retained while the shared vault authenticates.
 /// A selection with a missing/invalid identity must fail, never become a list request.
 nonisolated enum AutoFillCredentialSelection: Sendable {
@@ -509,11 +594,11 @@ nonisolated enum AutoFillSharedVaultError: LocalizedError {
 }
 
 /// Shared by the app and Credential Provider extension. The App Group file never contains
-/// plaintext credentials: it is sealed with a key derived from the biometric-protected vault key.
+/// plaintext credentials: it is sealed with a key derived from the vault key and protected by the device-unlock policy.
 nonisolated enum AutoFillSharedVault {
     static let appGroupIdentifier = "group.xyz.0xmwehehe.vaultwardenApp"
-    static let vaultKeyService = "xyz.0xmwehehe.vaultwardenApp.session.vault-key"
-    static let payloadKeyService = "xyz.0xmwehehe.vaultwardenApp.autofill.payload-key"
+    static let vaultKeyService = "xyz.0xmwehehe.vaultwardenApp.session.vault-key.v2"
+    static let payloadKeyService = "xyz.0xmwehehe.vaultwardenApp.autofill.payload-key.v2"
     static let writeSessionUpdateService = "xyz.0xmwehehe.vaultwardenApp.autofill.write-session-update"
     static let activeReferenceKey = "autofill.activeAccountReference"
     static let publishedAtKey = "autofill.publishedAt"
@@ -591,25 +676,28 @@ nonisolated enum AutoFillSharedVault {
     }
 
     static func publish(payload: AutoFillVaultPayload, userKey: Data) throws {
-        guard userKey.count == 64 else { throw AutoFillSharedVaultError.invalidVaultKey }
-        let data = try JSONEncoder().encode(payload)
-        let payloadKey = try loadOrCreatePayloadKey(reference: payload.accountReference)
-        let key = encryptionKey(keyMaterial: payloadKey, reference: payload.accountReference)
-        let sealed = try AES.GCM.seal(data, using: key)
-        guard let combined = sealed.combined else { throw AutoFillSharedVaultError.invalidPayload }
-        #if os(macOS)
-        // The payload remains AES-GCM encrypted; data-protection Keychain access
-        // and device-owner authentication guard its key on macOS.
-        try combined.write(to: try vaultURL(), options: .atomic)
-        #else
-        try combined.write(to: try vaultURL(), options: [.atomic, .completeFileProtection])
-        #endif
-        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else {
-            throw AutoFillSharedVaultError.appGroupUnavailable
+        try DeviceUnlockPolicy.withLock {
+            guard DeviceUnlockPolicy.current != .disabled else { throw AutoFillSharedVaultError.vaultUnavailable }
+            guard userKey.count == 64 else { throw AutoFillSharedVaultError.invalidVaultKey }
+            let data = try JSONEncoder().encode(payload)
+            let payloadKey = try storePayloadKey(userKey: userKey, reference: payload.accountReference)
+            let key = encryptionKey(keyMaterial: payloadKey, reference: payload.accountReference)
+            let sealed = try AES.GCM.seal(data, using: key)
+            guard let combined = sealed.combined else { throw AutoFillSharedVaultError.invalidPayload }
+            #if os(macOS)
+            // The payload remains AES-GCM encrypted; data-protection Keychain access
+            // and device-owner authentication guard its key on macOS.
+            try combined.write(to: try vaultURL(), options: .atomic)
+            #else
+            try combined.write(to: try vaultURL(), options: [.atomic, .completeFileProtection])
+            #endif
+            guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else {
+                throw AutoFillSharedVaultError.appGroupUnavailable
+            }
+            defaults.set(payload.accountReference, forKey: activeReferenceKey)
+            defaults.set(payload.generatedAt, forKey: publishedAtKey)
+            defaults.set(payload.credentials.filter(\.isLogin).count, forKey: publishedCountKey)
         }
-        defaults.set(payload.accountReference, forKey: activeReferenceKey)
-        defaults.set(payload.generatedAt, forKey: publishedAtKey)
-        defaults.set(payload.credentials.filter(\.isLogin).count, forKey: publishedCountKey)
     }
 
     static func load(reason: String) async throws -> AutoFillUnlockedVault {
@@ -617,21 +705,26 @@ nonisolated enum AutoFillSharedVault {
               let reference = defaults.string(forKey: activeReferenceKey) else {
             throw AutoFillSharedVaultError.vaultUnavailable
         }
+        let policy = DeviceUnlockPolicy.current
+        guard policy != .disabled else { throw AutoFillSharedVaultError.vaultUnavailable }
         let context = LAContext()
+        context.localizedReason = reason
         context.localizedCancelTitle = L10n.string("Cancel")
         #if os(macOS)
         context.localizedFallbackTitle = L10n.string("Use Mac Password")
         #else
         context.localizedFallbackTitle = L10n.string("Use Device Passcode")
         #endif
-        guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: nil),
+        if policy != .biometricsOrPasscode { context.localizedFallbackTitle = "" }
+        guard context.canEvaluatePolicy(policy.authenticationPolicy, error: nil),
               try await context.evaluatePolicy(
-                .deviceOwnerAuthentication,
+                policy.authenticationPolicy,
                 localizedReason: reason
               ) else {
             throw AutoFillSharedVaultError.authenticationFailed
         }
-        let payloadKey = try loadPayloadKey(reference: reference)
+        guard DeviceUnlockPolicy.current == policy else { throw AutoFillSharedVaultError.vaultUnavailable }
+        let payloadKey = try loadPayloadKey(reference: reference, context: context)
         let encrypted = try Data(contentsOf: vaultURL())
         let key = encryptionKey(keyMaterial: payloadKey, reference: reference)
         guard let box = try? AES.GCM.SealedBox(combined: encrypted),
@@ -720,8 +813,9 @@ nonisolated enum AutoFillSharedVault {
         return query
     }
 
-    private static func loadPayloadKey(reference: String) throws -> Data {
+    private static func loadPayloadKey(reference: String, context: LAContext) throws -> Data {
         var query = payloadKeyQuery(reference: reference)
+        query[kSecUseAuthenticationContext as String] = context
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
@@ -732,24 +826,29 @@ nonisolated enum AutoFillSharedVault {
         return key
     }
 
-    private static func loadOrCreatePayloadKey(reference: String) throws -> Data {
-        if let existing = try? loadPayloadKey(reference: reference), existing.count == 32 {
-            return existing
+    private static func storePayloadKey(userKey: Data, reference: String) throws -> Data {
+        // Derive while the vault is already unlocked, so publishing never needs
+        // to read an authentication-protected item or display another prompt.
+        let derived = HKDF<SHA256>.deriveKey(
+            inputKeyMaterial: SymmetricKey(data: userKey),
+            salt: Data("vaultwarden-autofill-device-key-v2".utf8),
+            info: Data(reference.utf8), outputByteCount: 32
+        )
+        let key = derived.withUnsafeBytes { Data($0) }
+        let policy = DeviceUnlockPolicy.current
+        let control = try policy.makeAccessControl()
+        let status = SecItemDelete(payloadKeyQuery(reference: reference) as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw AutoFillSharedVaultError.keychain(status)
         }
-        var key = Data(count: 32)
-        let randomStatus = key.withUnsafeMutableBytes { bytes in
-            SecRandomCopyBytes(kSecRandomDefault, 32, bytes.baseAddress!)
-        }
-        guard randomStatus == errSecSuccess else {
-            throw AutoFillSharedVaultError.keychain(randomStatus)
-        }
-        SecItemDelete(payloadKeyQuery(reference: reference) as CFDictionary)
         var query = payloadKeyQuery(reference: reference)
         query[kSecValueData as String] = key
-        query[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        query[kSecAttrAccessControl as String] = control
         let addStatus = SecItemAdd(query as CFDictionary, nil)
-        guard addStatus == errSecSuccess else {
-            throw AutoFillSharedVaultError.keychain(addStatus)
+        guard addStatus == errSecSuccess else { throw AutoFillSharedVaultError.keychain(addStatus) }
+        guard DeviceUnlockPolicy.current == policy else {
+            SecItemDelete(payloadKeyQuery(reference: reference) as CFDictionary)
+            throw AutoFillSharedVaultError.vaultUnavailable
         }
         return key
     }

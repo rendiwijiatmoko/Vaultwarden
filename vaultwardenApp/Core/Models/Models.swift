@@ -408,7 +408,7 @@ struct AppSettings: Codable {
     var serverURL = ""
     var email = ""
     var sessionReference: String?
-    var biometricUnlock = true
+    var biometricUnlock = false
     var requireBiometricForSensitiveActions = true
     var devicePasscodeFallback = false
     var clearClipboard = true

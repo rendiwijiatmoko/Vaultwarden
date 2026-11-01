@@ -35,6 +35,20 @@ final class AppStore: ObservableObject {
                 settings.defaultURIMatchDetection ?? .baseDomain
             )
             AutoFillSharedVault.setShowsWebsiteIcons(settings.showFavicons)
+            if settings.biometricUnlock != oldValue.biometricUnlock
+                || settings.devicePasscodeFallback != oldValue.devicePasscodeFallback {
+                configureDeviceUnlock()
+                let generation = vaultGeneration
+                Task {
+                    guard let session = authenticatedSession else { return }
+                    do {
+                        try await vaultwardenService.refreshDeviceUnlock(session: session)
+                        await publishLocalAutoFillIndex(generation: generation)
+                    } catch {
+                        userFacingNotice = "Device unlock could not be configured. Use your master password to unlock the vault."
+                    }
+                }
+            }
         }
     }
     @Published var isLocked = false
@@ -75,7 +89,20 @@ final class AppStore: ObservableObject {
             clearVisibleVault()
             isLocked = true
         }
+        configureDeviceUnlock()
         startAutomaticRetry()
+    }
+
+    private func configureDeviceUnlock() {
+        do {
+            try DeviceUnlockPolicy.configure(DeviceUnlockPolicy(
+                biometricsEnabled: settings.biometricUnlock,
+                passcodeFallback: settings.devicePasscodeFallback
+            ))
+        } catch {
+            userFacingNotice = "Device unlock was disabled because its protected keys could not be updated. Use your master password."
+            SecureLog.failure("Device unlock configuration", error: error, logger: SecureLog.security)
+        }
     }
 
     var sortedFolders: [VaultFolder] { settings.vaultSortOrder.sortedFolders(folders) }
@@ -1107,7 +1134,9 @@ final class AppStore: ObservableObject {
 
     func unlockWithBiometrics() async -> Bool {
         let generation = vaultGeneration
-        guard UnlockPresentationPolicy.isAllowed, !Task.isCancelled else { return false }
+        let policy = DeviceUnlockPolicy.current
+        guard settings.biometricUnlock, DeviceUnlockPolicy.current != .disabled,
+              UnlockPresentationPolicy.isAllowed, !Task.isCancelled else { return false }
         do {
             if let lockTask { await lockTask.value }
             guard generation == vaultGeneration else { return false }
@@ -1125,6 +1154,10 @@ final class AppStore: ObservableObject {
             }
             guard generation == vaultGeneration else {
                 if isLocked { await vaultwardenService.lock(session: authenticatedSession) }
+                return false
+            }
+            guard settings.biometricUnlock, DeviceUnlockPolicy.current == policy else {
+                await vaultwardenService.lock(session: authenticatedSession)
                 return false
             }
             lastUnlockError = nil
