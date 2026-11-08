@@ -13,7 +13,7 @@ import UIKit
 @MainActor
 @Suite(.serialized)
 struct UISnapshotTests {
-    private static var outputDirectory: URL? {
+    nonisolated private static var outputDirectory: URL? {
         guard let path = ProcessInfo.processInfo.environment["SNAPSHOT_DIR"], !path.isEmpty else { return nil }
         return URL(fileURLWithPath: path, isDirectory: true)
     }
