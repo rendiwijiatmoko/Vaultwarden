@@ -3,14 +3,45 @@ import Combine
 import UIKit
 #endif
 
-/// Actions exposed from the app icon on the Home Screen.
-enum HomeQuickAction: String, Equatable {
-    case newPassword = "xyz.0xmwehehe.vaultwardenApp.quickAction.newPassword"
-    case search = "xyz.0xmwehehe.vaultwardenApp.quickAction.search"
-    case verificationCodes = "xyz.0xmwehehe.vaultwardenApp.quickAction.verificationCodes"
+/// A place in the app that something outside the vault window asked for:
+/// a Home Screen quick action, an App Intent or a Mac menu command.
+nonisolated enum HomeQuickAction: Equatable, Sendable {
+    case newPassword
+    /// An empty query opens search with the field focused.
+    case search(query: String)
+    case verificationCodes
+    case generator
+
+    /// `UIApplicationShortcutItemType` values in Info.plist.
+    nonisolated enum ShortcutType {
+        static let newPassword = "xyz.0xmwehehe.vaultwardenApp.quickAction.newPassword"
+        static let search = "xyz.0xmwehehe.vaultwardenApp.quickAction.search"
+        static let verificationCodes = "xyz.0xmwehehe.vaultwardenApp.quickAction.verificationCodes"
+        static let generator = "xyz.0xmwehehe.vaultwardenApp.quickAction.generator"
+    }
+
+    init?(shortcutType: String) {
+        switch shortcutType {
+        case ShortcutType.newPassword: self = .newPassword
+        case ShortcutType.search: self = .search(query: "")
+        case ShortcutType.verificationCodes: self = .verificationCodes
+        case ShortcutType.generator: self = .generator
+        default: return nil
+        }
+    }
+
+    var shortcutType: String {
+        switch self {
+        case .newPassword: ShortcutType.newPassword
+        case .search: ShortcutType.search
+        case .verificationCodes: ShortcutType.verificationCodes
+        case .generator: ShortcutType.generator
+        }
+    }
 }
 
-/// Bridges UIKit's scene callbacks into the SwiftUI view hierarchy.
+/// Bridges UIKit's scene callbacks, App Intents and Mac commands into the
+/// SwiftUI view hierarchy.
 ///
 /// The most recent action stays pending until the authenticated, unlocked root
 /// view consumes it. This means launching from an action never bypasses the
@@ -21,15 +52,16 @@ final class HomeQuickActionRouter: ObservableObject {
 
     @Published private(set) var pendingAction: HomeQuickAction?
 
-    private init() {}
+    /// Internal so tests can use their own router instead of the shared one.
+    init() {}
 
     func enqueue(_ action: HomeQuickAction) {
         pendingAction = action
     }
 
     @discardableResult
-    func enqueue(rawValue: String) -> Bool {
-        guard let action = HomeQuickAction(rawValue: rawValue) else { return false }
+    func enqueue(shortcutType: String) -> Bool {
+        guard let action = HomeQuickAction(shortcutType: shortcutType) else { return false }
         enqueue(action)
         return true
     }
@@ -37,11 +69,8 @@ final class HomeQuickActionRouter: ObservableObject {
     #if os(iOS)
     @discardableResult
     func enqueue(_ shortcutItem: UIApplicationShortcutItem) -> Bool {
-        guard let action = HomeQuickAction(rawValue: shortcutItem.type) else { return false }
-        pendingAction = action
-        return true
+        enqueue(shortcutType: shortcutItem.type)
     }
-
     #endif
 
     func consume(_ action: HomeQuickAction) {

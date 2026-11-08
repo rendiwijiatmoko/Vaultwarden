@@ -127,38 +127,8 @@ nonisolated enum AutoFillVaultPublisher {
     }
 
     private static func replaceCredentialIdentities(_ payload: AutoFillVaultPayload) async throws {
-        var identities = payload.credentials.reduce(into: [any ASCredentialIdentity]()) { values, record in
-            guard record.isLogin else { return }
-            guard let serviceValue = record.serviceIdentifier else { return }
-            let service = ASCredentialServiceIdentifier(identifier: serviceValue, type: .domain)
-            if !record.password.isEmpty {
-                let identity = ASPasswordCredentialIdentity(
-                    serviceIdentifier: service,
-                    user: record.username,
-                    recordIdentifier: "password|\(record.id)"
-                )
-                identity.rank = 100
-                values.append(identity)
-            }
-            if record.totpSecret?.isEmpty == false {
-                values.append(ASOneTimeCodeCredentialIdentity(
-                    serviceIdentifier: service,
-                    label: record.name,
-                    recordIdentifier: "totp|\(record.id)"
-                ))
-            }
-        }
-        if #available(iOS 17.0, *) {
-            identities.append(contentsOf: (payload.passkeys ?? []).map { passkey in
-                ASPasskeyCredentialIdentity(
-                    relyingPartyIdentifier: passkey.relyingPartyIdentifier,
-                    userName: passkey.userName,
-                    credentialID: passkey.credentialID,
-                    userHandle: passkey.userHandle,
-                    recordIdentifier: passkey.cipherID
-                )
-            })
-        }
+        let usage = AutoFillUsageHistory(accountReference: payload.accountReference).snapshot()
+        let identities = AutoFillCredentialIdentityBuilder.identities(for: payload, usage: usage)
         try await ASCredentialIdentityStore.shared.replaceCredentialIdentities(identities)
     }
 

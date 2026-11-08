@@ -1212,3 +1212,49 @@ private actor PasskeyLocalUserDataRepository: LocalUserDataKeyStateRepository {
     func removeAll() async throws { values.removeAll(keepingCapacity: false) }
     func has(id: String) async throws -> Bool { values[id] != nil }
 }
+
+/// Builds the identities offered in QuickType. Shared by the app's publisher and the
+/// extension so both rank recently filled credentials first.
+nonisolated enum AutoFillCredentialIdentityBuilder {
+    static func identities(
+        for payload: AutoFillVaultPayload,
+        usage: AutoFillUsageSnapshot
+    ) -> [any ASCredentialIdentity] {
+        var identities: [any ASCredentialIdentity] = []
+        for record in payload.credentials where record.isLogin {
+            guard let serviceValue = record.serviceIdentifier else { continue }
+            let service = ASCredentialServiceIdentifier(identifier: serviceValue, type: .domain)
+            let rank = usage.rank(id: record.id)
+            if !record.password.isEmpty {
+                let password = ASPasswordCredentialIdentity(
+                    serviceIdentifier: service,
+                    user: record.username,
+                    recordIdentifier: "password|\(record.id)"
+                )
+                password.rank = rank
+                identities.append(password)
+            }
+            if record.totpSecret?.isEmpty == false {
+                let code = ASOneTimeCodeCredentialIdentity(
+                    serviceIdentifier: service,
+                    label: record.name,
+                    recordIdentifier: "totp|\(record.id)"
+                )
+                code.rank = rank
+                identities.append(code)
+            }
+        }
+        for passkey in payload.passkeys ?? [] {
+            let identity = ASPasskeyCredentialIdentity(
+                relyingPartyIdentifier: passkey.relyingPartyIdentifier,
+                userName: passkey.userName,
+                credentialID: passkey.credentialID,
+                userHandle: passkey.userHandle,
+                recordIdentifier: passkey.cipherID
+            )
+            identity.rank = usage.rank(id: passkey.credentialID.base64EncodedString())
+            identities.append(identity)
+        }
+        return identities
+    }
+}
