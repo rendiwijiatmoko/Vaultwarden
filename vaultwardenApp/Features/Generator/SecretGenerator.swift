@@ -147,8 +147,8 @@ nonisolated enum GeneratorStrength: Equatable, Sendable {
 
     init(bits: Double) {
         switch bits {
-        case 64...: self = .strong
-        case 45..<64: self = .good
+        case 64.0...: self = .strong
+        case 45.0..<64.0: self = .good
         default: self = .weak
         }
     }

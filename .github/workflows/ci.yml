@@ -44,12 +44,14 @@ jobs:
       - name: Build and test
         run: |
           status=0
+          export TEST_RUNNER_SNAPSHOT_DIR="$RUNNER_TEMP/snapshots"
           xcodebuild test \
             -project vaultwardenApp.xcodeproj \
             -scheme vaultwardenApp \
             -configuration Debug \
             -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.2' \
             -destination-timeout 120 \
+            -parallel-testing-enabled NO \
             -derivedDataPath "$RUNNER_TEMP/DerivedData" \
             -resultBundlePath "$RUNNER_TEMP/iOS.xcresult" \
             CODE_SIGN_STYLE=Manual \
@@ -58,6 +60,15 @@ jobs:
             DEVELOPMENT_TEAM= > "$RUNNER_TEMP/ios.log" 2>&1 || status=$?
           grep -E 'error:|✘|failed|\*\* |Test run with' "$RUNNER_TEMP/ios.log" | head -300 || true
           exit $status
+
+      - name: Upload screenshots
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-screenshots-${{ github.run_id }}
+          path: ${{ runner.temp }}/snapshots
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Upload results
         if: ${{ always() }}
@@ -115,11 +126,45 @@ jobs:
           grep -E 'error:|\*\* ' "$RUNNER_TEMP/macos.log" | head -300 || true
           exit $status
 
+      # Restricted entitlements need a provisioning profile to launch, so the
+      # screenshot run signs ad hoc without them.
+      - name: Render screenshots
+        continue-on-error: true
+        run: |
+          status=0
+          export TEST_RUNNER_SNAPSHOT_DIR="$RUNNER_TEMP/snapshots"
+          xcodebuild test \
+            -project vaultwardenApp.xcodeproj \
+            -scheme vaultwardenApp \
+            -configuration Debug \
+            -destination 'platform=macOS,arch=arm64' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedDataShots" \
+            -only-testing:vaultwardenAppTests/UISnapshotTests \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY=- \
+            CODE_SIGNING_ALLOWED=YES \
+            CODE_SIGN_ENTITLEMENTS= \
+            'CODE_SIGN_ENTITLEMENTS[sdk=macosx*]=' \
+            DEVELOPMENT_TEAM= > "$RUNNER_TEMP/macos-shots.log" 2>&1 || status=$?
+          grep -E 'error:|✘|\*\* ' "$RUNNER_TEMP/macos-shots.log" | head -100 || true
+          exit $status
+
+      - name: Upload screenshots
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-screenshots-${{ github.run_id }}
+          path: ${{ runner.temp }}/snapshots
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Upload log
         if: ${{ always() }}
         uses: actions/upload-artifact@v7
         with:
           name: macos-log-${{ github.run_id }}
-          path: ${{ runner.temp }}/macos.log
+          path: |
+            ${{ runner.temp }}/macos.log
+            ${{ runner.temp }}/macos-shots.log
           if-no-files-found: warn
           retention-days: 7

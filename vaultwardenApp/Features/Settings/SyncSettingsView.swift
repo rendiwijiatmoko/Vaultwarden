@@ -19,7 +19,7 @@ struct SyncSettingsView: View {
     private var heroLine: Text {
         SettingsWords.syncTone(state).apply(to: Text(verbatim: SettingsWords.syncHeadline(
             state,
-            lastSynced: store.lastSync,
+            lastSynced: store.lastSuccessfulSync ?? store.lastSync,
             usesOfflineCopy: store.lastSyncUsedOfflineCache
         )))
     }
@@ -125,8 +125,8 @@ struct SyncSettingsView: View {
     private var problemFooter: some View {
         if store.sessionNeedsSignIn {
             Text("Your session ended. Sign in again to upload changes and get new ones.")
-        } else if let error = store.lastSyncError, error.isEmpty == false {
-            Text(verbatim: error)
+        } else if store.lastSyncError?.isEmpty == false {
+            Text("Vaultwarden couldn’t reach your server. Changes stay on this device until the next sync.")
         }
     }
 

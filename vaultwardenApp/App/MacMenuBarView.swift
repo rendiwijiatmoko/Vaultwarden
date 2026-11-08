@@ -188,7 +188,7 @@ private struct MenuBarVaultPanel: View {
     }
 
     private var list: some View {
-        let sections = sections
+        let sections = self.sections
         return VStack(spacing: 0) {
             TextField("Search", text: $query, prompt: Text("Search Vault"))
                 .textFieldStyle(.roundedBorder)
@@ -206,7 +206,7 @@ private struct MenuBarVaultPanel: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         if sections.favorites.isEmpty && sections.otherItems.isEmpty {
-                            Text(query.isEmpty ? "No Items" : "No Results")
+                            Text(query.isEmpty ? LocalizedStringKey("No Items") : LocalizedStringKey("No Results"))
                                 .foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 40)
@@ -266,7 +266,7 @@ private struct MenuBarVaultPanel: View {
     }
 
     private var orderedIDs: [UUID] {
-        let sections = sections
+        let sections = self.sections
         return (sections.favorites + sections.otherItems).map(\.id)
     }
 
@@ -406,13 +406,6 @@ private struct MenuBarItemDetail: View {
                     }
                     .padding(.horizontal, 6)
                 }
-                .onKeyPress(.downArrow) { move(by: 1, in: fields) }
-                .onKeyPress(.upArrow) { move(by: -1, in: fields) }
-                .onKeyPress(.return) {
-                    guard let id = highlightedFieldID ?? fields.first?.id else { return .ignored }
-                    copy(fieldID: id)
-                    return .handled
-                }
             }
 
             if let copyNotice {
@@ -426,6 +419,13 @@ private struct MenuBarItemDetail: View {
         .focusable()
         .focusEffectDisabled()
         .focused($focused)
+        .onKeyPress(.downArrow) { move(by: 1) }
+        .onKeyPress(.upArrow) { move(by: -1) }
+        .onKeyPress(.return) {
+            guard let id = highlightedFieldID ?? store.quickCopyFields(for: item).first?.id else { return .ignored }
+            copy(fieldID: id)
+            return .handled
+        }
         .onAppear { focused = true }
         .onExitCommand(perform: onBack)
     }
@@ -473,7 +473,8 @@ private struct MenuBarItemDetail: View {
         .accessibilityLabel(L10n.format("Copy %@", title))
     }
 
-    private func move(by offset: Int, in fields: [VaultQuickCopyField]) -> KeyPress.Result {
+    private func move(by offset: Int) -> KeyPress.Result {
+        let fields = store.quickCopyFields(for: item)
         guard !fields.isEmpty else { return .ignored }
         let next: Int
         if let highlightedFieldID, let index = fields.firstIndex(where: { $0.id == highlightedFieldID }) {
@@ -526,7 +527,7 @@ private struct MacQuickUnlockView: View {
             Button {
                 unlock(biometrics: true)
             } label: {
-                Label(L10n.format("Unlock with %@", BiometricAuthenticator.displayName), systemImage: BiometricAuthenticator.systemImage)
+                Label("Unlock Vault", systemImage: BiometricAuthenticator.systemImage)
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)

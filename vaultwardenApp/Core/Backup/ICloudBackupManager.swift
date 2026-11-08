@@ -122,7 +122,7 @@ final class ICloudBackupManager: ObservableObject {
         let payload = ICloudBackupArchive.payload(items: store.items, folders: store.folders, exportedAt: date)
         // With nothing left in iCloud, an unchanged vault still needs a backup.
         let lastDigest = hasLoadedBackups && backups.isEmpty ? nil : defaults.data(forKey: StorageKey.lastDigest)
-        let engine = engine
+        let engine = self.engine
         let priority: TaskPriority = force ? .userInitiated : .utility
         activity = .backingUp
         let result = await Task.detached(priority: priority) {
@@ -159,7 +159,7 @@ final class ICloudBackupManager: ObservableObject {
     // MARK: - Listing
 
     func refresh() async {
-        let engine = engine
+        let engine = self.engine
         let cached = summaryCache
         let result = await Task.detached(priority: .utility) {
             Result(catching: { try engine.listBackups(reusing: cached) })
@@ -216,7 +216,7 @@ final class ICloudBackupManager: ObservableObject {
             restoreProgress = nil
         }
 
-        let engine = engine
+        let engine = self.engine
         let fileName = backup.fileName
         let contents = try await Task.detached(priority: .userInitiated) {
             try engine.open(fileName: fileName)
@@ -262,7 +262,7 @@ final class ICloudBackupManager: ObservableObject {
         guard activity == .idle, !targets.isEmpty else { return }
         activity = .deleting
         defer { activity = .idle }
-        let engine = engine
+        let engine = self.engine
         let names = targets.map(\.fileName)
         do {
             try await Task.detached(priority: .userInitiated) {
@@ -274,6 +274,14 @@ final class ICloudBackupManager: ObservableObject {
         }
         let removed = Set(names)
         apply(backups.filter { !removed.contains($0.fileName) })
+    }
+
+    /// After sign-out: the next account shouldn't inherit automatic uploads. Backups stay
+    /// in iCloud, so a later restore can still find them.
+    func resetForSignOut() {
+        isEnabled = false
+        problem = nil
+        defaults.removeObject(forKey: StorageKey.lastDigest)
     }
 
     /// The same guard the store uses: work started before a lock never lands after it.

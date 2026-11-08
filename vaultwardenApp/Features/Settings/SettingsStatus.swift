@@ -83,7 +83,7 @@ enum SettingsWords {
 
     static func signOutTitle(pendingChanges: Int) -> String {
         pendingChanges > 0
-            ? inflected("Sign Out and Delete ^[\(pendingChanges) Unsynced Change](inflect: true)?")
+            ? inflected("Sign Out and Delete ^[\(pendingChanges) Change](inflect: true)?")
             : L10n.string("Sign Out of Vaultwarden?")
     }
 

@@ -14,7 +14,7 @@ nonisolated enum ICloudBackupKeychain {
     /// sealed with the other stay restorable.
     static func currentKey(in store: any ICloudBackupKeyStoring) throws -> ICloudBackupKey {
         for id in try store.keyIDs().sorted() {
-            if let key = try key(id: id, in: store) { return key }
+            if let existing = try Self.key(id: id, in: store) { return existing }
         }
         let key = try ICloudBackupKey.generate()
         try store.add(key.data, id: key.id)

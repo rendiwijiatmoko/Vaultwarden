@@ -84,6 +84,14 @@
 			<key>UIApplicationShortcutItemType</key>
 			<string>xyz.0xmwehehe.vaultwardenApp.quickAction.verificationCodes</string>
 		</dict>
+		<dict>
+			<key>UIApplicationShortcutItemIconSymbolName</key>
+			<string>wand.and.sparkles</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>Generate Password</string>
+			<key>UIApplicationShortcutItemType</key>
+			<string>xyz.0xmwehehe.vaultwardenApp.quickAction.generator</string>
+		</dict>
 	</array>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>

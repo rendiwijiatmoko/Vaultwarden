@@ -2694,7 +2694,7 @@ private struct AutoFillCredentialThumbnail: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Self.color(for: itemType).gradient)
             } else {
-                Text(AutoFillLetterTile.initial(for: record.name))
+                Text(AutoFillLetterTile.initial(for: record.name, host: AutoFillSearch.websites(for: record).first))
                     .font(.system(size: size * 0.44, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -2732,19 +2732,18 @@ private struct AutoFillCredentialThumbnail: View {
     }
 }
 
-/// Tile colors dark enough for a white letter at 3:1 or better.
+/// The same palette as the app's `VaultMonogram`: system hues, the light ones
+/// deepened so a large white letter still reads.
 private enum AutoFillTilePalette {
     static let colors: [Color] = [
-        Color(red: 0.12, green: 0.42, blue: 0.90),
-        Color(red: 0.35, green: 0.34, blue: 0.84),
-        Color(red: 0.60, green: 0.31, blue: 0.80),
-        Color(red: 0.84, green: 0.23, blue: 0.46),
-        Color(red: 0.84, green: 0.22, blue: 0.20),
-        Color(red: 0.80, green: 0.40, blue: 0.06),
-        Color(red: 0.15, green: 0.56, blue: 0.28),
-        Color(red: 0.04, green: 0.52, blue: 0.58),
-        Color(red: 0.58, green: 0.42, blue: 0.29),
-        Color(red: 0.42, green: 0.45, blue: 0.50)
+        .blue,
+        .indigo,
+        .purple,
+        .pink,
+        .red,
+        Color.orange.mix(with: .black, by: 0.28),
+        Color.green.mix(with: .black, by: 0.3),
+        Color.teal.mix(with: .black, by: 0.3)
     ]
 
     static func color(for record: AutoFillCredentialRecord) -> Color {

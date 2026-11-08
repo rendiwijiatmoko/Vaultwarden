@@ -1046,14 +1046,12 @@ nonisolated enum AutoFillSearch {
 nonisolated struct AutoFillPickerEntry: Identifiable, Hashable, Sendable {
     let record: AutoFillCredentialRecord
     let searchKey: String
-    let host: String?
 
     var id: String { record.id }
 
     init(record: AutoFillCredentialRecord) {
         self.record = record
         searchKey = AutoFillSearch.key(for: record)
-        host = AutoFillSearch.websites(for: record).first
     }
 }
 
@@ -1259,17 +1257,24 @@ nonisolated struct AutoFillUsageHistory {
 
 // MARK: - Letter tiles
 
+/// Matches the app's `VaultMonogram`, so a site wears the same tile in the app and in AutoFill.
 nonisolated enum AutoFillLetterTile {
-    static func initial(for name: String) -> String {
-        guard let first = name.trimmingCharacters(in: .whitespacesAndNewlines).first else { return "?" }
-        return String(first).uppercased()
+    /// The first letter or digit of the name, else of the host.
+    static func initial(for name: String, host: String? = nil) -> String {
+        for source in [name, host ?? ""] {
+            if let character = source.first(where: { $0.isLetter || $0.isNumber }) {
+                return String(String(character).uppercased().prefix(1))
+            }
+        }
+        return "?"
     }
 
     /// A stable palette slot from the website (or the name when there is none). Uses FNV-1a
     /// because `Hasher` is seeded per launch and the tile must keep its color.
     static func paletteIndex(host: String?, name: String, paletteCount: Int) -> Int {
         guard paletteCount > 0 else { return 0 }
-        let seed = host.flatMap(AutoFillSearch.displayHost) ?? AutoFillSearch.fold(name)
+        let seed = host.flatMap(AutoFillSearch.displayHost)
+            ?? name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         var hash: UInt64 = 0xcbf2_9ce4_8422_2325
         for byte in seed.utf8 {
             hash ^= UInt64(byte)

@@ -237,7 +237,7 @@ struct VaultTransferPasswordSheet: View {
             Form {
                 Section {
                     SecureField("Password", text: $password)
-                        .vaultTextContentType(mode == .export ? .newPassword : .password)
+                        .vaultTextContentType(mode == .export ? VaultTextContentType.newPassword : VaultTextContentType.password)
                         .focused($focusedField, equals: .password)
                         .submitLabel(mode == .export ? .next : .go)
                         .onSubmit {

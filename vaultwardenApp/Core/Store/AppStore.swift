@@ -50,6 +50,9 @@ final class AppStore: ObservableObject {
             if settings.showFavicons != oldValue.showFavicons {
                 AutoFillSharedVault.setShowsWebsiteIcons(settings.showFavicons)
             }
+            if settings.haptics != oldValue.haptics {
+                AutoFillSharedVault.setHapticsEnabled(settings.haptics)
+            }
             if settings.biometricUnlock != oldValue.biometricUnlock
                 || settings.devicePasscodeFallback != oldValue.devicePasscodeFallback {
                 configureDeviceUnlock()
@@ -69,6 +72,8 @@ final class AppStore: ObservableObject {
     @Published var isLocked = false
     @Published var isSyncing = false
     @Published var lastSync = Date()
+    /// When this device last finished a sync with the server, as opposed to `lastSync`, the vault's revision date.
+    @Published private(set) var lastSuccessfulSync: Date?
     @Published private(set) var authenticatedSession: AuthenticatedSession?
     @Published private(set) var lastSyncError: String?
     @Published private(set) var sessionNeedsSignIn = false
@@ -96,6 +101,7 @@ final class AppStore: ObservableObject {
             settings.defaultURIMatchDetection ?? .baseDomain
         )
         AutoFillSharedVault.setShowsWebsiteIcons(settings.showFavicons)
+        AutoFillSharedVault.setHapticsEnabled(settings.haptics)
         if let reference = settings.sessionReference,
            let serverURL = URL(string: settings.serverURL) {
             authenticatedSession = AuthenticatedSession(
@@ -952,6 +958,7 @@ final class AppStore: ObservableObject {
         lastSync = snapshot.revision
         lastSyncError = nil
         lastSyncUsedOfflineCache = snapshot.isFromOfflineCache
+        if !snapshot.isFromOfflineCache { lastSuccessfulSync = Date() }
         discardSelectionForMissingItem()
         return true
     }
@@ -1121,7 +1128,6 @@ final class AppStore: ObservableObject {
     func clearEncryptedLocalCache() async throws {
         guard let session = authenticatedSession else { throw VaultArchiveError.signedOut }
         try await vaultwardenService.clearEncryptedCache(session: session)
-        userFacingNotice = "The encrypted offline cache was cleared. Server data and queued changes were not deleted."
     }
 
     func appDidEnterBackground(at date: Date = Date()) {
@@ -1170,6 +1176,7 @@ final class AppStore: ObservableObject {
         lock(requestAutomaticUnlock: false)
         if let lockTask { await lockTask.value }
         lockTask = nil
+        ICloudBackupManager.shared.resetForSignOut()
         var cleanupFailure: Error?
         do {
             try await vaultwardenService.logout(session: session)
@@ -1201,6 +1208,7 @@ final class AppStore: ObservableObject {
         isLocked = false
         isSyncing = false
         lastSync = Date()
+        lastSuccessfulSync = nil
         lastSyncError = nil
         sessionNeedsSignIn = false
         lastUnlockError = nil

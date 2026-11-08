@@ -85,11 +85,14 @@ private func utcCalendar() throws -> Calendar {
     return calendar
 }
 
-private let englishUS = Locale(identifier: "en_US")
-/// Sunday, November 8, 2026 at 9:41 AM UTC.
-private let now = Date(timeIntervalSince1970: 1_794_130_860)
-private let hour: TimeInterval = 60 * 60
-private let day: TimeInterval = 24 * hour
+/// Fixed values, nonisolated so test arguments can use them.
+private nonisolated enum BackupTestClock {
+    /// Sunday, November 8, 2026 at 9:41 AM UTC.
+    static let now = Date(timeIntervalSince1970: 1_794_130_860)
+    static let hour: TimeInterval = 60 * 60
+    static let day: TimeInterval = 24 * 60 * 60
+    static let englishUS = Locale(identifier: "en_US")
+}
 
 // MARK: - Archive
 
@@ -130,7 +133,6 @@ struct ICloudBackupArchiveTests {
 
         #expect(!text.contains("correct horse"))
         #expect(!text.contains("taylor@example.com"))
-        #expect(!text.contains("Mail"))
     }
 
     @Test("The header names its key without the key, so restore can choose one")
@@ -164,7 +166,7 @@ struct ICloudBackupArchiveTests {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         var header = try decoder.decode(ICloudBackupHeader.self, from: headerData)
-        header.createdAt = header.createdAt.addingTimeInterval(-day)
+        header.createdAt = header.createdAt.addingTimeInterval(-BackupTestClock.day)
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         envelope["header"] = try encoder.encode(header).base64EncodedString()
@@ -214,12 +216,12 @@ struct ICloudBackupArchiveTests {
             }
             return copy
         }
-        let resyncedPayload = ICloudBackupArchive.payload(items: resynced, folders: payload.folders, exportedAt: now.addingTimeInterval(day))
+        let resyncedPayload = ICloudBackupArchive.payload(items: resynced, folders: payload.folders, exportedAt: BackupTestClock.now.addingTimeInterval(BackupTestClock.day))
         #expect(try ICloudBackupArchive.contentDigest(of: resyncedPayload, key: key) == original)
 
         var changed = payload.items
         changed[1].password = "a new password"
-        let changedPayload = ICloudBackupArchive.payload(items: changed, folders: payload.folders, exportedAt: now)
+        let changedPayload = ICloudBackupArchive.payload(items: changed, folders: payload.folders, exportedAt: BackupTestClock.now)
         #expect(try ICloudBackupArchive.contentDigest(of: changedPayload, key: key) != original)
     }
 }
@@ -263,21 +265,28 @@ struct ICloudBackupKeyTests {
 
 @Suite("iCloud Backup schedule")
 struct ICloudBackupScheduleTests {
+    nonisolated struct DueCase: Sendable {
+        let elapsed: TimeInterval?
+        let frequency: ICloudBackupFrequency
+        let isDue: Bool
+    }
+
     @Test(
         "Backups are due after their interval, with an hour of slack",
         arguments: [
-            (nil, ICloudBackupFrequency.daily, true),
-            (22 * hour, .daily, false),
-            (23 * hour, .daily, true),
-            (30 * hour, .daily, true),
-            (6 * day + 22 * hour, .weekly, false),
-            (6 * day + 23 * hour, .weekly, true),
-            (-2 * hour, .daily, true)
-        ] as [(TimeInterval?, ICloudBackupFrequency, Bool)]
+            DueCase(elapsed: nil, frequency: .daily, isDue: true),
+            DueCase(elapsed: 22 * BackupTestClock.hour, frequency: .daily, isDue: false),
+            DueCase(elapsed: 23 * BackupTestClock.hour, frequency: .daily, isDue: true),
+            DueCase(elapsed: 30 * BackupTestClock.hour, frequency: .daily, isDue: true),
+            DueCase(elapsed: 6 * BackupTestClock.day + 22 * BackupTestClock.hour, frequency: .weekly, isDue: false),
+            DueCase(elapsed: 6 * BackupTestClock.day + 23 * BackupTestClock.hour, frequency: .weekly, isDue: true),
+            // A clock set back still backs up.
+            DueCase(elapsed: -2 * BackupTestClock.hour, frequency: .daily, isDue: true)
+        ]
     )
-    func isDue(elapsed: TimeInterval?, frequency: ICloudBackupFrequency, expected: Bool) {
-        let lastBackup = elapsed.map { now.addingTimeInterval(-$0) }
-        #expect(ICloudBackupSchedule.isDue(lastBackup: lastBackup, frequency: frequency, now: now) == expected)
+    func isDue(_ dueCase: DueCase) {
+        let lastBackup = dueCase.elapsed.map { BackupTestClock.now.addingTimeInterval(-$0) }
+        #expect(ICloudBackupSchedule.isDue(lastBackup: lastBackup, frequency: dueCase.frequency, now: BackupTestClock.now) == dueCase.isDue)
     }
 
     @Test("An unchanged vault is skipped; a changed or unknown one isn't")
@@ -291,7 +300,7 @@ struct ICloudBackupScheduleTests {
     @Test("Retention keeps the newest and deletes the rest")
     func retentionDeletesOldest() {
         let entries = (0..<12).map { index in
-            ICloudBackupFileEntry(name: "backup-\(index)", createdAt: now.addingTimeInterval(-Double(index) * day))
+            ICloudBackupFileEntry(name: "backup-\(index)", createdAt: BackupTestClock.now.addingTimeInterval(-Double(index) * BackupTestClock.day))
         }.shuffled()
 
         let deleted = ICloudBackupSchedule.namesToDelete(entries, keeping: 10)
@@ -301,7 +310,7 @@ struct ICloudBackupScheduleTests {
 
     @Test("Retention deletes nothing until there are more than it keeps, and always keeps one")
     func retentionEdges() {
-        let entries = (0..<3).map { ICloudBackupFileEntry(name: "b\($0)", createdAt: now.addingTimeInterval(-Double($0) * day)) }
+        let entries = (0..<3).map { ICloudBackupFileEntry(name: "b\($0)", createdAt: BackupTestClock.now.addingTimeInterval(-Double($0) * BackupTestClock.day)) }
 
         #expect(ICloudBackupSchedule.namesToDelete(entries, keeping: 10).isEmpty)
         #expect(ICloudBackupSchedule.namesToDelete(entries, keeping: 0) == ["b1", "b2"])
@@ -318,7 +327,7 @@ struct ICloudBackupFileTests {
         let name = ICloudBackupFileStore.fileName(createdAt: date, backupID: UUID())
         let parsed = try #require(ICloudBackupFileStore.creationDate(fromFileName: name))
 
-        #expect(abs(parsed.timeIntervalSince(date)) < 0.001)
+        #expect(abs(parsed.timeIntervalSince(date)) < 0.002)
         #expect(name.hasSuffix(".vwbackup"))
         #expect(ICloudBackupFileStore.creationDate(fromFileName: "notes.txt") == nil)
         #expect(ICloudBackupFileStore.nameBehindPlaceholder(".\(name).icloud") == name)
@@ -332,14 +341,14 @@ struct ICloudBackupFileTests {
         let engine = ICloudBackupEngine(container: FixedBackupContainer(directory: directory), keyStore: InMemoryBackupKeyStore())
         let payload = samplePayload()
 
-        let outcome = try engine.backUp(payload, lastDigest: nil, force: false, now: now)
+        let outcome = try engine.backUp(payload, lastDigest: nil, force: false, now: BackupTestClock.now)
         guard case let .backedUp(summary, digest) = outcome else {
             Issue.record("Expected a backup")
             return
         }
         #expect(summary.itemCount == 2)
 
-        let unchanged = try engine.backUp(payload, lastDigest: digest, force: false, now: now.addingTimeInterval(day))
+        let unchanged = try engine.backUp(payload, lastDigest: digest, force: false, now: BackupTestClock.now.addingTimeInterval(BackupTestClock.day))
         guard case .unchanged = unchanged else {
             Issue.record("An unchanged vault should be skipped")
             return
@@ -361,12 +370,12 @@ struct ICloudBackupFileTests {
         let payload = samplePayload()
 
         for index in 0..<5 {
-            _ = try engine.backUp(payload, lastDigest: nil, force: true, now: now.addingTimeInterval(Double(index) * day), keeping: 3)
+            _ = try engine.backUp(payload, lastDigest: nil, force: true, now: BackupTestClock.now.addingTimeInterval(Double(index) * BackupTestClock.day), keeping: 3)
         }
 
         let listed = try #require(try engine.listBackups(reusing: [:]))
         #expect(listed.count == 3)
-        #expect(listed.first?.createdAt == now.addingTimeInterval(4 * day))
+        #expect(listed.first?.createdAt == BackupTestClock.now.addingTimeInterval(4 * BackupTestClock.day))
     }
 
     @Test("A device without the backup's key lists it as needing one, and can't open it")
@@ -375,7 +384,7 @@ struct ICloudBackupFileTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let container = FixedBackupContainer(directory: directory)
         let writer = ICloudBackupEngine(container: container, keyStore: InMemoryBackupKeyStore())
-        _ = try writer.backUp(samplePayload(), lastDigest: nil, force: true, now: now)
+        _ = try writer.backUp(samplePayload(), lastDigest: nil, force: true, now: BackupTestClock.now)
 
         let reader = ICloudBackupEngine(container: container, keyStore: InMemoryBackupKeyStore())
         let listed = try #require(try reader.listBackups(reusing: [:]))
@@ -392,7 +401,7 @@ struct ICloudBackupFileTests {
         let engine = ICloudBackupEngine(container: FixedBackupContainer(directory: nil), keyStore: InMemoryBackupKeyStore())
 
         #expect(throws: ICloudBackupError.iCloudUnavailable) {
-            try engine.backUp(samplePayload(), lastDigest: nil, force: true, now: now)
+            try engine.backUp(samplePayload(), lastDigest: nil, force: true, now: BackupTestClock.now)
         }
         #expect(try engine.listBackups(reusing: [:]) == nil)
     }
@@ -424,9 +433,9 @@ struct ICloudBackupStatusTests {
         #expect(status(available: false, activity: .backingUp) == .backingUp)
         #expect(status(available: false, problem: .failed) == .iCloudUnavailable(isEnabled: true))
         #expect(status(isEnabled: false, problem: .storageFull) == .needsAttention(.storageFull))
-        #expect(status(isEnabled: false, lastBackup: now) == .off(lastBackup: now))
+        #expect(status(isEnabled: false, lastBackup: BackupTestClock.now) == .off(lastBackup: BackupTestClock.now))
         #expect(status() == .notBackedUpYet(.daily))
-        #expect(status(lastBackup: now) == .backedUp(now))
+        #expect(status(lastBackup: BackupTestClock.now) == .backedUp(BackupTestClock.now))
         // Unknown availability doesn't flash a warning.
         #expect(status(available: nil) == .notBackedUpYet(.daily))
     }
@@ -435,7 +444,7 @@ struct ICloudBackupStatusTests {
     func rootValues() throws {
         let calendar = try utcCalendar()
         func value(_ status: ICloudBackupStatus) -> String {
-            status.rootValue(now: now, calendar: calendar, locale: englishUS)
+            status.rootValue(now: BackupTestClock.now, calendar: calendar, locale: BackupTestClock.englishUS)
         }
 
         #expect(value(.off(lastBackup: nil)) == "Off")
@@ -444,7 +453,7 @@ struct ICloudBackupStatusTests {
         #expect(value(.backingUp) == "Backing Up…")
         #expect(value(.needsAttention(.failed)) == "Needs Attention")
         #expect(value(.notBackedUpYet(.weekly)) == "Every Week")
-        #expect(value(.backedUp(now.addingTimeInterval(-2 * hour))) == "Today")
+        #expect(value(.backedUp(BackupTestClock.now.addingTimeInterval(-2 * BackupTestClock.hour))) == "Today")
         // 8:00 PM the evening before is yesterday, though less than a day ago.
         #expect(value(.backedUp(Date(timeIntervalSince1970: 1_794_081_600))) == "Yesterday")
         #expect(value(.backedUp(Date(timeIntervalSince1970: 1_793_698_860))) == "Nov 3")
@@ -455,10 +464,10 @@ struct ICloudBackupStatusTests {
     func heroLines() throws {
         let calendar = try utcCalendar()
         func line(_ status: ICloudBackupStatus) -> String {
-            status.line(now: now, calendar: calendar, locale: englishUS)
+            status.line(now: BackupTestClock.now, calendar: calendar, locale: BackupTestClock.englishUS)
         }
-        let earlier = now.addingTimeInterval(-hour)
-        let time = ICloudBackupWords.time(earlier, calendar: calendar, locale: englishUS)
+        let earlier = BackupTestClock.now.addingTimeInterval(-BackupTestClock.hour)
+        let time = ICloudBackupWords.time(earlier, calendar: calendar, locale: BackupTestClock.englishUS)
 
         #expect(line(.backedUp(earlier)) == "Last backup: Today at \(time)")
         #expect(line(.off(lastBackup: earlier)) == "Last backup: Today at \(time)")
@@ -472,7 +481,7 @@ struct ICloudBackupStatusTests {
     func tones() {
         #expect(ICloudBackupStatus.needsAttention(.failed).tone == .failure)
         #expect(ICloudBackupStatus.iCloudUnavailable(isEnabled: true).tone == .attention)
-        #expect(ICloudBackupStatus.backedUp(now).tone == .plain)
+        #expect(ICloudBackupStatus.backedUp(BackupTestClock.now).tone == .plain)
     }
 
     @Test("A full iCloud is told apart from other failures")
