@@ -106,6 +106,26 @@ enum SnapshotDemo {
             SnapshotScreen(name: name, size: size, view: AnyView(view().environmentObject(store)))
         }
         var screens: [SnapshotScreen] = []
+        let router = HomeQuickActionRouter()
+        let github = store.items.first { $0.name == "GitHub" }!
+        #if os(macOS)
+        store.selectedFilter = .all
+        store.selectedItemID = github.id
+        #endif
+        screens.append(screen("home", windowSize) { RootSplitView().environmentObject(router) })
+        #if os(iOS)
+        screens.append(screen("list", windowSize) {
+            NavigationStack { VaultCollectionView(filter: .all, usesColumnSelection: false) }
+        })
+        screens.append(screen("detail", windowSize) { NavigationStack { VaultItemDetailView(itemID: github.id) } })
+        screens.append(screen("codes", windowSize) {
+            NavigationStack { VaultCollectionView(filter: .category(.codes), usesColumnSelection: false) }
+        })
+        #endif
+        screens.append(screen("security", windowSize) {
+            NavigationStack { VaultCollectionView(filter: .category(.security), usesColumnSelection: false) }
+        })
+        screens.append(screen("editor", sheetSize) { AddEditVaultItemView(existingItem: github) })
         #if os(macOS)
         let agent = MacSSHAgent(store: store, socketPath: NSTemporaryDirectory() + "snapshot-agent.sock")
         screens.append(screen("settings", settingsSize) { MacSettingsView().environmentObject(agent) })
