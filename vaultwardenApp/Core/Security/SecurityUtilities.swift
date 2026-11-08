@@ -66,22 +66,50 @@ enum PasswordGenerator {
     private static let uppercase = Array("ABCDEFGHJKLMNPQRSTUVWXYZ")
     private static let numbers = Array("23456789")
     private static let symbols = Array("!@#$%^&*+-=_?")
-    private static let words = ["anchor", "amber", "bamboo", "beacon", "cedar", "cloud", "coral", "ember", "falcon", "forest", "harbor", "indigo", "island", "jungle", "lantern", "lotus", "mango", "meadow", "nebula", "ocean", "olive", "orbit", "pebble", "river", "saffron", "silent", "silver", "summit", "tiger", "velvet"]
+    // The previous 30-word list gave a four-word passphrase about 20 bits of entropy.
+    private static var words: [String] { PassphraseWordList.words }
 
+    /// `SystemRandomNumberGenerator` is cryptographically secure, and Swift's
+    /// `random(in:)`/`randomElement()` sample without modulo bias.
     static func password(length: Int, uppercase: Bool, numbers: Bool, symbols: Bool) -> String {
-        var source = lowercase
-        if uppercase { source += self.uppercase }
-        if numbers { source += self.numbers }
-        if symbols { source += self.symbols }
-        guard !source.isEmpty else { return "" }
-        return String((0..<max(length, 4)).compactMap { _ in source.randomElement() })
+        var generator = SystemRandomNumberGenerator()
+        return password(
+            length: length, uppercase: uppercase, numbers: numbers, symbols: symbols,
+            using: &generator
+        )
+    }
+
+    /// Every selected character class appears at least once, as sites with
+    /// composition rules expect and as Apple's generator guarantees.
+    static func password<Generator: RandomNumberGenerator>(
+        length: Int,
+        uppercase: Bool,
+        numbers: Bool,
+        symbols: Bool,
+        using generator: inout Generator
+    ) -> String {
+        var classes = [lowercase]
+        if uppercase { classes.append(self.uppercase) }
+        if numbers { classes.append(self.numbers) }
+        if symbols { classes.append(self.symbols) }
+        let source = classes.flatMap { $0 }
+        let count = max(length, 4)
+        var characters = (0..<count).map { _ in source[Int.random(in: source.indices, using: &generator)] }
+        // Place one character from each class at distinct random positions.
+        var positions = Array(characters.indices)
+        positions.shuffle(using: &generator)
+        for (characterClass, position) in zip(classes, positions) {
+            characters[position] = characterClass[Int.random(in: characterClass.indices, using: &generator)]
+        }
+        return String(characters)
     }
 
     static func passphrase(wordCount: Int, separator: String, capitalize: Bool, includeNumber: Bool) -> String {
-        var result = (0..<max(wordCount, 3)).compactMap { _ in words.randomElement() }
+        var generator = SystemRandomNumberGenerator()
+        var result = (0..<max(wordCount, 3)).compactMap { _ in words.randomElement(using: &generator) }
         if capitalize { result = result.map { $0.capitalized } }
         var phrase = result.joined(separator: separator)
-        if includeNumber { phrase += separator + String(Int.random(in: 10...99)) }
+        if includeNumber { phrase += separator + String(Int.random(in: 10...99, using: &generator)) }
         return phrase
     }
 
@@ -93,7 +121,9 @@ enum PasswordGenerator {
 nonisolated enum TOTPGenerator {
     static func code(secret: String, date: Date = Date(), digits: Int = 6, period: Int = 30) -> String? {
         let configuration = configuration(secret: secret, fallbackDigits: digits, fallbackPeriod: period)
-        guard let keyData = decodeBase32(configuration.secret) else { return nil }
+        guard let keyData = decodeBase32(configuration.secret), !keyData.isEmpty,
+              (1...86_400).contains(configuration.period), (1...9).contains(configuration.digits),
+              date.timeIntervalSince1970 >= 0 else { return nil }
         var counter = UInt64(date.timeIntervalSince1970 / Double(configuration.period)).bigEndian
         let counterData = Data(bytes: &counter, count: MemoryLayout<UInt64>.size)
         let key = SymmetricKey(data: keyData)
@@ -133,7 +163,7 @@ nonisolated enum TOTPGenerator {
         }
         let resolvedDigits = Int(parameters["digits"] ?? "").flatMap { (6...8).contains($0) ? $0 : nil }
             ?? fallbackDigits
-        let resolvedPeriod = Int(parameters["period"] ?? "").flatMap { $0 > 0 ? $0 : nil }
+        let resolvedPeriod = Int(parameters["period"] ?? "").flatMap { (1...86_400).contains($0) ? $0 : nil }
             ?? fallbackPeriod
         return Configuration(
             secret: parameters["secret"] ?? "",

@@ -27,6 +27,9 @@ nonisolated struct SyncFlushResult: Sendable {
 actor VaultSyncEngine {
     private let service: any VaultwardenService
     private let queue: SyncMutationQueue
+    /// Replays for one account never overlap. Two overlapping flushes would read
+    /// the same ready request and send a create twice.
+    private var activeFlushes: [String: Task<SyncFlushResult, Never>] = [:]
 
     init(service: any VaultwardenService, queue: SyncMutationQueue = SyncMutationQueue()) {
         self.service = service
@@ -61,6 +64,30 @@ actor VaultSyncEngine {
     }
 
     func flush(session: AuthenticatedSession) async -> SyncFlushResult {
+        let reference = session.tokenReference
+        // Wait for a replay already in progress, then run a fresh one so requests
+        // queued while it was running are not left for the next retry tick.
+        while let running = activeFlushes[reference] {
+            _ = await running.value
+        }
+        let task = Task { () -> SyncFlushResult in
+            let result = await self.performFlush(session: session)
+            await self.finishFlush(reference: reference)
+            return result
+        }
+        activeFlushes[reference] = task
+        return await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
+    }
+
+    private func finishFlush(reference: String) {
+        activeFlushes[reference] = nil
+    }
+
+    private func performFlush(session: AuthenticatedSession) async -> SyncFlushResult {
         var result = SyncFlushResult()
         let ready: [PreparedVaultMutation]
         do {
@@ -75,10 +102,12 @@ actor VaultSyncEngine {
             if Task.isCancelled { break }
             do {
                 try await service.executeMutation(mutation, session: session)
-                try await queue.remove(id: mutation.id, reference: session.tokenReference)
+                try await queue.remove(mutation)
                 result.completed += 1
                 result.completedMutationIDs.append(mutation.id)
             } catch {
+                // Cancellation says nothing about the request. Leave it untouched.
+                if Self.isCancellation(error) { break }
                 if Self.isRevisionConflict(error), mutation.revisionRetryCount < 2 {
                     do {
                         mutation = try await service.rebaseMutation(mutation, session: session)
@@ -86,11 +115,12 @@ actor VaultSyncEngine {
                         mutation.nextAttemptAt = Date()
                         try await queue.update(mutation)
                         try await service.executeMutation(mutation, session: session)
-                        try await queue.remove(id: mutation.id, reference: session.tokenReference)
+                        try await queue.remove(mutation)
                         result.completed += 1
                         result.completedMutationIDs.append(mutation.id)
                         continue
                     } catch {
+                        if Self.isCancellation(error) { break }
                         if Self.isRevisionConflict(error) {
                             mutation.state = .conflicted
                             mutation.lastError = error.localizedDescription
@@ -157,10 +187,26 @@ actor VaultSyncEngine {
         return status == 409 || status == 412
     }
 
-    private nonisolated static func isRetryableSyncFailure(_ error: Error) -> Bool {
-        if let transport = error as? HTTPClientError { return transport.allowsOfflineFallback }
-        guard let serviceError = error as? VaultwardenServiceError,
-              case let .serverRejected(status, _) = serviceError else { return false }
-        return status == 408 || status == 425 || status == 429 || (500...599).contains(status)
+    nonisolated static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        if let urlError = error as? URLError, urlError.code == .cancelled { return true }
+        return false
+    }
+
+    nonisolated static func isRetryableSyncFailure(_ error: Error) -> Bool {
+        // A transport failure never means the server refused the change.
+        if error is HTTPClientError || error is URLError { return true }
+        // Keychain unavailable (device locked) or session awaiting sign-in:
+        // the request is still valid once the account is usable again.
+        if error is SessionStoreError { return true }
+        guard let serviceError = error as? VaultwardenServiceError else { return false }
+        switch serviceError {
+        case .sessionExpired:
+            return true
+        case let .serverRejected(status, _):
+            return status == 401 || status == 408 || status == 425 || status == 429 || (500...599).contains(status)
+        default:
+            return false
+        }
     }
 }
