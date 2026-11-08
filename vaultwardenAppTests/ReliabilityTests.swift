@@ -186,9 +186,9 @@ struct GeneratorReliabilityTests {
         for _ in 0..<200 {
             let password = PasswordGenerator.password(length: 8, uppercase: true, numbers: true, symbols: true)
             #expect(password.count == 8)
-            #expect(password.contains(where: \.isLowercase))
-            #expect(password.contains(where: \.isUppercase))
-            #expect(password.contains(where: \.isNumber))
+            #expect(password.contains(where: { $0.isLowercase }))
+            #expect(password.contains(where: { $0.isUppercase }))
+            #expect(password.contains(where: { $0.isNumber }))
             #expect(password.contains { "!@#$%^&*+-=_?".contains($0) })
         }
     }
@@ -197,7 +197,7 @@ struct GeneratorReliabilityTests {
         let words = PassphraseWordList.words
         #expect(words.count >= 1_024)
         #expect(Set(words).count == words.count)
-        #expect(words.allSatisfy { !$0.isEmpty && $0.allSatisfy(\.isLowercase) })
+        #expect(words.allSatisfy { !$0.isEmpty && $0.allSatisfy({ $0.isLowercase }) })
     }
 
     @Test func totpMatchesRFC6238ReferenceValue() {
@@ -235,7 +235,7 @@ struct TemporaryVaultFilesTests {
         let name = TemporaryVaultFiles.exportFileName(at: Date(timeIntervalSince1970: 0))
         #expect(name.hasPrefix("Vaultwarden-"))
         #expect(name.hasSuffix(".vwvault"))
-        #expect(name.unicodeScalars.allSatisfy(\.isASCII))
+        #expect(name.unicodeScalars.allSatisfy({ $0.isASCII }))
         #expect(TemporaryVaultFiles.isExport(URL(fileURLWithPath: "/tmp/\(name)")))
     }
 

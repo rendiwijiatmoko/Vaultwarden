@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -58,8 +58,21 @@ jobs:
             CODE_SIGN_IDENTITY=- \
             CODE_SIGNING_ALLOWED=YES \
             DEVELOPMENT_TEAM= > "$RUNNER_TEMP/ios.log" 2>&1 || status=$?
-          grep -E 'error:|✘|failed|\*\* |Test run with' "$RUNNER_TEMP/ios.log" | head -300 || true
+          grep -E 'error:|✘|failed|\*\* |Test run with' "$RUNNER_TEMP/ios.log" | sort -u | head -300 || true
           exit $status
+
+      - name: Publish screenshots
+        if: ${{ always() }}
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          dir="$RUNNER_TEMP/snapshots"
+          [ -d "$dir" ] && [ -n "$(ls -A "$dir")" ] || { echo "No screenshots"; exit 0; }
+          cd "$dir"
+          git init -q -b ci-screenshots-ios
+          git -c user.name=ci -c user.email=ci@users.noreply.github.com add -A
+          git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -qm "Screenshots for ${GITHUB_SHA::7}"
+          git push -qf "https://x-access-token:$TOKEN@github.com/${GITHUB_REPOSITORY}.git" ci-screenshots-ios
 
       - name: Upload screenshots
         if: ${{ always() }}
@@ -123,7 +136,7 @@ jobs:
             CODE_SIGN_IDENTITY=- \
             CODE_SIGNING_ALLOWED=YES \
             DEVELOPMENT_TEAM= > "$RUNNER_TEMP/macos.log" 2>&1 || status=$?
-          grep -E 'error:|\*\* ' "$RUNNER_TEMP/macos.log" | head -300 || true
+          grep -E 'error:|\*\* ' "$RUNNER_TEMP/macos.log" | sort -u | head -300 || true
           exit $status
 
       # Restricted entitlements need a provisioning profile to launch, so the
@@ -146,8 +159,21 @@ jobs:
             CODE_SIGN_ENTITLEMENTS= \
             'CODE_SIGN_ENTITLEMENTS[sdk=macosx*]=' \
             DEVELOPMENT_TEAM= > "$RUNNER_TEMP/macos-shots.log" 2>&1 || status=$?
-          grep -E 'error:|✘|\*\* ' "$RUNNER_TEMP/macos-shots.log" | head -100 || true
+          grep -E 'error:|✘|\*\* ' "$RUNNER_TEMP/macos-shots.log" | sort -u | head -100 || true
           exit $status
+
+      - name: Publish screenshots
+        if: ${{ always() }}
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          dir="$RUNNER_TEMP/snapshots"
+          [ -d "$dir" ] && [ -n "$(ls -A "$dir")" ] || { echo "No screenshots"; exit 0; }
+          cd "$dir"
+          git init -q -b ci-screenshots-mac
+          git -c user.name=ci -c user.email=ci@users.noreply.github.com add -A
+          git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -qm "Screenshots for ${GITHUB_SHA::7}"
+          git push -qf "https://x-access-token:$TOKEN@github.com/${GITHUB_REPOSITORY}.git" ci-screenshots-mac
 
       - name: Upload screenshots
         if: ${{ always() }}

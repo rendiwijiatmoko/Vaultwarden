@@ -120,6 +120,6 @@ struct GeneratorTests {
         var generator = SplitMix64(state: 5)
         let parts = SecretGenerator.username(using: &generator).split(separator: ".")
         #expect(parts.count == 2)
-        #expect(parts.last?.suffix(2).allSatisfy(\.isNumber) == true)
+        #expect(parts.last?.suffix(2).allSatisfy({ $0.isNumber }) == true)
     }
 }
