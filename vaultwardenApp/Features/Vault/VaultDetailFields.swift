@@ -9,6 +9,8 @@ struct VaultDetailField: View {
     /// Shown instead of `value` when set, for example a card number's last four.
     var displayValue: String?
     var isSecret = false
+    /// What a masked secret shows instead of dots, for example "•••• 4242".
+    var maskedDisplay: String?
     var isMonospaced = false
     /// False for values that are shown but must not be copied or revealed.
     var allowsAccess = true
@@ -25,7 +27,7 @@ struct VaultDetailField: View {
     static let mask = String(repeating: "•", count: 10)
 
     private var shownValue: String {
-        if isSecret && !(isRevealed && allowsAccess) { return Self.mask }
+        if isSecret && !(isRevealed && allowsAccess) { return maskedDisplay ?? Self.mask }
         return displayValue ?? value
     }
 
@@ -209,7 +211,7 @@ struct PasswordHistoryRow: View {
 
 /// Checks the password against known data leaks with k-anonymity: only the first
 /// five characters of its SHA-1 hash leave the device.
-struct PasswordBreachCheck: View {
+struct PasswordLeakCheckRow: View {
     let password: String
     @State private var state: BreachCheckState = .idle
 

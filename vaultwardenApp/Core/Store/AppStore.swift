@@ -53,6 +53,8 @@ final class AppStore: ObservableObject {
             if settings.haptics != oldValue.haptics {
                 AutoFillSharedVault.setHapticsEnabled(settings.haptics)
             }
+            Clipboard.clearsAutomatically = settings.clearClipboard
+            Clipboard.playsHaptics = settings.haptics
             if settings.biometricUnlock != oldValue.biometricUnlock
                 || settings.devicePasscodeFallback != oldValue.devicePasscodeFallback {
                 configureDeviceUnlock()
@@ -102,6 +104,8 @@ final class AppStore: ObservableObject {
         )
         AutoFillSharedVault.setShowsWebsiteIcons(settings.showFavicons)
         AutoFillSharedVault.setHapticsEnabled(settings.haptics)
+        Clipboard.clearsAutomatically = settings.clearClipboard
+        Clipboard.playsHaptics = settings.haptics
         if let reference = settings.sessionReference,
            let serverURL = URL(string: settings.serverURL) {
             authenticatedSession = AuthenticatedSession(
@@ -199,6 +203,9 @@ final class AppStore: ObservableObject {
     var unfolderedItems: [VaultItem] { derivedItems.unfoldered }
     var organizations: [String] { derivedItems.organizations }
     var isAuthenticated: Bool { authenticatedSession != nil }
+
+    /// Server edit permission; items not yet synced are the user's own.
+    func canEdit(_ item: VaultItem) -> Bool { remoteCiphers[item.id]?.canEdit ?? true }
 
     func temporaryPassword(for sendID: UUID) -> String? {
         temporarySendPasswords[sendID]

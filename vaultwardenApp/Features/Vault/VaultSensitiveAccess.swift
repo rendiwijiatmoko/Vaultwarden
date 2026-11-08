@@ -58,7 +58,8 @@ struct VaultItemPermissions {
     init(item: VaultItem, store: AppStore) {
         let collections = item.collectionIDs.compactMap(store.collection(withID:))
         // With no known collection the server is the judge; it refuses a write it doesn't allow.
-        canEdit = !store.isLocked && (collections.isEmpty || collections.contains { !$0.isReadOnly })
+        canEdit = !store.isLocked && store.canEdit(item)
+            && (collections.isEmpty || collections.contains { !$0.isReadOnly })
         canRevealSecrets = store.canRevealSecrets(of: item)
         canCopyPassword = !item.password.isEmpty && store.canCopyLoginPassword(item)
         canCopyCode = item.totpSecret?.isEmpty == false && store.canCopyVaultSecrets(item)
