@@ -3,11 +3,11 @@ import SwiftUI
 
 /// A single, value-typed description of "which slice of the vault is on screen".
 ///
-/// Every navigable section of the vault — categories, favorites, folders,
-/// organization collections and live search — resolves to one of these cases.
+/// Every navigable section of the vault (categories, favorites, folders,
+/// organization collections and live search) resolves to one of these cases.
 /// Because it is `Hashable` it can drive `NavigationSplitView` column selection
 /// directly, which is what makes the same view tree collapse into a stack on
-/// iPhone and expand into a sidebar layout on iPad.
+/// iPhone and expand into a sidebar layout on iPad and the Mac.
 enum VaultFilter: Hashable, Identifiable {
     case all
     case category(VaultCategory)
@@ -17,8 +17,21 @@ enum VaultFilter: Hashable, Identifiable {
     case collection(String)
     case organization(String)
 
-    /// The section selected by default when the split view has room for a list.
+    /// Kept for callers that open the login list directly.
     static let login = VaultFilter.category(.logins)
+
+    /// The section a regular-width window opens on, as Passwords opens on All.
+    static let defaultSelection = VaultFilter.all
+
+    /// The smart sections at the top of the home screen and sidebar, in Passwords' order.
+    static let smartSections: [VaultFilter] = [
+        .all, .favorites, .category(.passkeys), .category(.codes), .category(.security), .category(.deleted)
+    ]
+
+    /// Item types, listed under the smart sections.
+    static let typeSections: [VaultFilter] = [
+        .category(.logins), .category(.cards), .category(.identities), .category(.secureNotes), .category(.sshKeys)
+    ]
 
     var id: String {
         switch self {
@@ -32,11 +45,75 @@ enum VaultFilter: Hashable, Identifiable {
         }
     }
 
-    /// Non-nil only for the built-in categories, so existing category-specific
-    /// behaviour (TOTP rows, the security dashboard) keeps working unchanged.
+    /// Non-nil only for the built-in categories, so category-specific behaviour
+    /// (code rows, the security recommendations) keeps working unchanged.
     var category: VaultCategory? {
         if case let .category(category) = self { return category }
         return nil
+    }
+
+    /// Titles for the built-in sections, in the words Passwords uses. Folders and
+    /// collections are named by the person, so they have none here.
+    var builtInTitle: String? {
+        switch self {
+        case .all: L10n.string("All")
+        case .favorites: L10n.string("Favorites")
+        case .unfoldered: L10n.string("No Folder")
+        case let .category(category):
+            switch category {
+            case .logins: L10n.string("Passwords")
+            case .passkeys: L10n.string("Passkeys")
+            case .codes: L10n.string("Codes")
+            case .cards: L10n.string("Cards")
+            case .identities: L10n.string("Identities")
+            case .sshKeys: L10n.string("SSH Keys")
+            case .secureNotes: L10n.string("Notes")
+            case .security: L10n.string("Security")
+            case .archived: L10n.string("Archived")
+            case .deleted: L10n.string("Deleted")
+            }
+        case .folder, .collection, .organization: nil
+        }
+    }
+
+    /// The empty state's title. One line, no explanation.
+    var emptyTitle: String {
+        switch self {
+        case .all, .folder, .collection, .organization, .unfoldered: L10n.string("No Items")
+        case .favorites: L10n.string("No Favorites")
+        case let .category(category):
+            switch category {
+            case .logins: L10n.string("No Passwords")
+            case .passkeys: L10n.string("No Passkeys")
+            case .codes: L10n.string("No Codes")
+            case .cards: L10n.string("No Cards")
+            case .identities: L10n.string("No Identities")
+            case .sshKeys: L10n.string("No SSH Keys")
+            case .secureNotes: L10n.string("No Notes")
+            case .security: L10n.string("No Issues Found")
+            case .archived: L10n.string("No Archived Items")
+            case .deleted: L10n.string("No Deleted Items")
+            }
+        }
+    }
+
+    /// The symbol for an empty list. Security reads as a clean bill of health.
+    var emptySymbol: String {
+        category == .security ? "checkmark.shield.fill" : icon
+    }
+
+    /// Whether an empty list offers New Item. Sections that only collect items
+    /// made elsewhere (codes, passkeys, security, archive, trash) don't.
+    var offersNewItem: Bool {
+        switch self {
+        case .all, .unfoldered, .folder: true
+        case .favorites, .collection, .organization: false
+        case let .category(category):
+            switch category {
+            case .logins, .cards, .identities, .secureNotes, .sshKeys: true
+            case .passkeys, .codes, .security, .archived, .deleted: false
+            }
+        }
     }
 
     /// Seeds the new-item editor from the section the user is currently
@@ -61,10 +138,11 @@ enum VaultFilter: Hashable, Identifiable {
 
     var icon: String {
         switch self {
+        case .category(.logins): "key.horizontal.fill"
         case let .category(category): category.icon
         case .all: "key.fill"
         case .favorites: "star.fill"
-        case .unfoldered: "questionmark.folder.fill"
+        case .unfoldered: "tray.fill"
         case .folder: "folder.fill"
         case .collection, .organization: "person.2.fill"
         }
@@ -72,19 +150,31 @@ enum VaultFilter: Hashable, Identifiable {
 
     var color: Color {
         switch self {
-        case let .category(category): category.color
+        case let .category(category):
+            switch category {
+            case .logins: .blue
+            case .passkeys: .green
+            case .codes: .orange
+            case .cards: .cyan
+            case .identities: .teal
+            case .sshKeys: .indigo
+            case .secureNotes: .brown
+            case .security: .red
+            case .archived: .gray
+            case .deleted: .gray
+            }
         case .all: .blue
-        case .favorites: .vaultYellow
-        case .unfoldered: .secondary
-        case .folder: .vaultBlue
-        case .collection, .organization: .vaultGreen
+        case .favorites: .yellow
+        case .unfoldered: .gray
+        case .folder: .blue
+        case .collection, .organization: .green
         }
     }
 
     /// Sections that only make sense once the user goes looking for them.
     static let hiddenCategories: [VaultCategory] = [.archived, .deleted]
 
-    /// Built-in cards on the adaptive dashboard grid — everything except the
+    /// Built-in cards on the adaptive dashboard grid: everything except the
     /// hidden ones, with `Login` kept as the leading card.
     static let dashboardCategories: [VaultCategory] = VaultCategory.allCases.filter {
         !hiddenCategories.contains($0)

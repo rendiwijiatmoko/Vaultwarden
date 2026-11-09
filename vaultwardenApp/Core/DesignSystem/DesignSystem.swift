@@ -21,6 +21,51 @@ extension Color {
     #endif
 }
 
+/// Named animations, so the whole app moves the same way. All finish in under 0.35 s.
+enum VaultMotion {
+    /// A value or control changing in place from the person's own action.
+    static let snappy = Animation.snappy(duration: 0.28)
+    /// Content replacing a placeholder, or a label swapping its words.
+    static let fade = Animation.easeOut(duration: 0.2)
+    /// A panel or section opening and closing.
+    static let panel = Animation.smooth(duration: 0.32)
+
+    /// Movement is dropped under Reduce Motion; the change still happens.
+    static func movement(_ animation: Animation = snappy, reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : animation
+    }
+}
+
+private struct VaultHapticsEnabledKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
+extension EnvironmentValues {
+    /// Mirrors Settings > Haptic Feedback for views that have no store.
+    var vaultHapticsEnabled: Bool {
+        get { self[VaultHapticsEnabledKey.self] }
+        set { self[VaultHapticsEnabledKey.self] = newValue }
+    }
+}
+
+private struct VaultHapticModifier<Trigger: Equatable>: ViewModifier {
+    let feedback: SensoryFeedback
+    let trigger: Trigger
+    @Environment(\.vaultHapticsEnabled) private var isEnabled
+
+    func body(content: Content) -> some View {
+        content.sensoryFeedback(feedback, trigger: trigger) { _, _ in isEnabled && Clipboard.playsHaptics }
+    }
+}
+
+extension View {
+    /// Plays `feedback` when `trigger` changes. Drive it from a counter the person's
+    /// own action increments, never from synced model state.
+    func vaultHaptic<Trigger: Equatable>(_ feedback: SensoryFeedback, trigger: Trigger) -> some View {
+        modifier(VaultHapticModifier(feedback: feedback, trigger: trigger))
+    }
+}
+
 struct VaultIcon: View {
     let systemName: String
     let color: Color
@@ -62,12 +107,20 @@ struct EmptyStateView: View {
         ContentUnavailableView(
             L10n.string(title),
             systemImage: icon,
-            description: Text(L10n.string(message))
+            description: message.isEmpty ? nil : Text(L10n.string(message))
         )
     }
 }
 
 enum Clipboard {
+    /// Settings > Clear Clipboard. Set by `AppStore` from the person's settings.
+    static var clearsAutomatically = true
+    /// Settings > Haptic Feedback. `Clipboard` plays nothing itself: the view that
+    /// copies plays the confirmation (`vaultHaptic`), which reads this and the
+    /// `vaultHapticsEnabled` environment value.
+    static var playsHaptics = true
+
+    /// Copies `value`, removed after 30 seconds unless clearing is turned off.
     static func copy(_ value: String) {
         #if os(macOS)
         let pasteboard = NSPasteboard.general
@@ -75,15 +128,16 @@ enum Clipboard {
         pasteboard.setString(value, forType: .string)
         // Ask clipboard managers to avoid retaining a copied secret.
         pasteboard.setData(Data(), forType: NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType"))
+        pasteboard.setData(Data(), forType: NSPasteboard.PasteboardType("org.nspasteboard.TransientType"))
         let changeCount = pasteboard.changeCount
         #else
         let pasteboard = UIPasteboard.general
-        pasteboard.setItems([["public.utf8-plain-text": value]], options: [
-            .localOnly: true, .expirationDate: Date().addingTimeInterval(30)
-        ])
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        var options: [UIPasteboard.OptionsKey: Any] = [.localOnly: true]
+        if clearsAutomatically { options[.expirationDate] = Date().addingTimeInterval(30) }
+        pasteboard.setItems([["public.utf8-plain-text": value]], options: options)
         let changeCount = pasteboard.changeCount
         #endif
+        guard clearsAutomatically else { return }
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(30))
             // Never erase content copied afterwards, including the same text.
@@ -116,6 +170,8 @@ struct AnimatedCopyButton: View {
                         copied ? L10n.string("Copied") : L10n.string(title),
                         systemImage: copied ? "checkmark" : "doc.on.doc"
                     )
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
                         .contentTransition(.symbolEffect(.replace))
                 } else {
                     Image(systemName: copied ? "checkmark" : "doc.on.doc")
@@ -130,6 +186,7 @@ struct AnimatedCopyButton: View {
                 ? L10n.format("%@ copied", L10n.string(accessibilityName))
                 : L10n.format("Copy %@", L10n.string(accessibilityName))
         )
+        .vaultHaptic(.success, trigger: copySequence)
     }
 
     private func copy() {
@@ -137,12 +194,12 @@ struct AnimatedCopyButton: View {
         onCopy?()
         copySequence += 1
         let currentSequence = copySequence
-        withAnimation(.snappy) { copied = true }
+        withAnimation(VaultMotion.fade) { copied = true }
 
         Task {
-            try? await Task.sleep(for: .seconds(1.2))
+            try? await Task.sleep(for: .seconds(1.5))
             guard copySequence == currentSequence else { return }
-            withAnimation(.snappy) { copied = false }
+            withAnimation(VaultMotion.fade) { copied = false }
         }
     }
 }

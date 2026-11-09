@@ -59,6 +59,24 @@ nonisolated struct BitwardenVaultPayloadDecoder: VaultPayloadDecoder {
         userKey: Data,
         credentials: StoredSessionCredentials
     ) async throws -> DecryptedVaultSnapshot {
+        // Callers are MainActor. Decrypting thousands of ciphers must not block the UI.
+        try await decodeOffMainActor(
+            payload: payload,
+            serverURL: serverURL,
+            email: email,
+            userKey: userKey,
+            credentials: credentials
+        )
+    }
+
+    @concurrent
+    private func decodeOffMainActor(
+        payload: Data,
+        serverURL: URL,
+        email: String,
+        userKey: Data,
+        credentials: StoredSessionCredentials
+    ) async throws -> DecryptedVaultSnapshot {
         guard userKey.count == 64 else { throw VaultCryptoError.invalidUserKey }
         guard let accountKeys = credentials.accountKeys,
               let kdf = credentials.kdf else {
@@ -101,10 +119,10 @@ nonisolated struct BitwardenVaultPayloadDecoder: VaultPayloadDecoder {
             }
         }
 
+        // Server payloads are untrusted: a duplicated organization must not trap.
         let organizationNames = Dictionary(
-            uniqueKeysWithValues: (sync.profile?.organizations ?? []).map {
-                ($0.id, $0.name ?? "Organization")
-            }
+            (sync.profile?.organizations ?? []).map { ($0.id, $0.name ?? "Organization") },
+            uniquingKeysWith: { first, _ in first }
         )
         var collections: [VaultCollection] = []
         for collection in sync.collections {
@@ -171,11 +189,7 @@ nonisolated struct BitwardenVaultPayloadDecoder: VaultPayloadDecoder {
             remoteCiphers: remoteCiphers,
             folderIDsByName: folderIDsByName,
             remoteSends: remoteSends,
-            organizationKeys: Dictionary(
-                uniqueKeysWithValues: (sync.profile?.organizations ?? []).compactMap { organization in
-                    organization.key.map { (organization.id, $0) }
-                }
-            )
+            organizationKeys: Self.organizationKeys(sync.profile?.organizations ?? [])
         )
     }
 
@@ -199,16 +213,19 @@ nonisolated struct BitwardenVaultPayloadDecoder: VaultPayloadDecoder {
                 upgradeToken: nil
             )
         )
-        let organizationKeys = Dictionary(
-            uniqueKeysWithValues: organizations.compactMap { organization in
-                organization.key.map { (organization.id, $0) }
-            }
-        )
+        let organizationKeys = Self.organizationKeys(organizations)
         if !organizationKeys.isEmpty {
             try await client.crypto().initializeOrgCrypto(
                 req: InitOrgCryptoRequest(organizationKeys: organizationKeys)
             )
         }
+    }
+
+    static func organizationKeys(_ organizations: [SyncOrganizationDTO]) -> [String: String] {
+        Dictionary(
+            organizations.compactMap { organization in organization.key.map { (organization.id, $0) } },
+            uniquingKeysWith: { first, _ in first }
+        )
     }
 
     private func decodingDetails(_ error: Error) -> String {

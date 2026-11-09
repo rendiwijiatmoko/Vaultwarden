@@ -39,8 +39,29 @@ enum VaultCryptoError: LocalizedError, Equatable {
             "The server did not return the encrypted account keys required to unlock the vault."
         case .invalidUserKey:
             "The decrypted user key has an invalid format."
-        case let .sdkFailure(message):
-            "Bitwarden crypto failed: \(message)"
+        case .sdkFailure:
+            // The SDK message is technical; a failed unwrap is almost always a wrong password.
+            "The vault couldn't be unlocked. Check your master password and try again."
+        }
+    }
+}
+
+extension KDFConfiguration {
+    /// Bitwarden's documented ranges, slightly widened for older Vaultwarden accounts.
+    nonisolated static let pbkdf2Iterations = 5_000...5_000_000
+    nonisolated static let argon2Iterations = 1...10
+    nonisolated static let argon2MemoryMiB = 15...1_024
+    nonisolated static let argon2Parallelism = 1...16
+
+    nonisolated var isWithinSupportedBounds: Bool {
+        switch type {
+        case .pbkdf2SHA256:
+            return Self.pbkdf2Iterations.contains(iterations)
+        case .argon2id:
+            guard let memory, let parallelism else { return false }
+            return Self.argon2Iterations.contains(iterations)
+                && Self.argon2MemoryMiB.contains(memory)
+                && Self.argon2Parallelism.contains(parallelism)
         }
     }
 }

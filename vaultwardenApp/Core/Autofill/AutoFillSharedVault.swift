@@ -583,12 +583,12 @@ nonisolated enum AutoFillSharedVaultError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .appGroupUnavailable: L10n.string("The shared AutoFill container is unavailable.")
-        case .vaultUnavailable: L10n.string("Open the main app and sync your vault before using AutoFill.")
-        case .invalidVaultKey: L10n.string("The shared vault key is invalid. Sign in again from the main app.")
-        case .invalidPayload: L10n.string("The shared AutoFill vault could not be decrypted. Sync from the main app.")
-        case .authenticationFailed: L10n.string("Biometric or device-passcode authentication was not completed.")
-        case let .keychain(status): L10n.format("Keychain could not unlock AutoFill (error %d).", status)
+        case .appGroupUnavailable: L10n.string("AutoFill can’t reach Vaultwarden. Open Vaultwarden, then try again.")
+        case .vaultUnavailable: L10n.string("Open Vaultwarden to set up AutoFill, then try again.")
+        case .invalidVaultKey: L10n.string("Sign in to Vaultwarden again, then try again.")
+        case .invalidPayload: L10n.string("Open Vaultwarden to refresh AutoFill, then try again.")
+        case .authenticationFailed: L10n.string("Authentication didn’t finish. Try again.")
+        case .keychain: L10n.string("AutoFill couldn’t unlock. Try again.")
         }
     }
 }
@@ -605,6 +605,18 @@ nonisolated enum AutoFillSharedVault {
     static let publishedCountKey = "autofill.publishedCount"
     static let defaultURIMatchTypeKey = "autofill.defaultURIMatchType"
     static let showsWebsiteIconsKey = "autofill.showsWebsiteIcons"
+    static let hapticsKey = "autofill.haptics"
+
+    /// Mirrors the app's haptics preference. Defaults to on when the app has not written it.
+    static var hapticsEnabled: Bool {
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier),
+              defaults.object(forKey: hapticsKey) != nil else { return true }
+        return defaults.bool(forKey: hapticsKey)
+    }
+
+    static func setHapticsEnabled(_ enabled: Bool) {
+        UserDefaults(suiteName: appGroupIdentifier)?.set(enabled, forKey: hapticsKey)
+    }
 
     static var showsWebsiteIcons: Bool {
         guard let defaults = UserDefaults(suiteName: appGroupIdentifier),
@@ -725,6 +737,14 @@ nonisolated enum AutoFillSharedVault {
         }
         guard DeviceUnlockPolicy.current == policy else { throw AutoFillSharedVaultError.vaultUnavailable }
         let payloadKey = try loadPayloadKey(reference: reference, context: context)
+        // Reading, decrypting and decoding the whole index is the slowest step of
+        // presenting AutoFill. Keep it off the caller's actor (usually the main one).
+        return try await Task.detached(priority: .userInitiated) {
+            try Self.decryptVault(payloadKey: payloadKey, reference: reference)
+        }.value
+    }
+
+    private static func decryptVault(payloadKey: Data, reference: String) throws -> AutoFillUnlockedVault {
         let encrypted = try Data(contentsOf: vaultURL())
         let key = encryptionKey(keyMaterial: payloadKey, reference: reference)
         guard let box = try? AES.GCM.SealedBox(combined: encrypted),
@@ -750,6 +770,7 @@ nonisolated enum AutoFillSharedVault {
                 defaults.removeObject(forKey: activeReferenceKey)
                 defaults.removeObject(forKey: publishedAtKey)
                 defaults.removeObject(forKey: publishedCountKey)
+                defaults.removeObject(forKey: AutoFillUsageHistory.storageKey)
             }
         }
         if let reference {
@@ -919,6 +940,24 @@ nonisolated enum AutoFillTOTP {
         return String(format: "%0*u", configuration.digits, value % modulus)
     }
 
+    static func period(secret: String) -> Int {
+        configuration(secret).period
+    }
+
+    /// Whole seconds until the code changes, from `period` down to 1.
+    static func secondsRemaining(secret: String, date: Date = Date()) -> Int {
+        let period = period(secret: secret)
+        let elapsed = Int(date.timeIntervalSince1970.rounded(.down)) % period
+        return period - elapsed
+    }
+
+    /// Splits a code in two groups for reading, the way Passwords shows it ("123 456").
+    static func grouped(_ code: String) -> String {
+        guard code.count > 4 else { return code }
+        let split = code.index(code.startIndex, offsetBy: code.count / 2)
+        return "\(code[..<split]) \(code[split...])"
+    }
+
     private static func configuration(_ value: String) -> (secret: String, algorithm: String, digits: Int, period: Int) {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.lowercased().hasPrefix("otpauth://"),
@@ -952,5 +991,295 @@ nonisolated enum AutoFillTOTP {
             }
         }
         return output
+    }
+}
+
+// MARK: - AutoFill picker
+
+/// Text normalization shared by picker search, section matching and letter tiles.
+nonisolated enum AutoFillSearch {
+    /// Case, diacritic and width insensitive, so "CAFÉ" finds "Cafe".
+    static func fold(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: nil)
+    }
+
+    /// The host people recognize: no scheme, path, port or leading "www.".
+    static func displayHost(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let candidate = trimmed.contains("://") ? trimmed : "https://\(trimmed)"
+        guard var host = URLComponents(string: candidate)?.host?.lowercased()
+            .trimmingCharacters(in: CharacterSet(charactersIn: ".")),
+              !host.isEmpty else { return nil }
+        if host.hasPrefix("www."), host.count > 4 { host.removeFirst(4) }
+        return host
+    }
+
+    /// A pasted URL searches by its host.
+    static func normalizedQuery(_ query: String) -> String {
+        let folded = fold(query)
+        if folded.contains("://"), let host = displayHost(folded) { return host }
+        if folded.hasPrefix("www."), folded.count > 4 { return String(folded.dropFirst(4)) }
+        return folded
+    }
+
+    /// Distinct hosts for a record, in the order its URIs were saved.
+    static func websites(for record: AutoFillCredentialRecord) -> [String] {
+        var hosts: [String] = []
+        let values = (record.uriRules ?? []).map(\.uri) + [record.serviceIdentifier].compactMap { $0 }
+        for value in values {
+            guard let host = displayHost(value), !hosts.contains(host) else { continue }
+            hosts.append(host)
+        }
+        return hosts
+    }
+
+    /// Precomputed once per record so typing never re-normalizes the vault.
+    static func key(for record: AutoFillCredentialRecord) -> String {
+        ([fold(record.name), fold(record.username)] + websites(for: record))
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+    }
+}
+
+nonisolated struct AutoFillPickerEntry: Identifiable, Hashable, Sendable {
+    let record: AutoFillCredentialRecord
+    let searchKey: String
+
+    var id: String { record.id }
+
+    init(record: AutoFillCredentialRecord) {
+        self.record = record
+        searchKey = AutoFillSearch.key(for: record)
+    }
+}
+
+nonisolated enum AutoFillPickerContext: Sendable, Equatable {
+    /// No website or app is asking, as when inserting text.
+    case none
+    /// Suggest the records whose URI rules match the request.
+    case services([String], defaultMatchType: AutoFillURIMatchType)
+    /// Every record already matches, as with passkeys filtered by relying party.
+    case allSuggested
+}
+
+nonisolated struct AutoFillPickerSections: Sendable, Equatable {
+    var suggested: [AutoFillPickerEntry]
+    var other: [AutoFillPickerEntry]
+    /// True when a website asked, so the sections get "Suggested" and "Other" headers.
+    var isContextual: Bool
+
+    static let empty = Self(suggested: [], other: [], isContextual: false)
+
+    var isEmpty: Bool { suggested.isEmpty && other.isEmpty }
+
+    /// Keyboard order: suggested first, then the rest.
+    var orderedIDs: [String] { suggested.map(\.id) + other.map(\.id) }
+
+    func entry(id: String) -> AutoFillPickerEntry? {
+        suggested.first { $0.id == id } ?? other.first { $0.id == id }
+    }
+
+    /// Filtering keeps each section's order, so typing never re-sorts.
+    func filtered(by query: String) -> Self {
+        let needle = AutoFillSearch.normalizedQuery(query)
+        guard !needle.isEmpty else { return self }
+        return Self(
+            suggested: suggested.filter { $0.searchKey.contains(needle) },
+            other: other.filter { $0.searchKey.contains(needle) },
+            isContextual: isContextual
+        )
+    }
+}
+
+nonisolated enum AutoFillPicker {
+    static func sections(
+        records: [AutoFillCredentialRecord],
+        context: AutoFillPickerContext,
+        usage: AutoFillUsageSnapshot
+    ) -> AutoFillPickerSections {
+        let entries = records.map(AutoFillPickerEntry.init(record:))
+        switch context {
+        case .none:
+            return AutoFillPickerSections(suggested: [], other: alphabetical(entries), isContextual: false)
+        case .allSuggested:
+            let candidates = entries.map { entry -> (AutoFillPickerEntry, AutoFillCredentialMatch?) in
+                (entry, nil)
+            }
+            return AutoFillPickerSections(
+                suggested: ranked(candidates, usage: usage),
+                other: [],
+                isContextual: false
+            )
+        case let .services(identifiers, defaultMatchType):
+            let requested = identifiers
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            guard !requested.isEmpty else {
+                return AutoFillPickerSections(suggested: [], other: alphabetical(entries), isContextual: false)
+            }
+            var matched: [(AutoFillPickerEntry, AutoFillCredentialMatch?)] = []
+            var rest: [AutoFillPickerEntry] = []
+            for entry in entries {
+                if let match = entry.record.bestMatch(
+                    serviceIdentifiers: requested,
+                    defaultMatchType: defaultMatchType
+                ) {
+                    matched.append((entry, match))
+                } else {
+                    rest.append(entry)
+                }
+            }
+            return AutoFillPickerSections(
+                suggested: ranked(matched, usage: usage),
+                other: alphabetical(rest),
+                isContextual: true
+            )
+        }
+    }
+
+    /// Most recently used first, then the closest URI match, then by name.
+    private static func ranked(
+        _ entries: [(AutoFillPickerEntry, AutoFillCredentialMatch?)],
+        usage: AutoFillUsageSnapshot
+    ) -> [AutoFillPickerEntry] {
+        entries
+            .map { (entry: $0.0, match: $0.1, used: usage.lastUsed(id: $0.0.id)) }
+            .sorted { lhs, rhs in
+                switch (lhs.used, rhs.used) {
+                case let (left?, right?) where left != right: return left > right
+                case (.some, nil): return true
+                case (nil, .some): return false
+                default: break
+                }
+                if lhs.match != rhs.match {
+                    return (lhs.match?.rawValue ?? 0) > (rhs.match?.rawValue ?? 0)
+                }
+                return precedesAlphabetically(lhs.entry, rhs.entry)
+            }
+            .map { $0.entry }
+    }
+
+    private static func alphabetical(_ entries: [AutoFillPickerEntry]) -> [AutoFillPickerEntry] {
+        entries.sorted(by: precedesAlphabetically)
+    }
+
+    private static func precedesAlphabetically(_ lhs: AutoFillPickerEntry, _ rhs: AutoFillPickerEntry) -> Bool {
+        let name = lhs.record.name.localizedStandardCompare(rhs.record.name)
+        if name != .orderedSame { return name == .orderedAscending }
+        let username = lhs.record.username.localizedStandardCompare(rhs.record.username)
+        if username != .orderedSame { return username == .orderedAscending }
+        return lhs.id < rhs.id
+    }
+}
+
+// MARK: - Recently used
+
+/// When each credential was last filled, keyed by a hash of the account and record ID.
+/// Holds no names, usernames, URLs or secrets.
+nonisolated struct AutoFillUsageSnapshot: Sendable, Equatable {
+    /// Rank for identities that were never filled. Higher ranks are offered first.
+    static let baseRank = 100
+    static let empty = Self(accountReference: "", lastUsedByKey: [:])
+
+    let accountReference: String
+    let lastUsedByKey: [String: Date]
+    private let ordinals: [String: Int]
+
+    init(accountReference: String, lastUsedByKey: [String: Date]) {
+        self.accountReference = accountReference
+        self.lastUsedByKey = lastUsedByKey
+        let oldestFirst = lastUsedByKey.sorted { lhs, rhs in
+            lhs.value != rhs.value ? lhs.value < rhs.value : lhs.key < rhs.key
+        }
+        var ordinals: [String: Int] = [:]
+        for (index, element) in oldestFirst.enumerated() {
+            ordinals[element.key] = index + 1
+        }
+        self.ordinals = ordinals
+    }
+
+    func lastUsed(id: String) -> Date? {
+        lastUsedByKey[AutoFillUsageHistory.key(accountReference: accountReference, id: id)]
+    }
+
+    /// The QuickType rank for an identity: the most recently filled credential ranks highest.
+    func rank(id: String) -> Int {
+        let key = AutoFillUsageHistory.key(accountReference: accountReference, id: id)
+        return Self.baseRank + (ordinals[key] ?? 0)
+    }
+}
+
+nonisolated struct AutoFillUsageHistory {
+    static let storageKey = "autofill.lastUsed.v1"
+
+    let accountReference: String
+    private let defaults: UserDefaults?
+    private let capacity: Int
+
+    init(
+        accountReference: String,
+        defaults: UserDefaults? = UserDefaults(suiteName: AutoFillSharedVault.appGroupIdentifier),
+        capacity: Int = 500
+    ) {
+        self.accountReference = accountReference
+        self.defaults = defaults
+        self.capacity = max(1, capacity)
+    }
+
+    static func key(accountReference: String, id: String) -> String {
+        SHA256.hash(data: Data("vaultwarden-autofill-usage|\(accountReference)|\(id)".utf8))
+            .prefix(16)
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+
+    func snapshot() -> AutoFillUsageSnapshot {
+        let stored = defaults?.dictionary(forKey: Self.storageKey) as? [String: Double] ?? [:]
+        return AutoFillUsageSnapshot(
+            accountReference: accountReference,
+            lastUsedByKey: stored.mapValues { Date(timeIntervalSince1970: $0) }
+        )
+    }
+
+    func recordUse(id: String, at date: Date = Date()) {
+        guard let defaults, !id.isEmpty else { return }
+        var stored = defaults.dictionary(forKey: Self.storageKey) as? [String: Double] ?? [:]
+        stored[Self.key(accountReference: accountReference, id: id)] = date.timeIntervalSince1970
+        if stored.count > capacity {
+            let newest = stored.sorted { $0.value > $1.value }.prefix(capacity)
+            stored = Dictionary(uniqueKeysWithValues: newest.map { ($0.key, $0.value) })
+        }
+        defaults.set(stored, forKey: Self.storageKey)
+    }
+}
+
+// MARK: - Letter tiles
+
+/// Matches the app's `VaultMonogram`, so a site wears the same tile in the app and in AutoFill.
+nonisolated enum AutoFillLetterTile {
+    /// The first letter or digit of the name, else of the host.
+    static func initial(for name: String, host: String? = nil) -> String {
+        for source in [name, host ?? ""] {
+            if let character = source.first(where: { $0.isLetter || $0.isNumber }) {
+                return String(String(character).uppercased().prefix(1))
+            }
+        }
+        return "?"
+    }
+
+    /// A stable palette slot from the website (or the name when there is none). Uses FNV-1a
+    /// because `Hasher` is seeded per launch and the tile must keep its color.
+    static func paletteIndex(host: String?, name: String, paletteCount: Int) -> Int {
+        guard paletteCount > 0 else { return 0 }
+        let seed = host.flatMap(AutoFillSearch.displayHost)
+            ?? name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for byte in seed.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 0x0000_0100_0000_01b3
+        }
+        return Int(hash % UInt64(paletteCount))
     }
 }

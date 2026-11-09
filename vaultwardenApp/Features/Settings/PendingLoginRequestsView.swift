@@ -1,188 +1,129 @@
 import SwiftUI
 
+/// Sign-ins started on other devices that are waiting for this one to approve them.
 struct PendingLoginRequestsView: View {
     @EnvironmentObject private var store: AppStore
 
     @State private var requests: [PendingLoginRequest] = []
     @State private var isLoading = false
+    @State private var hasLoaded = false
     @State private var processingIDs: Set<String> = []
     @State private var errorMessage: String?
-    @State private var confirmation: PendingLoginRequest?
+    @State private var pendingDenial: PendingLoginRequest?
     @State private var approvalRequest: PendingLoginRequest?
+    /// Counts approvals made here, so the haptic answers the person's own action.
+    @State private var approvals = 0
 
     var body: some View {
-        List {
-            Section {
-                Label {
-                    Text("Only approve a request you started on another device. Compare the fingerprint phrase with the requesting device before continuing.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                } icon: {
-                    Image(systemName: "checkmark.shield.fill")
-                        .foregroundStyle(.blue)
-                }
-                .padding(.vertical, 5)
-            }
-
+        Form {
             if let errorMessage {
                 Section {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Label("Unable to load login requests", systemImage: "exclamationmark.triangle.fill")
+                    VStack(alignment: .leading, spacing: SettingsSpacing.standard) {
+                        StatusTone.failure.apply(to: Text("Couldn’t Load Requests"))
                             .font(.headline)
-                            .foregroundStyle(.red)
-                        Text(errorMessage)
+                        Text(verbatim: errorMessage)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                         Button("Try Again") {
                             Task { await loadRequests() }
                         }
+                        .disabled(isLoading)
                     }
-                    .padding(.vertical, 5)
+                    .padding(.vertical, SettingsSpacing.tight)
                 }
             }
 
-            if isLoading && requests.isEmpty {
-                Section {
-                    HStack(spacing: 12) {
-                        ProgressView()
-                        Text("Checking for login requests…")
-                            .foregroundStyle(.secondary)
+            if requests.isEmpty {
+                if isLoading || hasLoaded == false {
+                    Section {
+                        HStack(spacing: SettingsSpacing.row) {
+                            ProgressView().controlSize(.small)
+                            Text("Checking for Requests…")
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, SettingsSpacing.section)
                     }
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, 24)
+                } else if errorMessage == nil {
+                    Section {
+                        ContentUnavailableView(
+                            "No Login Requests",
+                            systemImage: "checkmark.shield",
+                            description: Text("When you sign in on another device and choose to approve it here, the request appears on this page.")
+                        )
+                    }
                 }
-            } else if requests.isEmpty && errorMessage == nil {
+            } else {
                 Section {
-                    ContentUnavailableView(
-                        "No Pending Requests",
-                        systemImage: "person.badge.clock",
-                        description: Text("New device login requests will appear here.")
-                    )
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 24)
-                }
-            } else if !requests.isEmpty {
-                Section("Pending Requests") {
                     ForEach(requests) { request in
-                        requestRow(request)
+                        LoginRequestRow(
+                            request: request,
+                            isProcessing: processingIDs.contains(request.id),
+                            onDeny: { pendingDenial = request },
+                            onApprove: { approvalRequest = request }
+                        )
                     }
+                } header: {
+                    Text(verbatim: SettingsWords.inflected("^[\(requests.count) Request](inflect: true)"))
+                } footer: {
+                    Text("Approve only a sign-in you started yourself, and only if its fingerprint phrase matches the one on that device.")
                 }
             }
         }
+        .formStyle(.grouped)
         .navigationTitle("Login Requests")
-        .vaultToolbarTitleDisplayMode(.inlineLarge)
+        .vaultNavigationTitleDisplayMode(.inline)
+        .animation(SettingsMotion.row, value: requests.map(\.id))
         .refreshable { await loadRequests() }
         .toolbar {
             ToolbarItem(placement: .vaultTrailing) {
-                Button {
+                Button("Refresh", systemImage: "arrow.clockwise") {
                     Task { await loadRequests() }
-                } label: {
-                    if isLoading {
-                        ProgressView()
-                    } else {
-                        Image(systemName: "arrow.clockwise")
-                    }
                 }
                 .disabled(isLoading)
-                .tint(nil)
-                .accessibilityLabel("Refresh login requests")
+                .help("Check for new requests")
             }
         }
         .task { await loadRequests() }
+        .sensoryFeedback(.success, trigger: approvals) { _, _ in store.settings.haptics }
         .sheet(item: $approvalRequest) { request in
             LoginRequestApprovalSheet(request: request) {
                 requests.removeAll { $0.id == request.id }
+                approvals += 1
             }
             .environmentObject(store)
         }
-        .alert(item: $confirmation) { request in
-            Alert(
-                title: Text("Reject Login Request?"),
-                message: Text(L10n.format("The pending request from %@ will be denied.", request.deviceType)),
-                primaryButton: .destructive(Text("Reject")) { respond(to: request, approved: false) },
-                secondaryButton: .cancel()
-            )
+        .confirmationDialog(
+            L10n.string("Deny This Sign-In?"),
+            isPresented: Binding(
+                get: { pendingDenial != nil },
+                set: { if $0 == false { pendingDenial = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingDenial
+        ) { request in
+            Button("Deny Sign-In", role: .destructive) { respond(to: request, approved: false) }
+            Button("Cancel", role: .cancel) {}
+        } message: { request in
+            Text("The \(request.deviceType) waiting to sign in won’t get access to your vault.")
         }
-    }
-
-    @ViewBuilder
-    private func requestRow(_ request: PendingLoginRequest) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 12) {
-                Image(systemName: deviceIcon(for: request.deviceType))
-                    .font(.title3)
-                    .foregroundStyle(.white)
-                    .frame(width: 42, height: 42)
-                    .background(Color.vaultBlue.gradient, in: RoundedRectangle(cornerRadius: 11))
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(request.deviceType)
-                        .font(.headline)
-                    Text(request.creationDate.formatted(.relative(presentation: .named)))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer()
-
-                if processingIDs.contains(request.id) {
-                    ProgressView()
-                }
-            }
-
-            LabeledContent("IP Address", value: request.ipAddress)
-                .font(.subheadline)
-
-            if let origin = request.origin, !origin.isEmpty {
-                LabeledContent("Server", value: origin)
-                    .font(.subheadline)
-                    .lineLimit(1)
-            }
-
-            if let phrase = request.fingerprintPhrase, !phrase.isEmpty {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Fingerprint Phrase").font(.caption).foregroundStyle(.secondary)
-                    Text(phrase).font(.body.monospaced()).textSelection(.enabled)
-                }
-            } else {
-                Text("The fingerprint phrase could not be generated. This request cannot be approved.")
-                    .font(.caption).foregroundStyle(.red)
-            }
-
-            HStack(spacing: 10) {
-                Button(role: .destructive) {
-                    confirmation = request
-                } label: {
-                    Text("Reject")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-
-                Button {
-                    approvalRequest = request
-                } label: {
-                    Text("Approve")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(request.fingerprintPhrase?.isEmpty != false)
-            }
-            .disabled(processingIDs.contains(request.id))
-        }
-        .padding(.vertical, 7)
     }
 
     private func loadRequests() async {
-        guard !isLoading else { return }
+        guard isLoading == false else { return }
         isLoading = true
-        defer { isLoading = false }
+        defer {
+            isLoading = false
+            hasLoaded = true
+        }
         do {
             requests = try await store.loadPendingLoginRequests()
             errorMessage = nil
         } catch is CancellationError {
             return
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = L10n.string("Check your connection, then try again.")
+            SecureLog.failure("Login request load", error: error, logger: SecureLog.security)
         }
     }
 
@@ -199,8 +140,79 @@ struct PendingLoginRequestsView: View {
             }
         }
     }
+}
 
-    private func deviceIcon(for type: String) -> String {
+/// One waiting sign-in: the device, when and where it asked, its phrase, and the choice.
+private struct LoginRequestRow: View {
+    let request: PendingLoginRequest
+    let isProcessing: Bool
+    let onDeny: () -> Void
+    let onApprove: () -> Void
+
+    private var hasPhrase: Bool {
+        request.fingerprintPhrase?.isEmpty == false
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: SettingsSpacing.row) {
+            HStack(spacing: SettingsSpacing.row) {
+                SettingsIconTile(systemImage: Self.deviceIcon(for: request.deviceType), color: .blue, baseSide: 36)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(verbatim: request.deviceType)
+                        .font(.headline)
+                    Text(verbatim: facts)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                if isProcessing {
+                    ProgressView().controlSize(.small)
+                }
+            }
+
+            if let phrase = request.fingerprintPhrase, phrase.isEmpty == false {
+                VStack(alignment: .leading, spacing: SettingsSpacing.tight) {
+                    Text("Fingerprint Phrase")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(verbatim: phrase)
+                        .font(.body.monospaced())
+                        .textSelection(.enabled)
+                }
+            } else {
+                StatusTone.failure.apply(to: Text("This request has no fingerprint phrase, so it can’t be approved."))
+                    .font(.footnote)
+            }
+
+            HStack(spacing: SettingsSpacing.standard) {
+                Button(role: .destructive, action: onDeny) {
+                    Text("Deny…").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+
+                Button(action: onApprove) {
+                    Text("Approve…").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(hasPhrase == false)
+            }
+            .controlSize(.large)
+            .disabled(isProcessing)
+        }
+        .padding(.vertical, SettingsSpacing.standard)
+    }
+
+    /// "2 minutes ago · 203.0.113.4 · vault.example.com"
+    private var facts: String {
+        var parts = [request.creationDate.formatted(.relative(presentation: .named))]
+        if request.ipAddress.isEmpty == false { parts.append(request.ipAddress) }
+        if let origin = request.origin, origin.isEmpty == false {
+            parts.append(SettingsWords.serverHost(origin))
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private static func deviceIcon(for type: String) -> String {
         let value = type.lowercased()
         if value.contains("ios") || value.contains("iphone") || value.contains("android") {
             return "iphone"
@@ -221,6 +233,7 @@ struct PendingLoginRequestsView: View {
     }
 }
 
+/// Confirms the phrase matches, then asks who you are before approving.
 private struct LoginRequestApprovalSheet: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.dismiss) private var dismiss
@@ -230,41 +243,63 @@ private struct LoginRequestApprovalSheet: View {
     @State private var masterPassword = ""
     @State private var isApproving = false
     @State private var errorMessage: String?
+    @FocusState private var isPasswordFocused: Bool
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Verify Request") {
-                    Text("Compare this phrase with the one on the device requesting access. Reject the request if they differ.")
-                    Text(request.fingerprintPhrase ?? "")
-                        .font(.body.monospaced()).textSelection(.enabled)
-                    LabeledContent("Device", value: request.deviceType)
-                    LabeledContent("IP Address", value: request.ipAddress)
-                    Toggle("The fingerprint phrases match", isOn: $phraseMatches)
+                Section {
+                    Text(verbatim: request.fingerprintPhrase ?? "")
+                        .font(.title3.monospaced())
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    LabeledContent("Device") { Text(verbatim: request.deviceType) }
+                    if request.ipAddress.isEmpty == false {
+                        LabeledContent("IP Address") { Text(verbatim: request.ipAddress) }
+                    }
+                    Toggle("The Phrases Match", isOn: $phraseMatches)
+                } header: {
+                    Text("Fingerprint Phrase")
+                } footer: {
+                    Text("It must match the phrase on the device asking to sign in, word for word. If it doesn’t, cancel and deny the request.")
                 }
-                Section("Confirm Your Identity") {
+
+                Section {
                     if store.settings.biometricUnlock {
                         Button {
                             approve(usingMasterPassword: false)
                         } label: {
-                            Label(L10n.format("Approve with %@", BiometricAuthenticator.displayName),
-                                  systemImage: BiometricAuthenticator.systemImage)
+                            Label(
+                                L10n.format("Approve with %@", BiometricAuthenticator.displayName),
+                                systemImage: BiometricAuthenticator.systemImage
+                            )
                         }
-                        .disabled(!phraseMatches || isApproving)
+                        .disabled(phraseMatches == false || isApproving)
                     }
                     SecureField("Master Password", text: $masterPassword)
-                        .textContentType(.password)
+                        .vaultTextContentType(.password)
+                        .focused($isPasswordFocused)
+                        .submitLabel(.done)
                         .onSubmit { approve(usingMasterPassword: true) }
                     Button("Approve with Master Password") { approve(usingMasterPassword: true) }
-                        .disabled(!phraseMatches || masterPassword.isEmpty || isApproving)
-                    if isApproving { ProgressView() }
-                    if let errorMessage { Text(errorMessage).foregroundStyle(.red) }
+                        .disabled(phraseMatches == false || masterPassword.isEmpty || isApproving)
+                } header: {
+                    Text("Confirm It’s You")
+                } footer: {
+                    if let errorMessage {
+                        StatusTone.failure.apply(to: Text(verbatim: errorMessage))
+                    } else if isApproving {
+                        Text("Approving…")
+                    }
                 }
             }
-            .navigationTitle("Approve Login Request")
+            .formStyle(.grouped)
+            .navigationTitle("Approve Sign-In")
+            .vaultNavigationTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }.disabled(isApproving)
+                    Button("Cancel") { dismiss() }
+                        .disabled(isApproving)
                 }
             }
         }
@@ -279,8 +314,8 @@ private struct LoginRequestApprovalSheet: View {
     }
 
     private func approve(usingMasterPassword: Bool) {
-        guard phraseMatches, !isApproving,
-              !usingMasterPassword || !masterPassword.isEmpty else { return }
+        guard phraseMatches, isApproving == false,
+              usingMasterPassword == false || masterPassword.isEmpty == false else { return }
         isApproving = true
         errorMessage = nil
         let password = usingMasterPassword ? masterPassword : nil
@@ -297,6 +332,7 @@ private struct LoginRequestApprovalSheet: View {
                 dismiss()
             } catch {
                 errorMessage = error.localizedDescription
+                if usingMasterPassword { isPasswordFocused = true }
             }
         }
     }

@@ -1,93 +1,171 @@
 #if os(macOS)
 import SwiftUI
 
+/// The SSH Agent pane: whether it runs, how a shell reaches it, and which keys it offers.
 struct SSHAgentSettingsView: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var agent: MacSSHAgent
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var availableKeys: [VaultItem] {
         store.items.filter { store.canUseSSHKey($0) && (try? SSHAgentSigner.publicBlob($0.username)) != nil }
     }
 
+    private var isEnabled: Bool { store.settings.sshAgentEnabled == true }
+
+    private var allowedKeyIDs: Set<UUID> { Set(store.settings.sshAgentAllowedKeyIDs ?? []) }
+
+    private var enabledKeyCount: Int {
+        availableKeys.filter { allowedKeyIDs.contains($0.id) }.count
+    }
+
+    private var heroLine: Text {
+        let line = SettingsWords.sshHeadline(
+            isEnabled: isEnabled,
+            isRunning: agent.isRunning,
+            startupFailed: agent.startupFailed,
+            enabledKeys: enabledKeyCount
+        )
+        return SettingsWords.sshTone(isEnabled: isEnabled, isRunning: agent.isRunning, startupFailed: agent.startupFailed)
+            .apply(to: Text(verbatim: line))
+    }
+
     var body: some View {
         Form {
-            Section("SSH Agent") {
-                Toggle("Enable SSH Agent", isOn: Binding(
-                    get: { store.settings.sshAgentEnabled == true },
-                    set: { store.settings.sshAgentEnabled = $0 }
-                ))
-                .disabled(!store.isAuthenticated)
-                LabeledContent("Status") {
-                    Text(L10n.string(agent.isRunning ? "Running" : "Stopped"))
-                }
-                Text("Use vault SSH keys with SSH and Git. Approve each request or remember approval for a selected key.")
-                    .foregroundStyle(.secondary)
-                if agent.startupFailed {
-                    Text("Could not start SSH agent. Check App Group access, socket path length, and whether another app instance is running.")
-                        .foregroundStyle(.red)
-                    Button("Retry") { agent.retry() }
-                }
+            SettingsHero(
+                Text("SSH Agent"),
+                subtitle: heroLine,
+                systemImage: "terminal.fill",
+                tint: .gray
+            ) {
+                Toggle("SSH Agent", isOn: enabled)
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+                    .disabled(store.isAuthenticated == false)
             }
-            Section("Terminal Setup") {
-                if let path = agent.socketPath {
-                    Text(path).font(.caption.monospaced()).textSelection(.enabled)
-                    Text(agent.shellConfiguration).font(.caption.monospaced()).textSelection(.enabled)
-                    AnimatedCopyButton(value: agent.shellConfiguration, title: "Copy Configuration",
-                                       accessibilityName: "SSH agent configuration")
-                    Text("Add this command to ~/.zshrc and open a new terminal. Keep Vaultwarden running. Test with ssh-add -L, then ssh -T git@github.com after registering your public key.")
-                        .font(.caption).foregroundStyle(.secondary)
-                } else {
-                    Text("SSH socket is unavailable. Run a signed build with the configured App Group entitlement.")
-                        .foregroundStyle(.secondary)
-                }
-            }
-            Section("Available SSH Keys") {
-                if store.isLocked || !store.isAuthenticated {
-                    Text("Unlock your vault to select SSH keys.").foregroundStyle(.secondary)
-                } else if availableKeys.isEmpty {
-                    Text("Create or import an Ed25519 or RSA SSH key first.").foregroundStyle(.secondary)
-                } else {
-                    ForEach(availableKeys) { item in
-                        VStack(alignment: .leading, spacing: 6) {
-                            Toggle(isOn: Binding(
-                                get: { (store.settings.sshAgentAllowedKeyIDs ?? []).contains(item.id) },
-                                set: { enabled in
-                                    var ids = Set(store.settings.sshAgentAllowedKeyIDs ?? [])
-                                    if enabled { ids.insert(item.id) } else { ids.remove(item.id) }
-                                    var settings = store.settings
-                                    settings.sshAgentAllowedKeyIDs = Array(ids)
-                                    if !enabled {
-                                        settings.sshAgentApprovals?.removeAll { $0.keyID == item.id }
-                                    }
-                                    store.settings = settings
-                                }
-                            )) {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(item.name)
-                                    if let blob = try? SSHAgentSigner.publicBlob(item.username) {
-                                        Text(SSHAgentSigner.fingerprint(blob)).font(.caption.monospaced())
-                                            .foregroundStyle(.secondary).textSelection(.enabled)
-                                    }
-                                }
-                            }
-                            if agent.isAlwaysApproved(item) {
-                                HStack {
-                                    Text("Always Approve is enabled.")
-                                        .font(.caption).foregroundStyle(.secondary)
-                                    Spacer()
-                                    Button("Require Approval Again") { agent.revokeAlwaysApproval(for: item.id) }
-                                }
-                            }
-                        }
+
+            if isEnabled && agent.startupFailed {
+                Section {
+                    SettingsDetailRow(
+                        title: Text("Couldn’t Start"),
+                        detail: Text("Another copy of Vaultwarden may be running, or this build can’t reach its App Group container.")
+                    ) {
+                        Button("Try Again") { agent.retry() }
                     }
                 }
-                Text("No keys are enabled by default. Deleted, archived, and restricted keys are unavailable. RSA requires SHA-256 or SHA-512 signatures.")
-                    .font(.caption).foregroundStyle(.secondary)
-                Text("Always Approve applies to all local SSH clients using that key while the vault is unlocked. It is saved on this Mac and can be revoked here.")
-                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            if isEnabled {
+                Section {
+                    if agent.socketPath != nil {
+                        HStack(alignment: .top, spacing: SettingsSpacing.row) {
+                            Text(verbatim: agent.shellConfiguration)
+                                .font(.system(.caption, design: .monospaced))
+                                .textSelection(.enabled)
+                                .lineLimit(4)
+                                .truncationMode(.middle)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            AnimatedCopyButton(
+                                value: agent.shellConfiguration,
+                                title: "Copy",
+                                accessibilityName: "SSH agent configuration"
+                            )
+                        }
+                        .padding(SettingsSpacing.row)
+                        .background(.fill.tertiary, in: .rect(cornerRadius: 8))
+                    } else {
+                        StatusTone.attention.apply(to: Text("The SSH socket isn’t available in this build. Run a signed build with App Group access."))
+                    }
+                } header: {
+                    Text("Terminal")
+                } footer: {
+                    if agent.socketPath != nil {
+                        Text("Add this line to ~/.zshrc, then open a new Terminal window. Check it with ssh-add -L. Vaultwarden needs to keep running.")
+                    }
+                }
+
+                Section {
+                    if store.isLocked || store.isAuthenticated == false {
+                        Text("Unlock your vault to choose keys.")
+                            .foregroundStyle(.secondary)
+                    } else if availableKeys.isEmpty {
+                        Text("Add an Ed25519 or RSA SSH key to your vault to use it here.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(availableKeys) { item in
+                            SSHKeyRow(
+                                item: item,
+                                isAllowed: allowed(item),
+                                isAlwaysAllowed: agent.isAlwaysApproved(item),
+                                onAskAgain: { agent.revokeAlwaysApproval(for: item.id) }
+                            )
+                        }
+                    }
+                } header: {
+                    Text("Keys")
+                } footer: {
+                    Text("Keys are offered only after you turn them on. Always Allow lets any app on this Mac use that key while your vault is unlocked; Ask Every Time takes it back.")
+                }
             }
         }
-        .navigationTitle("SSH Agent")
+        .animation(SettingsMotion.row(reduceMotion: reduceMotion), value: isEnabled)
+        .settingsPane()
+    }
+
+    private var enabled: Binding<Bool> {
+        Binding(
+            get: { store.settings.sshAgentEnabled == true },
+            set: { store.settings.sshAgentEnabled = $0 }
+        )
+    }
+
+    /// Turning a key off also forgets its Always Allow, so turning it back on asks again.
+    private func allowed(_ item: VaultItem) -> Binding<Bool> {
+        Binding(
+            get: { (store.settings.sshAgentAllowedKeyIDs ?? []).contains(item.id) },
+            set: { isAllowed in
+                var ids = Set(store.settings.sshAgentAllowedKeyIDs ?? [])
+                if isAllowed { ids.insert(item.id) } else { ids.remove(item.id) }
+                var settings = store.settings
+                settings.sshAgentAllowedKeyIDs = Array(ids)
+                if isAllowed == false {
+                    settings.sshAgentApprovals?.removeAll { $0.keyID == item.id }
+                }
+                store.settings = settings
+            }
+        )
+    }
+}
+
+/// One key: its name and fingerprint, its switch, and whether it still asks.
+private struct SSHKeyRow: View {
+    let item: VaultItem
+    @Binding var isAllowed: Bool
+    let isAlwaysAllowed: Bool
+    let onAskAgain: () -> Void
+
+    private var fingerprint: String {
+        guard let blob = try? SSHAgentSigner.publicBlob(item.username) else { return "" }
+        return SSHAgentSigner.fingerprint(blob)
+    }
+
+    var body: some View {
+        SettingsDetailRow(
+            title: Text(verbatim: item.name),
+            detail: Text(verbatim: fingerprint).monospaced(),
+            systemImage: "key.horizontal.fill",
+            tint: .gray
+        ) {
+            HStack(spacing: SettingsSpacing.standard) {
+                if isAllowed && isAlwaysAllowed {
+                    Button("Ask Every Time", action: onAskAgain)
+                        .help("Ask before any app uses this key again")
+                }
+                Toggle(item.name, isOn: $isAllowed)
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+            }
+        }
     }
 }
 
@@ -113,6 +191,7 @@ struct SSHAgentPresentation: ViewModifier {
     }
 }
 
+/// Asks whether a local SSH client may use a key, or unlock to list keys.
 struct SSHAgentAuthorizationView: View {
     let prompt: SSHAgentPrompt
     var compact = false
@@ -121,48 +200,73 @@ struct SSHAgentAuthorizationView: View {
     @State private var masterPassword = ""
     @State private var unlocking = false
     @State private var unlockFailed = false
+    @FocusState private var isPasswordFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Label("SSH Agent Request", systemImage: "terminal.fill").font(.title2.bold())
-            if let name = prompt.keyName, let fingerprint = prompt.fingerprint {
-                Text("Allow this SSH client to use the following key?")
-                Text(name).font(.headline).textSelection(.enabled)
-                Text(fingerprint).font(.caption.monospaced()).textSelection(.enabled)
-                Text("Approve only requests you initiated. The agent cannot verify the destination host from this request.")
-                    .font(.caption).foregroundStyle(.secondary)
-                Text("Always Approve lets local SSH clients use this key without asking again while the vault is unlocked. Change this in Settings → SSH Agent.")
-                    .font(.caption).foregroundStyle(.secondary)
-            } else {
-                Text("An SSH client needs access to your available public keys. Unlock your vault to continue.")
-            }
-            if store.isLocked {
-                Button("Unlock Vault") {
-                    Task {
-                        unlocking = true
-                        let success = await store.unlockWithBiometrics()
-                        unlockFailed = !success
-                        unlocking = false
-                        if success && prompt.keyName == nil { agent.resolvePrompt(id: prompt.id, approved: true) }
+            HStack(spacing: SettingsSpacing.row) {
+                SettingsIconTile(systemImage: "terminal.fill", color: .gray, baseSide: 40)
+                Group {
+                    if prompt.keyName == nil {
+                        Text("SSH Keys Requested")
+                    } else {
+                        Text("Allow SSH Access?")
                     }
                 }
-                SecureField("Master password", text: $masterPassword)
-                    .onSubmit { unlockWithPassword() }
-                Button("Unlock with Master Password") { unlockWithPassword() }
-                    .disabled(masterPassword.isEmpty)
-                if unlockFailed { Text("Could not unlock vault. Please try again.").foregroundStyle(.red) }
+                .font(.title2.bold())
+                .accessibilityAddTraits(.isHeader)
+            }
+            if let name = prompt.keyName, let fingerprint = prompt.fingerprint {
+                VStack(alignment: .leading, spacing: SettingsSpacing.tight) {
+                    Text(verbatim: name).font(.headline).textSelection(.enabled)
+                    Text(verbatim: fingerprint).font(.caption.monospaced()).textSelection(.enabled)
+                        .foregroundStyle(.secondary)
+                }
+                Text("Allow only if you just ran ssh or Git. Vaultwarden can’t see which server the request is for. Always Allow lets apps on this Mac use this key without asking while your vault is unlocked; change it in Settings ▸ SSH Agent.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text("An SSH client wants to see which keys are available. Unlock your vault to continue.")
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if store.isLocked {
+                VStack(alignment: .leading, spacing: SettingsSpacing.standard) {
+                    if store.settings.biometricUnlock {
+                        Button {
+                            Task { await unlockWithBiometrics() }
+                        } label: {
+                            Label(
+                                L10n.format("Unlock with %@", BiometricAuthenticator.displayName),
+                                systemImage: BiometricAuthenticator.systemImage
+                            )
+                        }
+                    }
+                    HStack(spacing: SettingsSpacing.standard) {
+                        SecureField("Master Password", text: $masterPassword)
+                            .textFieldStyle(.roundedBorder)
+                            .focused($isPasswordFocused)
+                            .onSubmit { unlockWithPassword() }
+                        Button("Unlock") { unlockWithPassword() }
+                            .disabled(masterPassword.isEmpty)
+                    }
+                    if unlockFailed {
+                        StatusTone.failure.apply(to: Text("That didn’t unlock the vault. Try again."))
+                            .font(.callout)
+                    }
+                }
             }
             HStack {
                 Button("Deny", role: .cancel) { agent.resolvePrompt(id: prompt.id, approved: false) }
                     .keyboardShortcut(.cancelAction)
                 Spacer()
                 if prompt.keyName != nil {
-                    Button("Always Approve") { agent.resolvePrompt(id: prompt.id, approved: true, alwaysApprove: true) }
+                    Button("Always Allow") { agent.resolvePrompt(id: prompt.id, approved: true, alwaysApprove: true) }
                         .disabled(store.isLocked || unlocking)
-                    Button("Approve Once") { agent.resolvePrompt(id: prompt.id, approved: true) }
+                    Button("Allow Once") { agent.resolvePrompt(id: prompt.id, approved: true) }
                         .buttonStyle(.borderedProminent)
                         .disabled(store.isLocked || unlocking)
-                } else if !store.isLocked {
+                } else if store.isLocked == false {
                     Button("Continue") { agent.resolvePrompt(id: prompt.id, approved: true) }
                         .buttonStyle(.borderedProminent)
                         .disabled(unlocking)
@@ -181,6 +285,14 @@ struct SSHAgentAuthorizationView: View {
         }
     }
 
+    private func unlockWithBiometrics() async {
+        unlocking = true
+        let success = await store.unlockWithBiometrics()
+        unlockFailed = !success
+        unlocking = false
+        if success && prompt.keyName == nil { agent.resolvePrompt(id: prompt.id, approved: true) }
+    }
+
     private func unlockWithPassword() {
         guard !masterPassword.isEmpty, !unlocking else { return }
         let password = masterPassword
@@ -191,6 +303,7 @@ struct SSHAgentAuthorizationView: View {
             unlockFailed = !success
             unlocking = false
             if success && prompt.keyName == nil { agent.resolvePrompt(id: prompt.id, approved: true) }
+            if !success { isPasswordFocused = true }
         }
     }
 }

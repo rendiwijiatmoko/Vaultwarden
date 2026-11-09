@@ -14,7 +14,9 @@ nonisolated enum BackgroundSyncManager {
             schedule()
             let operation = Task { @MainActor in
                 let success = await handler()
-                if !Task.isCancelled { refreshTask.setTaskCompleted(success: success) }
+                // The system requires completion even after expiration; skipping it
+                // gets the app's future background time throttled.
+                refreshTask.setTaskCompleted(success: success && !Task.isCancelled)
             }
             refreshTask.expirationHandler = { operation.cancel() }
         }

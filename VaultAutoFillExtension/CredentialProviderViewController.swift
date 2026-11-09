@@ -1,19 +1,18 @@
 import AuthenticationServices
 import Combine
+import ImageIO
 import LocalAuthentication
 import OSLog
 import SwiftUI
 #if os(macOS)
 import AppKit
 private typealias AutoFillHostingController = NSHostingController
-private typealias AutoFillImage = NSImage
 private enum AutoFillKeyboardType { case `default`, URL }
 private enum AutoFillCapitalization { case never, characters }
 private typealias AutoFillTextContentType = NSTextContentType
 #else
 import UIKit
 private typealias AutoFillHostingController = UIHostingController
-private typealias AutoFillImage = UIImage
 private typealias AutoFillKeyboardType = UIKeyboardType
 private typealias AutoFillCapitalization = TextInputAutocapitalization
 private typealias AutoFillTextContentType = UITextContentType
@@ -58,6 +57,9 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     private var isViewPresented = false
     private var isAuthenticationPresentationReady = false
     private var presentationGeneration = 0
+    private var listGeneration = 0
+    /// Set once a fill starts, so a second tap or Return can't complete the request twice.
+    private var isCompletingRequest = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -207,9 +209,8 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         serviceIdentifiers = [generatePasswordsRequest.serviceIdentifier.identifier]
         ensureViewLoaded()
         viewModel.generatedPasswords = AutoFillPasswordGeneration.options(for: generatePasswordsRequest)
-        viewModel.state = .passwordGeneration(
-            L10n.string("Choose a generated password that follows this website’s password rules.")
-        )
+        viewModel.serviceIdentifiers = serviceIdentifiers
+        viewModel.state = .passwordGeneration
     }
 
     #endif
@@ -279,7 +280,6 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         pendingRequest = nil
         pendingCredentialSelection = nil
         viewModel.searchText = ""
-        viewModel.showsAllCredentials = false
         viewModel.selectedTextCredential = nil
         self.passkeyRequestParameters = passkeyRequestParameters
         self.serviceIdentifiers = serviceIdentifiers.map(\.identifier)
@@ -297,8 +297,10 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
 
     private func unlockVault(reason: String) {
         isRequestCancelled = false
+        isCompletingRequest = false
         ensureViewLoaded()
-        showLoading(message: L10n.string("Unlocking encrypted AutoFill vault…"))
+        viewModel.biometry = AutoFillBiometry.current
+        showLoading(message: nil)
         pendingUnlockReason = reason
         startPendingUnlockIfPossible()
     }
@@ -310,7 +312,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
               let reason = pendingUnlockReason else { return }
         pendingUnlockReason = nil
         isUnlockingVault = true
-        viewModel.state = .loading(L10n.string("Unlocking encrypted AutoFill vault…"))
+        viewModel.state = .loading(nil)
         Task {
             defer { isUnlockingVault = false }
             do {
@@ -348,17 +350,10 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     }
 
     private func showAuthenticationRetry(reason: String) {
-        #if os(macOS)
-        viewModel.state = .retry(
-            L10n.string("Authenticate with Touch ID or your Mac password to open the encrypted vault.")
-        )
-        viewModel.primaryActionTitle = L10n.string("Unlock Vault")
-        #else
-        viewModel.state = .retry(
-            L10n.string("Authenticate with Face ID or your device passcode to open the encrypted vault.")
-        )
-        viewModel.primaryActionTitle = L10n.string("Unlock with Face ID")
-        #endif
+        let biometry = AutoFillBiometry.current
+        viewModel.biometry = biometry
+        viewModel.primaryActionTitle = biometry.unlockTitle
+        viewModel.state = .retry
         viewModel.onPrimaryAction = { [weak self] in
             guard let self else { return }
             self.pendingUnlockReason = reason
@@ -402,8 +397,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
                     )
                 }
         } else {
-            credentials = payload.credentials
-            .filter { credential in
+            credentials = payload.credentials.filter { credential in
                 switch mode {
                 case .password: credential.isLogin && !credential.password.isEmpty
                 case .oneTimeCode: credential.isLogin && credential.totpSecret?.isEmpty == false
@@ -414,7 +408,6 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
                 case .configuration: credential.isLogin
                 }
             }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         }
 
         if mode == .configuration {
@@ -431,29 +424,51 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
                 cancelRequest(code: .credentialIdentityNotFound)
                 return
             }
-            provide(credential)
+            provide(credential, userInitiated: false)
             return
         }
 
         updateAccountAvatar(payload)
         viewModel.searchText = ""
         viewModel.credentials = credentials
-        // Passkeys have already been restricted to the request's RP and allow
-        // list. Password URI matching must not hide them on a subdomain page.
-        viewModel.serviceIdentifiers = mode == .passkey ? [] : serviceIdentifiers
-        viewModel.defaultURIMatchType = AutoFillSharedVault.defaultURIMatchType
+        viewModel.serviceIdentifiers = serviceIdentifiers
         viewModel.showsWebsiteIcons = AutoFillSharedVault.showsWebsiteIcons
         viewModel.websiteIconServerURL = payload.writeSession?.serverURL
         viewModel.folders = payload.folders ?? []
         viewModel.allowsCredentialKindSelection = passkeyRequestParameters != nil
-        viewModel.kind = switch mode {
+        let kind: AutoFillCredentialListKind = switch mode {
         case .oneTimeCode: .oneTimeCode
         case .textInsert: .textInsert
         case .passkey: .passkey
         case .password, .passkeyRegistration, .passwordSave,
              .passwordGeneration, .configuration: .password
         }
-        viewModel.state = .credentials(requestMessage)
+        presentCredentialList(kind: kind, accountReference: payload.accountReference)
+    }
+
+    /// Ranks, partitions and indexes the list off the main actor, then shows it.
+    private func presentCredentialList(kind: AutoFillCredentialListKind, accountReference: String) {
+        listGeneration += 1
+        let generation = listGeneration
+        let records = credentials
+        // Passkeys are already restricted to the request's RP and allow list.
+        // URI rules must not demote them on a subdomain page.
+        let context: AutoFillPickerContext = mode == .passkey
+            ? .allSuggested
+            : .services(serviceIdentifiers, defaultMatchType: AutoFillSharedVault.defaultURIMatchType)
+        Task { [weak self] in
+            let sections = await Task.detached(priority: .userInitiated) {
+                AutoFillPicker.sections(
+                    records: records,
+                    context: context,
+                    usage: AutoFillUsageHistory(accountReference: accountReference).snapshot()
+                )
+            }.value
+            guard let self, generation == self.listGeneration, !self.isRequestCancelled else { return }
+            self.viewModel.kind = kind
+            self.viewModel.setSections(sections)
+            self.viewModel.state = .credentials
+        }
     }
 
     #if os(iOS)
@@ -464,9 +479,8 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     ) {
         updateAccountAvatar(payload)
         viewModel.folders = payload.folders ?? []
-        viewModel.state = .passwordSave(
-            L10n.string("Review the credential before saving it to your encrypted Vaultwarden vault.")
-        )
+        viewModel.serviceIdentifiers = serviceIdentifiers
+        viewModel.state = .passwordSave
         viewModel.beginCreate(
             suggestedURI: request.serviceIdentifier.identifier,
             suggestedName: request.title,
@@ -493,23 +507,20 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         viewModel.websiteIconServerURL = payload.writeSession?.serverURL
         viewModel.registrationRelyingParty = identity.relyingPartyIdentifier
         viewModel.registrationUserName = identity.userName
+        viewModel.serviceIdentifiers = [identity.relyingPartyIdentifier]
         viewModel.registrationTargets = (payload.passkeyTargets ?? [])
             .filter { $0.matches(identity.relyingPartyIdentifier) }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-        viewModel.state = .passkeyRegistration(
-            viewModel.registrationTargets.isEmpty
-                ? L10n.string("A new Login item will be encrypted and saved to your Vaultwarden vault.")
-                : ""
-        )
-        viewModel.primaryActionTitle = L10n.string("Create New Login")
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        viewModel.state = .passkeyRegistration
+        viewModel.primaryActionTitle = L10n.string("Save Passkey")
         viewModel.onPrimaryAction = { [weak self] in
             guard let self else { return }
-            self.viewModel.state = .loading(L10n.string("Creating and saving passkey…"))
+            self.viewModel.state = .loading(L10n.string("Saving Passkey…"))
             Task { await self.registerPasskey(request: request, unlocked: unlocked, targetID: nil) }
         }
         viewModel.onSelectPasskeyTarget = { [weak self] target in
             guard let self else { return }
-            self.viewModel.state = .loading(L10n.string("Creating and saving passkey…"))
+            self.viewModel.state = .loading(L10n.string("Saving Passkey…"))
             Task { await self.registerPasskey(request: request, unlocked: unlocked, targetID: target.id) }
         }
     }
@@ -540,7 +551,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
                 folders: oldPayload.folders,
                 passkeyTargets: oldPayload.passkeyTargets
             )
-            try AutoFillSharedVault.publish(payload: updatedPayload, userKey: unlocked.userKey)
+            try await publish(updatedPayload, userKey: unlocked.userKey)
             unlockedVault = AutoFillUnlockedVault(payload: updatedPayload, userKey: unlocked.userKey)
             await replaceCredentialIdentities(updatedPayload)
             await extensionContext.completeRegistrationRequest(using: result.credential)
@@ -550,12 +561,10 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     }
 
     private func showConfiguration(_ payload: AutoFillVaultPayload) {
-        let passkeyCount = payload.passkeys?.count ?? 0
-        viewModel.state = .configuration(L10n.format(
-            "%lld credentials and %lld passkeys are ready. Finish setup to enable passkey, password, and verification-code suggestions.",
-            payload.credentials.filter(\.isLogin).count,
-            passkeyCount
-        ))
+        viewModel.state = .configuration(
+            passwords: payload.credentials.filter(\.isLogin).count,
+            passkeys: payload.passkeys?.count ?? 0
+        )
         viewModel.primaryActionTitle = L10n.string("Finish Setup")
         viewModel.onPrimaryAction = { [weak self] in
             guard let self else { return }
@@ -566,21 +575,20 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         }
     }
 
-    private func provide(_ record: AutoFillCredentialRecord) {
+    private func provide(_ record: AutoFillCredentialRecord, userInitiated: Bool) {
+        guard !isCompletingRequest else { return }
         switch mode {
         case .password:
             let credential = ASPasswordCredential(user: record.username, password: record.password)
-            pendingCredentialSelection = nil
-            pendingRequest = nil
+            beginCompletingFill(of: record.id, userInitiated: userInitiated)
             extensionContext.completeRequest(withSelectedCredential: credential, completionHandler: nil)
         case .oneTimeCode:
             guard let secret = record.totpSecret,
                   let code = AutoFillTOTP.code(secret: secret) else {
-                showError("This verification code is invalid or unsupported.")
+                showError(L10n.string("Vaultwarden can’t generate this code. Check its setup key in the app."))
                 return
             }
-            pendingCredentialSelection = nil
-            pendingRequest = nil
+            beginCompletingFill(of: record.id, userInitiated: userInitiated)
             extensionContext.completeOneTimeCodeRequest(
                 using: ASOneTimeCodeCredential(code: code),
                 completionHandler: nil
@@ -596,6 +604,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
                 showError(AutoFillPasskeyError.credentialNotFound.localizedDescription)
                 return
             }
+            isCompletingRequest = true
             Task {
                 do {
                     let credential = try await AutoFillPasskeySupport.assertion(
@@ -603,8 +612,11 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
                         selectedPasskey: selected,
                         unlockedVault: unlockedVault
                     )
+                    guard !isRequestCancelled else { return }
+                    beginCompletingFill(of: record.id, userInitiated: userInitiated)
                     await extensionContext.completeAssertionRequest(using: credential)
                 } catch {
+                    isCompletingRequest = false
                     showError(error.localizedDescription)
                 }
             }
@@ -613,88 +625,63 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         }
     }
 
+    /// Records the fill for ranking and confirms a tap, just before the request completes.
+    private func beginCompletingFill(of recordID: String, userInitiated: Bool) {
+        isCompletingRequest = true
+        pendingCredentialSelection = nil
+        pendingRequest = nil
+        recordUse(of: recordID)
+        if userInitiated { playFillFeedback() }
+    }
+
+    private func recordUse(of recordID: String) {
+        guard let reference = unlockedVault?.payload.accountReference else { return }
+        AutoFillUsageHistory(accountReference: reference).recordUse(id: recordID)
+    }
+
+    private func playFillFeedback() {
+        #if os(iOS)
+        guard AutoFillSharedVault.hapticsEnabled else { return }
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        #endif
+    }
+
     @available(iOSApplicationExtension 17.0, *)
     private func providePasskey(
         request: ASPasskeyCredentialRequest,
         unlocked: AutoFillUnlockedVault
     ) {
+        guard !isCompletingRequest else { return }
+        isCompletingRequest = true
         Task {
             do {
                 let credential = try await AutoFillPasskeySupport.assertion(
                     request: request,
                     unlockedVault: unlocked
                 )
+                guard !isRequestCancelled else { return }
+                if let identity = request.credentialIdentity as? ASPasskeyCredentialIdentity {
+                    recordUse(of: identity.credentialID.base64EncodedString())
+                }
                 await extensionContext.completeAssertionRequest(using: credential)
             } catch {
+                isCompletingRequest = false
                 showError(error.localizedDescription)
             }
         }
     }
 
     private func replaceCredentialIdentities(_ payload: AutoFillVaultPayload) async {
-        var identities = payload.credentials.reduce(into: [any ASCredentialIdentity]()) { values, record in
-            guard record.isLogin else { return }
-            guard let serviceValue = record.serviceIdentifier else { return }
-            let service = ASCredentialServiceIdentifier(identifier: serviceValue, type: .domain)
-            if !record.password.isEmpty {
-                let password = ASPasswordCredentialIdentity(
-                    serviceIdentifier: service,
-                    user: record.username,
-                    recordIdentifier: "password|\(record.id)"
-                )
-                password.rank = 100
-                values.append(password)
-            }
-            if record.totpSecret?.isEmpty == false {
-                values.append(ASOneTimeCodeCredentialIdentity(
-                    serviceIdentifier: service,
-                    label: record.name,
-                    recordIdentifier: "totp|\(record.id)"
-                ))
-            }
-        }
-        if #available(iOSApplicationExtension 17.0, *) {
-            identities.append(contentsOf: (payload.passkeys ?? []).map { passkey in
-                ASPasskeyCredentialIdentity(
-                    relyingPartyIdentifier: passkey.relyingPartyIdentifier,
-                    userName: passkey.userName,
-                    credentialID: passkey.credentialID,
-                    userHandle: passkey.userHandle,
-                    recordIdentifier: passkey.cipherID
-                )
-            })
-        }
+        let usage = AutoFillUsageHistory(accountReference: payload.accountReference).snapshot()
+        let identities = AutoFillCredentialIdentityBuilder.identities(for: payload, usage: usage)
         try? await ASCredentialIdentityStore.shared.replaceCredentialIdentities(identities)
     }
 
-    private var requestMessage: String {
-        let trimmedTarget = serviceIdentifiers.first?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let target = trimmedTarget?.isEmpty == false ? trimmedTarget : nil
-        return switch mode {
-        case .oneTimeCode:
-            target.map { L10n.format("Choose a verification code for “%@”.", $0) }
-                ?? L10n.string("Choose a verification code.")
-        case .textInsert:
-            L10n.string("Choose a saved value to insert into the text field.")
-        case .passkey:
-            target.map { L10n.format("Choose a passkey for “%@”.", $0) }
-                ?? L10n.string("Choose a passkey.")
-        case .passkeyRegistration:
-            target.map { L10n.format("Create a passkey for “%@”.", $0) }
-                ?? L10n.string("Create a passkey.")
-        case .passwordSave:
-            target.map { L10n.format("Save a password for “%@”.", $0) }
-                ?? L10n.string("Save this password.")
-        case .passwordGeneration:
-            target.map { L10n.format("Generate a password for “%@”.", $0) }
-                ?? L10n.string("Generate a password.")
-        case .password:
-            target.map { L10n.format("Choose a password for “%@”.", $0) }
-                ?? L10n.string("Choose a password.")
-        case .configuration:
-            L10n.string("Set up Vaultwarden AutoFill.")
-        }
+    /// Sealing the whole index is too slow for the main actor.
+    private func publish(_ payload: AutoFillVaultPayload, userKey: Data) async throws {
+        try await Task.detached(priority: .userInitiated) {
+            try AutoFillSharedVault.publish(payload: payload, userKey: userKey)
+        }.value
     }
 
     private func updateAccountAvatar(_ payload: AutoFillVaultPayload) {
@@ -710,13 +697,13 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         guard let window = view.window else { return }
         let alert = NSAlert()
         alert.messageText = accountDisplayName
-        alert.informativeText = L10n.string("Credentials are loaded from this encrypted Vaultwarden account.")
+        alert.informativeText = L10n.string("AutoFill uses this Vaultwarden account.")
         alert.addButton(withTitle: L10n.string("Done"))
         alert.beginSheetModal(for: window)
         #else
         let alert = UIAlertController(
             title: accountDisplayName,
-            message: L10n.string("Credentials are loaded from this encrypted Vaultwarden account."),
+            message: L10n.string("AutoFill uses this Vaultwarden account."),
             preferredStyle: .actionSheet
         )
         alert.addAction(UIAlertAction(title: L10n.string("Done"), style: .cancel))
@@ -748,14 +735,14 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
             folders: oldPayload.folders,
             passkeyTargets: oldPayload.passkeyTargets
         )
-        try AutoFillSharedVault.publish(payload: updatedPayload, userKey: unlockedVault.userKey)
+        try await publish(updatedPayload, userKey: unlockedVault.userKey)
         let updatedVault = AutoFillUnlockedVault(payload: updatedPayload, userKey: unlockedVault.userKey)
         self.unlockedVault = updatedVault
         credentials.append(result.record)
-        credentials.sort {
-            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
-        }
         viewModel.credentials = credentials
+        if viewModel.showsCredentialList {
+            presentCredentialList(kind: viewModel.kind, accountReference: updatedPayload.accountReference)
+        }
         await replaceCredentialIdentities(updatedPayload)
         return result.record
     }
@@ -782,7 +769,6 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
             case .passkey: self.mode = .passkey
             case .oneTimeCode, .textInsert: return
             }
-            self.viewModel.showsAllCredentials = false
             self.handleUnlocked(unlocked)
         }
         viewModel.onSelect = { [weak self] credential in
@@ -790,12 +776,12 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
             if self.mode == .textInsert {
                 self.viewModel.selectedTextCredential = AutoFillSelectedCredential(id: credential.id)
             } else {
-                self.provide(credential)
+                self.provide(credential, userInitiated: true)
             }
         }
         #if os(iOS)
         viewModel.onInsertText = { [weak self] credential, field in
-            guard let self, self.mode == .textInsert else { return }
+            guard let self, self.mode == .textInsert, !self.isCompletingRequest else { return }
             let value: String
             switch field {
             case .username: value = credential.username
@@ -803,7 +789,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
             case .oneTimeCode:
                 guard let secret = credential.totpSecret,
                       let code = AutoFillTOTP.code(secret: secret) else {
-                    self.showError("This verification code is invalid or unsupported.")
+                    self.showError(L10n.string("Vaultwarden can’t generate this code. Check its setup key in the app."))
                     return
                 }
                 value = code
@@ -811,6 +797,9 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
                 value = field.value
             }
             guard !value.isEmpty else { return }
+            self.isCompletingRequest = true
+            self.recordUse(of: credential.id)
+            self.playFillFeedback()
             let startedAt = ProcessInfo.processInfo.systemUptime
             AutoFillHandoffLog.logger.info("Text insertion handoff started")
             self.extensionContext.completeRequest(withTextToInsert: value, completionHandler: nil)
@@ -833,7 +822,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
             if self.mode == .textInsert {
                 self.viewModel.selectedTextCredential = AutoFillSelectedCredential(id: record.id)
             } else {
-                self.provide(record)
+                self.provide(record, userInitiated: true)
             }
         }
         viewModel.onCancelCreate = { [weak self] in
@@ -882,7 +871,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
         self.hostingController = hostingController
     }
 
-    private func showLoading(message: String) {
+    private func showLoading(message: String?) {
         viewModel.state = .loading(message)
     }
 
@@ -891,6 +880,8 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     }
 
     private func cancelRequest(code: ASExtensionError.Code) {
+        // A request is cancelled once; a second Cancel does nothing.
+        guard !isRequestCancelled else { return }
         isRequestCancelled = true
         pendingCredentialSelection = nil
         pendingRequest = nil
@@ -1000,14 +991,53 @@ private struct AutoFillFieldSection: Identifiable {
 }
 
 private enum AutoFillCredentialListState {
-    case loading(String)
-    case credentials(String)
-    case retry(String)
-    case passkeyRegistration(String)
-    case passwordSave(String)
-    case passwordGeneration(String)
-    case configuration(String)
+    /// A nil message means the system is asking for Face ID, Touch ID or a passcode.
+    case loading(String?)
+    case credentials
+    case retry
+    case passkeyRegistration
+    case passwordSave
+    case passwordGeneration
+    case configuration(passwords: Int, passkeys: Int)
     case error(String)
+}
+
+private enum AutoFillBiometry {
+    case faceID
+    case touchID
+    case opticID
+    case unavailable
+
+    static var current: Self {
+        let context = LAContext()
+        // biometryType is only populated after canEvaluatePolicy runs.
+        _ = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
+        return switch context.biometryType {
+        case .faceID: .faceID
+        case .touchID: .touchID
+        case .opticID: .opticID
+        default: .unavailable
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .faceID: "faceid"
+        case .touchID: "touchid"
+        case .opticID: "opticid"
+        case .unavailable: "lock.fill"
+        }
+    }
+
+    var unlockTitle: String {
+        let key: String = switch self {
+        case .faceID: "Unlock with Face ID"
+        case .touchID: "Unlock with Touch ID"
+        case .opticID: "Unlock with Optic ID"
+        case .unavailable: "Unlock"
+        }
+        return L10n.string(key)
+    }
 }
 
 #if os(iOS)
@@ -1203,14 +1233,19 @@ private enum AutoFillPasswordGeneration {
 
 @MainActor
 private final class AutoFillCredentialListViewModel: ObservableObject {
-    @Published var state: AutoFillCredentialListState = .loading(L10n.string("Preparing AutoFill…"))
+    @Published var state: AutoFillCredentialListState = .loading(nil)
     @Published var credentials: [AutoFillCredentialRecord] = []
+    /// The ranked sections narrowed by the current search.
+    @Published private(set) var visibleSections: AutoFillPickerSections = .empty
     @Published var serviceIdentifiers: [String] = []
-    @Published var defaultURIMatchType: AutoFillURIMatchType = .baseDomain
     @Published var showsWebsiteIcons = true
     @Published var websiteIconServerURL: URL?
-    @Published var searchText = ""
-    @Published var showsAllCredentials = false
+    @Published var searchText = "" {
+        didSet {
+            guard searchText != oldValue else { return }
+            visibleSections = sections.filtered(by: searchText)
+        }
+    }
     @Published var selectedTextCredential: AutoFillSelectedCredential?
     @Published var avatarInitial = "V"
     @Published var accountDisplayName = L10n.string("Vaultwarden account")
@@ -1222,6 +1257,7 @@ private final class AutoFillCredentialListViewModel: ObservableObject {
     #endif
     @Published var kind: AutoFillCredentialListKind = .password
     @Published var allowsCredentialKindSelection = false
+    @Published var biometry: AutoFillBiometry = .unavailable
     @Published var primaryActionTitle = L10n.string("Continue")
     @Published var isPresentingCreate = false
     @Published var isSavingNewLogin = false
@@ -1236,6 +1272,8 @@ private final class AutoFillCredentialListViewModel: ObservableObject {
     @Published var newLoginCustomFields: [AutoFillNewCustomField] = []
     @Published var folders: [AutoFillFolderRecord] = []
     @Published var createError: String?
+
+    private var sections: AutoFillPickerSections = .empty
 
     var onCancel: () -> Void = {}
     var onAdd: () -> Void = {}
@@ -1255,47 +1293,25 @@ private final class AutoFillCredentialListViewModel: ObservableObject {
         throw AutoFillCreateLoginError.unavailable
     }
 
-    var filteredCredentials: [AutoFillCredentialRecord] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if query.isEmpty {
-            guard hasRequestContext, !showsAllCredentials else { return credentials }
-            return credentials
-                .filter {
-                    $0.bestMatch(
-                        serviceIdentifiers: serviceIdentifiers,
-                        defaultMatchType: defaultURIMatchType
-                    ) != nil
-                }
-                .sorted { lhs, rhs in
-                    let lhsMatch = lhs.bestMatch(
-                        serviceIdentifiers: serviceIdentifiers,
-                        defaultMatchType: defaultURIMatchType
-                    )
-                    let rhsMatch = rhs.bestMatch(
-                        serviceIdentifiers: serviceIdentifiers,
-                        defaultMatchType: defaultURIMatchType
-                    )
-                    if lhsMatch != rhsMatch { return (lhsMatch ?? .baseDomain) > (rhsMatch ?? .baseDomain) }
-                    return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
-                }
-        }
-        return credentials.filter { credential in
-            credential.name.localizedCaseInsensitiveContains(query)
-                || credential.username.localizedCaseInsensitiveContains(query)
-                || (credential.serviceIdentifier?.localizedCaseInsensitiveContains(query) ?? false)
-                || (credential.uriRules?.contains { rule in
-                    rule.uri.localizedCaseInsensitiveContains(query)
-                } ?? false)
-        }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    func setSections(_ sections: AutoFillPickerSections) {
+        self.sections = sections
+        visibleSections = sections.filtered(by: searchText)
+    }
+
+    func fill(_ record: AutoFillCredentialRecord) {
+        onSelect(record)
     }
 
     var filteredRegistrationTargets: [AutoFillPasskeyTarget] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return registrationTargets }
+        let needle = AutoFillSearch.normalizedQuery(searchText)
+        guard !needle.isEmpty else { return registrationTargets }
         return registrationTargets.filter { target in
-            target.name.localizedCaseInsensitiveContains(query)
-                || target.username.localizedCaseInsensitiveContains(query)
-                || target.uriRules.contains { $0.uri.localizedCaseInsensitiveContains(query) }
+            AutoFillSearch.fold(target.name).contains(needle)
+                || AutoFillSearch.fold(target.username).contains(needle)
+                || target.uriRules.contains { rule in
+                    AutoFillSearch.displayHost(rule.uri)?.contains(needle) == true
+                        || AutoFillSearch.fold(rule.uri).contains(needle)
+                }
         }
     }
 
@@ -1303,22 +1319,84 @@ private final class AutoFillCredentialListViewModel: ObservableObject {
         !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    var hasRequestContext: Bool {
-        serviceIdentifiers.contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    var requestHost: String? {
+        serviceIdentifiers.compactMap(AutoFillSearch.displayHost).first
     }
 
-    var requestTarget: String? {
-        serviceIdentifiers
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .first { !$0.isEmpty }
-    }
-
-    var noMatchMessage: String {
-        if let requestTarget {
-            return L10n.format("No saved credential matches “%@” using its URI match rules. Search or show all items to find another credential.", requestTarget)
+    var title: String {
+        let key: String = switch state {
+        case .credentials:
+            switch kind {
+            case .password: "Passwords"
+            case .passkey: "Passkeys"
+            case .oneTimeCode: "Verification Codes"
+            case .textInsert: "Choose Item"
+            }
+        case .passkeyRegistration: "Save Passkey"
+        case .passwordSave: "Save Password"
+        case .passwordGeneration: "Choose Password"
+        case .loading, .retry, .configuration, .error: "Vaultwarden"
         }
-        return L10n.string("No matching credential was detected. Search or show all items to find another credential.")
+        return L10n.string(key)
     }
+
+    /// The website asking, the way Safari names it.
+    var subtitle: String {
+        switch state {
+        case .credentials where kind != .textInsert, .passkeyRegistration, .passwordGeneration:
+            requestHost ?? ""
+        default:
+            ""
+        }
+    }
+
+    var suggestedHeader: String? {
+        visibleSections.isContextual ? L10n.string("Suggested") : nil
+    }
+
+    var otherHeader: String? {
+        guard visibleSections.isContextual else { return nil }
+        return L10n.string(kind == .oneTimeCode ? "Other Codes" : "Other Passwords")
+    }
+
+    var emptyTitle: String {
+        let key: String = switch kind {
+        case .password: "No Passwords"
+        case .passkey: "No Passkeys"
+        case .oneTimeCode: "No Codes"
+        case .textInsert: "No Items"
+        }
+        return L10n.string(key)
+    }
+
+    var emptySymbol: String {
+        switch kind {
+        case .password: "key"
+        case .passkey: "person.badge.key"
+        case .oneTimeCode: "lock.rotation"
+        case .textInsert: "tray"
+        }
+    }
+
+    var fillTitle: String {
+        let key: String = switch kind {
+        case .password, .textInsert: "Fill"
+        case .oneTimeCode: "Fill Code"
+        case .passkey: "Use Passkey"
+        }
+        return L10n.string(key)
+    }
+
+    var fillSymbol: String {
+        switch kind {
+        case .password, .textInsert: "key"
+        case .oneTimeCode: "number"
+        case .passkey: "person.badge.key"
+        }
+    }
+
+    /// New Password belongs to the password and text lists only, never to passkeys or codes.
+    var canCreate: Bool { kind == .password || kind == .textInsert }
 
     var showsCredentialList: Bool {
         if case .credentials = state { return true }
@@ -1331,15 +1409,6 @@ private final class AutoFillCredentialListViewModel: ObservableObject {
     }
 
     var showsSelectionList: Bool { showsCredentialList || showsPasskeyTargetList }
-
-    var subtitle: String {
-        switch state {
-        case let .loading(message), let .credentials(message), let .retry(message),
-             let .passkeyRegistration(message), let .passwordSave(message),
-             let .passwordGeneration(message), let .configuration(message), let .error(message):
-            message
-        }
-    }
 
     var canSaveNewLogin: Bool {
         !newLoginName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -1365,8 +1434,7 @@ private final class AutoFillCredentialListViewModel: ObservableObject {
         if let suggestedName,
            !suggestedName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             newLoginName = suggestedName
-        } else if let host = URL(string: suggestedURI)?.host
-            ?? URL(string: "https://\(suggestedURI)")?.host {
+        } else if let host = AutoFillSearch.displayHost(suggestedURI) {
             newLoginName = host
         } else {
             newLoginName = suggestedURI
@@ -1404,95 +1472,24 @@ private final class AutoFillCredentialListViewModel: ObservableObject {
     }
 }
 
+
 private struct AutoFillCredentialListView: View {
     @ObservedObject var viewModel: AutoFillCredentialListViewModel
+    #if os(macOS)
+    @State private var macSelection: String?
+    @FocusState private var isSearchFocused: Bool
+    #endif
 
     var body: some View {
         #if os(macOS)
-        // Safari hosts this view inside its own sheet, without an app toolbar.
-        // Keep navigation and dismissal inside the hosted content itself.
-        VStack(spacing: 0) {
-            HStack(alignment: .top, spacing: 16) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Vaultwarden").font(.headline)
-                    Text(viewModel.subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 8)
-                Button(action: viewModel.onCancel) {
-                    Label("Close", systemImage: "xmark")
-                }
-                .keyboardShortcut(.cancelAction)
-                .accessibilityLabel("Close AutoFill")
-            }
-            .padding(16)
-
-            if viewModel.showsSelectionList {
-                VStack(spacing: 10) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                        TextField(
-                            viewModel.showsPasskeyTargetList ? "Search matching logins" : "Search all available credentials",
-                            text: $viewModel.searchText
-                        )
-                            .textFieldStyle(.plain)
-                            .accessibilityLabel("Search credentials")
-                        if !viewModel.searchText.isEmpty {
-                            Button { viewModel.searchText = "" } label: {
-                                Image(systemName: "xmark.circle.fill")
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Clear search")
-                        }
-                    }
-                    .padding(10)
-                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
-                    if viewModel.showsCredentialList && viewModel.hasRequestContext && !viewModel.credentials.isEmpty {
-                        Picker("Show credentials", selection: $viewModel.showsAllCredentials) {
-                            Text("Suggested").tag(false)
-                            Text("All Items").tag(true)
-                        }
-                        .pickerStyle(.segmented)
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 12)
-            }
-            Divider()
-            Group {
-                if viewModel.showsCredentialList { credentialList }
-                else if viewModel.showsPasskeyTargetList { passkeyTargetList }
-                else { statusContent }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            if viewModel.showsCredentialList && (viewModel.kind == .password || viewModel.kind == .textInsert) {
-                Divider()
-                HStack {
-                    Button(action: viewModel.onAdd) {
-                        Label("New Password", systemImage: "plus")
-                    }
-                    Spacer()
-                }
-                .padding(16)
-            } else if viewModel.showsPasskeyTargetList {
-                Divider()
-                HStack {
-                    Button(action: viewModel.onPrimaryAction) {
-                        Label("Create New Login", systemImage: "plus")
-                    }
-                    Spacer()
-                }
-                .padding(16)
-            }
-        }
-        .frame(minWidth: 480, minHeight: 420)
-        .sheet(isPresented: $viewModel.isPresentingCreate) {
-            AutoFillNewLoginView(viewModel: viewModel)
-                .frame(minWidth: 500, minHeight: 560)
-        }
+        macBody
         #else
+        iOSBody
+        #endif
+    }
+
+    #if os(iOS)
+    private var iOSBody: some View {
         NavigationStack {
             Group {
                 if viewModel.showsSelectionList {
@@ -1500,66 +1497,218 @@ private struct AutoFillCredentialListView: View {
                         if viewModel.showsPasskeyTargetList { passkeyTargetList }
                         else { credentialList }
                     }
-                        .searchable(
-                            text: $viewModel.searchText,
-                            placement: .toolbar,
-                            prompt: "Search"
-                        )
-                        .searchToolbarBehavior(.automatic)
-                        .searchPresentationToolbarBehavior(.avoidHidingContent)
+                    .searchable(
+                        text: $viewModel.searchText,
+                        placement: .toolbar,
+                        prompt: "Search"
+                    )
+                    .searchToolbarBehavior(.automatic)
+                    .searchPresentationToolbarBehavior(.avoidHidingContent)
                 } else {
                     statusContent
                 }
             }
-            .navigationTitle("Vaultwarden")
-            .navigationSubtitle(viewModel.subtitle)
-            .autoFillInlineToolbarTitle()
+            .navigationTitle(viewModel.title)
+            .autoFillNavigationSubtitle(viewModel.subtitle)
+            .toolbarTitleDisplayMode(.inlineLarge)
             .navigationDestination(item: $viewModel.selectedTextCredential) { selection in
                 if let credential = viewModel.credentials.first(where: { $0.id == selection.id }) {
                     textFieldList(for: credential)
                 } else {
-                    ContentUnavailableView("Item unavailable", systemImage: "key.slash")
+                    ContentUnavailableView("Item Unavailable", systemImage: "key.slash")
                 }
             }
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(action: viewModel.onCancel) {
-                        Image(systemName: "xmark")
-                    }
-                    .accessibilityLabel("Close AutoFill")
-                }
-
-                if viewModel.showsPasskeyTargetList
-                    || (viewModel.showsCredentialList && (viewModel.kind == .password || viewModel.kind == .textInsert)) {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button(action: viewModel.showsPasskeyTargetList ? viewModel.onPrimaryAction : viewModel.onAdd) {
-                            Image(systemName: "plus")
-                        }
-                        .accessibilityLabel(viewModel.showsPasskeyTargetList ? "Create new Login" : "Create new password")
-                    }
-                }
-
-                if viewModel.showsSelectionList {
-                    DefaultToolbarItem(kind: .search, placement: .bottomBar)
-                }
-            }
+            .toolbar { iOSToolbar }
         }
         .sheet(isPresented: $viewModel.isPresentingCreate) {
             AutoFillNewLoginView(viewModel: viewModel)
-                #if os(macOS)
-                .frame(minWidth: 500, minHeight: 560)
-                #endif
         }
-        #if os(macOS)
-        .frame(minWidth: 480, minHeight: 420)
-        #endif
-        #endif
     }
+
+    @ToolbarContentBuilder
+    private var iOSToolbar: some ToolbarContent {
+        ToolbarItem(placement: .cancellationAction) {
+            Button("Cancel", systemImage: "xmark", action: viewModel.onCancel)
+        }
+        if viewModel.showsPasskeyTargetList {
+            ToolbarItem(placement: .primaryAction) {
+                Button("New Login", systemImage: "plus", action: viewModel.onPrimaryAction)
+            }
+        } else if viewModel.showsCredentialList && viewModel.canCreate {
+            ToolbarItem(placement: .primaryAction) {
+                Button("New Password", systemImage: "plus", action: viewModel.onAdd)
+            }
+        }
+        if viewModel.showsSelectionList {
+            DefaultToolbarItem(kind: .search, placement: .bottomBar)
+        }
+    }
+    #endif
+
+    #if os(macOS)
+    // Safari hosts this view inside its own sheet, without an app toolbar.
+    // Keep the title, search and actions inside the hosted content itself.
+    private var macBody: some View {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(viewModel.title)
+                    .font(.title2.bold())
+                if !viewModel.subtitle.isEmpty {
+                    Text(viewModel.subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 20)
+            .padding(.top, 20)
+            .padding(.bottom, 12)
+
+            if viewModel.showsSelectionList {
+                macSearchField
+            }
+
+            Group {
+                if viewModel.showsCredentialList { credentialList }
+                else if viewModel.showsPasskeyTargetList { passkeyTargetList }
+                else { statusContent }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            Divider()
+            macBottomBar
+        }
+        .frame(minWidth: 480, minHeight: 420)
+        .background {
+            if viewModel.showsSelectionList {
+                Button("Find") { isSearchFocused = true }
+                    .keyboardShortcut("f", modifiers: .command)
+                    .frame(width: 0, height: 0)
+                    .opacity(0)
+                    .accessibilityHidden(true)
+            }
+        }
+        .onChange(of: viewModel.visibleSections, initial: true) { _, sections in
+            syncMacSelection(with: sections)
+        }
+        .sheet(isPresented: $viewModel.isPresentingCreate) {
+            AutoFillNewLoginView(viewModel: viewModel)
+                .frame(minWidth: 500, minHeight: 560)
+        }
+    }
+
+    private var macSearchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            TextField("Search", text: $viewModel.searchText)
+                .textFieldStyle(.plain)
+                .focused($isSearchFocused)
+                .onKeyPress(.downArrow) { moveMacSelection(by: 1) }
+                .onKeyPress(.upArrow) { moveMacSelection(by: -1) }
+            if !viewModel.searchText.isEmpty {
+                Button("Clear Search", systemImage: "xmark.circle.fill") {
+                    viewModel.searchText = ""
+                }
+                .labelStyle(.iconOnly)
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(.quaternary, in: .rect(cornerRadius: 8, style: .continuous))
+        .padding(.horizontal, 20)
+        .padding(.bottom, 10)
+        .onAppear { isSearchFocused = true }
+    }
+
+    private var macBottomBar: some View {
+        HStack(spacing: 8) {
+            if viewModel.showsCredentialList && viewModel.canCreate {
+                Button("New Password", systemImage: "plus", action: viewModel.onAdd)
+            } else if viewModel.showsPasskeyTargetList {
+                Button("New Login", systemImage: "plus", action: viewModel.onPrimaryAction)
+            }
+            Spacer()
+            Button("Cancel", action: viewModel.onCancel)
+                .keyboardShortcut(.cancelAction)
+            if viewModel.showsCredentialList && !viewModel.visibleSections.isEmpty {
+                Button(viewModel.fillTitle, action: fillMacSelection)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(macSelection == nil)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
+    }
+
+    private func macCredentialList(_ sections: AutoFillPickerSections) -> some View {
+        ScrollViewReader { proxy in
+            List(selection: $macSelection) {
+                if !sections.suggested.isEmpty {
+                    Section {
+                        ForEach(sections.suggested) { entry in
+                            rowLabel(entry.record, kind: viewModel.kind)
+                        }
+                    } header: {
+                        if let header = viewModel.suggestedHeader { Text(header) }
+                    }
+                }
+                if !sections.other.isEmpty {
+                    Section {
+                        ForEach(sections.other) { entry in
+                            rowLabel(entry.record, kind: viewModel.kind)
+                        }
+                    } header: {
+                        if let header = viewModel.otherHeader { Text(header) }
+                    }
+                }
+            }
+            .listStyle(.inset)
+            .contextMenu(forSelectionType: String.self) { ids in
+                if let id = ids.first, let entry = viewModel.visibleSections.entry(id: id) {
+                    Button(viewModel.fillTitle) { viewModel.fill(entry.record) }
+                }
+            } primaryAction: { ids in
+                guard let id = ids.first,
+                      let entry = viewModel.visibleSections.entry(id: id) else { return }
+                viewModel.fill(entry.record)
+            }
+            .onChange(of: macSelection) { _, id in
+                guard let id else { return }
+                proxy.scrollTo(id)
+            }
+        }
+    }
+
+    private func syncMacSelection(with sections: AutoFillPickerSections) {
+        let ids = sections.orderedIDs
+        if let current = macSelection, ids.contains(current) { return }
+        macSelection = ids.first
+    }
+
+    private func moveMacSelection(by offset: Int) -> KeyPress.Result {
+        guard viewModel.showsCredentialList else { return .ignored }
+        let ids = viewModel.visibleSections.orderedIDs
+        guard !ids.isEmpty else { return .handled }
+        let current = macSelection.flatMap { ids.firstIndex(of: $0) } ?? (offset > 0 ? -1 : 0)
+        macSelection = ids[min(max(current + offset, 0), ids.count - 1)]
+        return .handled
+    }
+
+    private func fillMacSelection() {
+        guard let id = macSelection,
+              let entry = viewModel.visibleSections.entry(id: id) else { return }
+        viewModel.fill(entry.record)
+    }
+    #endif
 
     private var credentialList: some View {
         VStack(spacing: 0) {
             if viewModel.allowsCredentialKindSelection {
-                Picker("Show credentials", selection: Binding(
+                Picker("Credential Type", selection: Binding(
                     get: { viewModel.kind },
                     set: { viewModel.onSelectCredentialKind($0) }
                 )) {
@@ -1567,67 +1716,159 @@ private struct AutoFillCredentialListView: View {
                     Text("Passkeys").tag(AutoFillCredentialListKind.passkey)
                 }
                 .pickerStyle(.segmented)
-                .padding()
+                .labelsHidden()
+                #if os(macOS)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 10)
+                #else
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+                #endif
             }
             credentialListContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        #if os(iOS)
+        .background(Color(uiColor: .systemGroupedBackground))
+        #endif
     }
 
     @ViewBuilder
     private var credentialListContent: some View {
-        if viewModel.filteredCredentials.isEmpty {
+        let sections = viewModel.visibleSections
+        if sections.isEmpty {
             if viewModel.isSearching {
                 ContentUnavailableView.search(text: viewModel.searchText)
-            } else if viewModel.credentials.isEmpty {
-                ContentUnavailableView(
-                    "No Credentials",
-                    systemImage: "key.slash",
-                    description: Text("No compatible credentials are available. Open Vaultwarden and sync your vault, then try AutoFill again.")
-                )
             } else {
                 ContentUnavailableView {
-                    Label("No Matching Credentials", systemImage: "magnifyingglass")
-                } description: {
-                    Text(viewModel.noMatchMessage)
+                    Label(viewModel.emptyTitle, systemImage: viewModel.emptySymbol)
                 } actions: {
-                    Button("Show All Items") { viewModel.showsAllCredentials = true }
-                        .buttonStyle(.bordered)
+                    #if os(iOS)
+                    if viewModel.canCreate {
+                        Button("New Password", action: viewModel.onAdd)
+                            .buttonStyle(.borderedProminent)
+                    }
+                    #endif
                 }
             }
         } else {
+            #if os(macOS)
+            macCredentialList(sections)
+            #else
             List {
-                Section {
-                    ForEach(viewModel.filteredCredentials) { credential in
-                        Button {
-                            viewModel.onSelect(credential)
-                        } label: {
-                            AutoFillCredentialRow(
-                                credential: credential,
-                                kind: viewModel.kind,
-                                showsWebsiteIcon: viewModel.showsWebsiteIcons,
-                                serverURL: viewModel.websiteIconServerURL
-                            )
+                if !sections.suggested.isEmpty {
+                    Section {
+                        ForEach(sections.suggested) { entry in
+                            credentialRow(entry.record)
                         }
-                        .buttonStyle(.plain)
-                        .alignmentGuide(.listRowSeparatorLeading) { _ in 55 }
+                    } header: {
+                        if let header = viewModel.suggestedHeader { Text(header) }
                     }
                 }
-                #if os(iOS)
-                .listSectionSeparator(.hidden, edges: .top)
-                #endif
+                if !sections.other.isEmpty {
+                    Section {
+                        ForEach(sections.other) { entry in
+                            credentialRow(entry.record)
+                        }
+                    } header: {
+                        if let header = viewModel.otherHeader { Text(header) }
+                    }
+                }
             }
-            .listStyle(.plain)
+            .listStyle(.insetGrouped)
+            #endif
         }
     }
 
+    private func rowLabel(_ record: AutoFillCredentialRecord, kind: AutoFillCredentialListKind) -> some View {
+        AutoFillCredentialRow(
+            record: record,
+            kind: kind,
+            showsWebsiteIcon: viewModel.showsWebsiteIcons,
+            serverURL: viewModel.websiteIconServerURL
+        )
+    }
+
     #if os(iOS)
+    private func credentialRow(_ record: AutoFillCredentialRecord) -> some View {
+        Group {
+            if viewModel.kind == .textInsert {
+                NavigationLink {
+                    textFieldList(for: record)
+                } label: {
+                    rowLabel(record, kind: .textInsert)
+                }
+            } else {
+                Button {
+                    viewModel.fill(record)
+                } label: {
+                    rowLabel(record, kind: viewModel.kind)
+                }
+            }
+        }
+        .contextMenu {
+            rowMenu(for: record)
+        } preview: {
+            AutoFillCredentialPreview(
+                record: record,
+                kind: viewModel.kind,
+                showsWebsiteIcon: viewModel.showsWebsiteIcons,
+                serverURL: viewModel.websiteIconServerURL
+            )
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            if viewModel.kind == .textInsert, record.isLogin {
+                if !record.password.isEmpty {
+                    Button("Password", systemImage: "key") {
+                        viewModel.onInsertText(record, .password)
+                    }
+                    .tint(.blue)
+                }
+                if !record.username.isEmpty {
+                    Button("Username", systemImage: "person") {
+                        viewModel.onInsertText(record, .username)
+                    }
+                    .tint(.gray)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func rowMenu(for record: AutoFillCredentialRecord) -> some View {
+        switch viewModel.kind {
+        case .textInsert:
+            if record.isLogin, !record.username.isEmpty {
+                Button("Fill Username", systemImage: "person") {
+                    viewModel.onInsertText(record, .username)
+                }
+            }
+            if record.isLogin, !record.password.isEmpty {
+                Button("Fill Password", systemImage: "key") {
+                    viewModel.onInsertText(record, .password)
+                }
+            }
+            if record.isLogin, record.totpSecret?.isEmpty == false {
+                Button("Fill Code", systemImage: "number") {
+                    viewModel.onInsertText(record, .oneTimeCode)
+                }
+            }
+            Button("Show All Fields", systemImage: "list.bullet") {
+                viewModel.selectedTextCredential = AutoFillSelectedCredential(id: record.id)
+            }
+        case .password, .oneTimeCode, .passkey:
+            Button(viewModel.fillTitle, systemImage: viewModel.fillSymbol) {
+                viewModel.fill(record)
+            }
+        }
+    }
+
     private func textFieldList(for credential: AutoFillCredentialRecord) -> some View {
         List {
             Section {
                 HStack(spacing: 16) {
                     AutoFillCredentialThumbnail(
-                        credential: credential,
+                        record: credential,
                         kind: .textInsert,
                         showsWebsiteIcon: viewModel.showsWebsiteIcons,
                         serverURL: viewModel.websiteIconServerURL,
@@ -1664,7 +1905,7 @@ private struct AutoFillCredentialListView: View {
                             .contentShape(.rect)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityHint(L10n.string("Double tap to fill this field"))
+                        .accessibilityHint(L10n.string("Inserts this value"))
                     }
                 } header: {
                     Text(L10n.string(group.title))
@@ -1700,36 +1941,32 @@ private struct AutoFillCredentialListView: View {
                         Button {
                             viewModel.onSelectPasskeyTarget(target)
                         } label: {
-                            AutoFillCredentialRow(
-                                credential: registrationRowCredential(for: target),
-                                kind: .password,
-                                showsWebsiteIcon: viewModel.showsWebsiteIcons,
-                                serverURL: viewModel.websiteIconServerURL
-                            )
+                            rowLabel(registrationRowCredential(for: target), kind: .password)
                         }
+                        #if os(macOS)
                         .buttonStyle(.plain)
-                        .alignmentGuide(.listRowSeparatorLeading) { _ in 55 }
+                        #endif
                     }
                 } header: {
-                    Text("Choose a login to save this passkey to")
+                    Text("Save to Existing Login")
                 }
-                #if os(iOS)
-                .listSectionSeparator(.hidden, edges: .top)
-                #endif
             }
-            .listStyle(.plain)
+            #if os(macOS)
+            .listStyle(.inset)
+            #else
+            .listStyle(.insetGrouped)
+            #endif
         }
     }
 
     private func registrationRowCredential(for target: AutoFillPasskeyTarget) -> AutoFillCredentialRecord {
         let uri = target.uriRules.first(where: { $0.match != .never })?.uri ?? ""
-        let host = URL(string: uri)?.host ?? URL(string: "https://\(uri)")?.host
         return AutoFillCredentialRecord(
             id: target.id,
             name: target.name,
             username: target.username.isEmpty ? viewModel.registrationRelyingParty : target.username,
             password: "",
-            serviceIdentifier: host,
+            serviceIdentifier: AutoFillSearch.displayHost(uri),
             totpSecret: nil,
             uriRules: target.uriRules
         )
@@ -1739,58 +1976,51 @@ private struct AutoFillCredentialListView: View {
     private var statusContent: some View {
         switch viewModel.state {
         case let .loading(message):
-            VStack(spacing: 12) {
-                ProgressView()
-                Text(message)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+            if let message {
+                VStack(spacing: 12) {
+                    ProgressView()
+                    Text(message)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                // The system's authentication prompt is on screen; show only what it's waiting for.
+                Image(systemName: viewModel.biometry.symbol)
+                    .font(.system(size: 44, weight: .light))
+                    .foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
             }
-        case let .retry(message):
+        case .retry:
             ContentUnavailableView {
-                #if os(macOS)
-                Label("Unlock AutoFill", systemImage: "touchid")
-                #else
-                Label("Unlock AutoFill", systemImage: "faceid")
-                #endif
-            } description: {
-                Text(message)
+                Label("Vaultwarden Locked", systemImage: viewModel.biometry.symbol)
             } actions: {
-                Button(viewModel.primaryActionTitle, action: viewModel.onPrimaryAction)
-                    .buttonStyle(.borderedProminent)
+                primaryStatusButton
             }
-        case let .configuration(message):
+        case let .configuration(passwords, passkeys):
             ContentUnavailableView {
                 Label("Vaultwarden AutoFill", systemImage: "key.fill")
             } description: {
-                Text(message)
+                Text("^[\(passwords) password](inflect: true) · ^[\(passkeys) passkey](inflect: true)")
             } actions: {
-                Button(viewModel.primaryActionTitle, action: viewModel.onPrimaryAction)
-                    .buttonStyle(.borderedProminent)
+                primaryStatusButton
             }
-        case let .passkeyRegistration(message):
+        case .passkeyRegistration:
             ContentUnavailableView {
-                Label("Create Passkey", systemImage: "person.badge.key.fill")
+                Label(
+                    viewModel.registrationRelyingParty.isEmpty
+                        ? L10n.string("Save Passkey")
+                        : viewModel.registrationRelyingParty,
+                    systemImage: "person.badge.key.fill"
+                )
             } description: {
-                VStack(spacing: 8) {
-                    Text(viewModel.registrationRelyingParty)
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                    if !viewModel.registrationUserName.isEmpty {
-                        Text(viewModel.registrationUserName)
-                    }
-                    Text(message)
-                        .padding(.top, 4)
+                if !viewModel.registrationUserName.isEmpty {
+                    Text(viewModel.registrationUserName)
                 }
             } actions: {
-                Button(viewModel.primaryActionTitle, action: viewModel.onPrimaryAction)
-                    .buttonStyle(.borderedProminent)
+                primaryStatusButton
             }
-        case let .passwordSave(message):
-            ContentUnavailableView {
-                Label("Save Password", systemImage: "key.fill")
-            } description: {
-                Text(message)
-            }
+        case .passwordSave:
+            ContentUnavailableView("Save Password", systemImage: "key.fill")
         case .passwordGeneration:
             #if os(iOS)
             generatedPasswordChoices
@@ -1808,6 +2038,14 @@ private struct AutoFillCredentialListView: View {
         }
     }
 
+    private var primaryStatusButton: some View {
+        Button(viewModel.primaryActionTitle, action: viewModel.onPrimaryAction)
+            .buttonStyle(.borderedProminent)
+            #if os(macOS)
+            .keyboardShortcut(.defaultAction)
+            #endif
+    }
+
     #if os(iOS)
     private var generatedPasswordChoices: some View {
         List {
@@ -1821,7 +2059,7 @@ private struct AutoFillCredentialListView: View {
                                 .font(.headline)
                                 .foregroundStyle(.primary)
                             Text(option.value)
-                                .font(.system(.body, design: .monospaced))
+                                .font(.body.monospaced())
                                 .foregroundStyle(.secondary)
                                 .textSelection(.enabled)
                         }
@@ -1830,14 +2068,10 @@ private struct AutoFillCredentialListView: View {
                     }
                     .buttonStyle(.plain)
                 }
-            } footer: {
-                Text("Tap a password to insert it into the website or app.")
             }
 
             Section {
-                Button(action: viewModel.onRegeneratePasswords) {
-                    Label("Generate New Options", systemImage: "arrow.clockwise")
-                }
+                Button("New Suggestions", systemImage: "arrow.clockwise", action: viewModel.onRegeneratePasswords)
             }
         }
         .listStyle(.insetGrouped)
@@ -1913,7 +2147,7 @@ private struct AutoFillNewLoginView: View {
 
                 Section("Website") {
                     AutoFillLabeledFormField(
-                        "Website URI",
+                        "Website",
                         text: $viewModel.newLoginURI,
                         placeholder: "https://example.com",
                         keyboardType: .URL,
@@ -1924,9 +2158,9 @@ private struct AutoFillNewLoginView: View {
                     .focused($focusedField, equals: .uri)
                 }
 
-                Section("Authenticator") {
+                Section("Verification Code") {
                     AutoFillLabeledFormField(
-                        "TOTP Secret",
+                        "Setup Key",
                         text: $viewModel.newLoginTOTPSecret,
                         placeholder: "Optional",
                         capitalization: .characters,
@@ -1986,7 +2220,7 @@ private struct AutoFillNewLoginView: View {
                     .overlay(alignment: .top) { Divider() }
                 }
             }
-            .navigationTitle("New Item")
+            .navigationTitle("New Password")
             .autoFillInlineToolbarTitle()
             #if os(iOS)
             .toolbar {
@@ -2236,89 +2470,245 @@ private struct AutoFillLabeledFormField: View {
 }
 
 private struct AutoFillCredentialRow: View {
-    let credential: AutoFillCredentialRecord
+    let record: AutoFillCredentialRecord
+    let kind: AutoFillCredentialListKind
+    let showsWebsiteIcon: Bool
+    let serverURL: URL?
+    #if os(macOS)
+    @State private var isHovered = false
+    @Environment(\.backgroundProminence) private var backgroundProminence
+    private let iconSize: CGFloat = 28
+    #else
+    @ScaledMetric(relativeTo: .body) private var iconSize: CGFloat = 40
+    #endif
+
+    var body: some View {
+        HStack(spacing: 12) {
+            AutoFillCredentialThumbnail(
+                record: record,
+                kind: kind,
+                showsWebsiteIcon: showsWebsiteIcon,
+                serverURL: serverURL,
+                size: iconSize
+            )
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(record.name)
+                    #if os(macOS)
+                    .font(.body.weight(.medium))
+                    #else
+                    .font(.body.weight(.semibold))
+                    #endif
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                if !secondaryText.isEmpty {
+                    Text(secondaryText)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] }
+
+            Spacer(minLength: 8)
+
+            if kind == .oneTimeCode, let secret = record.totpSecret, !secret.isEmpty {
+                AutoFillLiveCode(secret: secret)
+            }
+        }
+        #if os(macOS)
+        .padding(.vertical, 3)
+        #else
+        .padding(.vertical, 4)
+        #endif
+        .contentShape(.rect)
+        #if os(macOS)
+        .background {
+            if isHovered && backgroundProminence != .increased {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(.quaternary)
+                    .padding(.horizontal, -6)
+            }
+        }
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.13)) { isHovered = hovering }
+        }
+        #endif
+        .accessibilityElement(children: .combine)
+    }
+
+    private var secondaryText: String {
+        if kind == .textInsert, !record.isLogin {
+            return (record.itemType ?? .secureNote).localizedTitle
+        }
+        if record.username.isEmpty {
+            return AutoFillSearch.websites(for: record).first ?? ""
+        }
+        return record.username
+    }
+}
+
+/// A verification code that updates once a second while it is on screen.
+private struct AutoFillLiveCode: View {
+    let secret: String
+    @ScaledMetric(relativeTo: .body) private var ringSize: CGFloat = 16
+    @Environment(\.backgroundProminence) private var backgroundProminence
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        TimelineView(.periodic(from: Self.wholeSecond, by: 1)) { context in
+            let code = AutoFillTOTP.code(secret: secret, date: context.date) ?? ""
+            let period = AutoFillTOTP.period(secret: secret)
+            let remaining = AutoFillTOTP.secondsRemaining(secret: secret, date: context.date)
+            HStack(spacing: 8) {
+                Text(AutoFillTOTP.grouped(code))
+                    .font(.title3.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(ink)
+                    // Digits roll over to the next code.
+                    .contentTransition(reduceMotion ? .opacity : .numericText())
+                    .animation(reduceMotion ? .easeInOut(duration: 0.2) : .snappy(duration: 0.45), value: code)
+                    .accessibilityLabel(Text(verbatim: code.map { String($0) }.joined(separator: " ")))
+                AutoFillCountdownRing(fraction: Double(remaining - 1) / Double(max(period, 1)), ink: ink)
+                    .frame(width: ringSize, height: ringSize)
+                    // Glide between ticks, spring full when a new code starts.
+                    .animation(remaining == max(period, 1) ? .spring(duration: 0.5, bounce: 0.2) : .linear(duration: 1), value: remaining)
+                    .accessibilityHidden(true)
+            }
+        }
+    }
+
+    /// Tinted ink is unreadable on a selected row's accent highlight.
+    private var ink: AnyShapeStyle {
+        backgroundProminence == .increased ? AnyShapeStyle(.primary) : AnyShapeStyle(.tint)
+    }
+
+    /// Start ticks on a whole second so the code changes when the period does.
+    private static var wholeSecond: Date {
+        Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
+    }
+}
+
+private struct AutoFillCountdownRing: View {
+    let fraction: Double
+    let ink: AnyShapeStyle
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(.quaternary, lineWidth: 2.5)
+            Circle()
+                .trim(from: 0, to: CGFloat(min(max(fraction, 0), 1)))
+                .stroke(ink, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+        }
+    }
+}
+
+#if os(iOS)
+/// The long-press preview: who the account is and where it's used, never the secret.
+private struct AutoFillCredentialPreview: View {
+    let record: AutoFillCredentialRecord
     let kind: AutoFillCredentialListKind
     let showsWebsiteIcon: Bool
     let serverURL: URL?
 
     var body: some View {
-        HStack(spacing: 13) {
-            AutoFillCredentialThumbnail(
-                credential: credential,
-                kind: kind,
-                showsWebsiteIcon: showsWebsiteIcon,
-                serverURL: serverURL
-            )
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(credential.name)
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                Text(secondaryText)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 12) {
+                AutoFillCredentialThumbnail(
+                    record: record,
+                    kind: kind,
+                    showsWebsiteIcon: showsWebsiteIcon,
+                    serverURL: serverURL,
+                    size: 48
+                )
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(record.name)
+                        .font(.headline)
+                        .lineLimit(2)
+                    if let itemType = record.itemType, itemType != .login {
+                        Text(itemType.localizedTitle)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
-
-            Spacer()
-
-            if (kind == .password || kind == .textInsert), credential.totpSecret?.isEmpty == false {
-                Image(systemName: "lock.rotation")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            if !record.username.isEmpty {
+                detail(kind == .passkey ? "Website" : "Username", value: record.username)
+            }
+            if record.isLogin, !record.password.isEmpty {
+                detail("Password", value: String(repeating: "•", count: 10))
+            }
+            let websites = AutoFillSearch.websites(for: record)
+            if kind != .passkey, !websites.isEmpty {
+                detail(websites.count == 1 ? "Website" : "Websites", value: websites.joined(separator: "\n"))
             }
         }
-        .padding(.vertical, 7)
-        .contentShape(.rect)
+        .padding(20)
+        .frame(width: 320, alignment: .leading)
     }
 
-    private var secondaryText: String {
-        if kind == .textInsert, !credential.isLogin {
-            return (credential.itemType ?? .secureNote).localizedTitle
+    private func detail(_ title: LocalizedStringKey, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.body)
         }
-        if credential.username.isEmpty {
-            return credential.serviceIdentifier
-                ?? (kind == .oneTimeCode ? "Verification code" : "Login")
-        }
-        return credential.username
     }
 }
+#endif
 
 private struct AutoFillCredentialThumbnail: View {
-    let credential: AutoFillCredentialRecord
+    let record: AutoFillCredentialRecord
     let kind: AutoFillCredentialListKind
-    let showsWebsiteIcon: Bool
-    let serverURL: URL?
-    @State private var image: AutoFillImage?
+    let size: CGFloat
+    private let request: AutoFillIconRequest?
+    @State private var icon: AutoFillDecodedIcon?
 
-    var size: CGFloat = 42
-
-    private var taskID: String {
-        "\(showsWebsiteIcon)|\(serverURL?.absoluteString ?? "")|\(credential.serviceIdentifier ?? "")"
+    init(
+        record: AutoFillCredentialRecord,
+        kind: AutoFillCredentialListKind,
+        showsWebsiteIcon: Bool,
+        serverURL: URL?,
+        size: CGFloat
+    ) {
+        self.record = record
+        self.kind = kind
+        self.size = size
+        var request: AutoFillIconRequest?
+        if showsWebsiteIcon, record.isLogin, let serverURL,
+           let website = record.serviceIdentifier, !website.isEmpty {
+            request = AutoFillIconRequest(website: website, serverURL: serverURL)
+        }
+        self.request = request
+        // A decoded icon draws on the first frame, so scrolling back never flashes the tile.
+        _icon = State(initialValue: request.flatMap { AutoFillWebsiteIconCache.shared.cachedIcon(for: $0) })
     }
 
     var body: some View {
         Group {
-            if showsWebsiteIcon, let image {
-                thumbnailImage(image)
+            if let icon {
+                Image(decorative: icon.cgImage, scale: 1)
                     .resizable()
+                    .interpolation(.high)
                     .scaledToFit()
                     .padding(size * 0.12)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color.white)
-            } else if kind == .textInsert, let itemType = credential.itemType,
-                      itemType != .login {
+            } else if kind == .textInsert, let itemType = record.itemType, itemType != .login {
                 Image(systemName: itemType.icon)
                     .font(.system(size: size * 0.45, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(iconColor.gradient)
+                    .background(Self.color(for: itemType).gradient)
             } else {
-                Text(initial)
-                    .font(.system(size: size * 0.42, weight: .bold, design: .rounded))
+                Text(AutoFillLetterTile.initial(for: record.name, host: AutoFillSearch.websites(for: record).first))
+                    .font(.system(size: size * 0.44, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(iconColor.gradient)
+                    .background(AutoFillTilePalette.color(for: record).gradient)
             }
         }
         .frame(width: size, height: size)
@@ -2327,48 +2717,130 @@ private struct AutoFillCredentialThumbnail: View {
             RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
                 .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
         }
-        .task(id: taskID) {
-            image = nil
-            guard credential.isLogin, showsWebsiteIcon,
-                  let serverURL,
-                  let website = credential.serviceIdentifier,
-                  let data = AutoFillSharedVault.cachedWebsiteIconData(
-                    website: website,
-                    serverURL: serverURL
-                  ) else { return }
-            image = AutoFillImage(data: data)
+        .task(id: request) {
+            guard let request else {
+                icon = nil
+                return
+            }
+            if let cached = AutoFillWebsiteIconCache.shared.cachedIcon(for: request) {
+                icon = cached
+                return
+            }
+            icon = await AutoFillWebsiteIconCache.shared.icon(for: request)
         }
         .accessibilityHidden(true)
     }
 
-    private func thumbnailImage(_ image: AutoFillImage) -> Image {
-        #if os(macOS)
-        Image(nsImage: image)
-        #else
-        Image(uiImage: image)
-        #endif
-    }
-
-    private var initial: String {
-        String(credential.name.trimmingCharacters(in: .whitespacesAndNewlines).first ?? "?")
-            .uppercased()
-    }
-
-    private var iconColor: Color {
-        if kind == .textInsert {
-            switch credential.itemType {
-            case .secureNote: return Color(red: 0.92, green: 0.48, blue: 0.15)
-            case .card: return Color(red: 0.12, green: 0.67, blue: 0.75)
-            case .identity: return Color(red: 0.12, green: 0.68, blue: 0.36)
-            case .sshKey: return Color(red: 0.72, green: 0.24, blue: 0.25)
-            case .login, nil: break
-            }
+    private static func color(for itemType: AutoFillItemType) -> Color {
+        switch itemType {
+        case .secureNote: Color(red: 0.92, green: 0.48, blue: 0.15)
+        case .card: Color(red: 0.12, green: 0.67, blue: 0.75)
+        case .identity: Color(red: 0.12, green: 0.68, blue: 0.36)
+        case .sshKey: Color(red: 0.72, green: 0.24, blue: 0.25)
+        case .login: Color(red: 0.12, green: 0.36, blue: 0.88)
         }
-        return switch kind {
-        case .password: Color(red: 0.12, green: 0.36, blue: 0.88)
-        case .oneTimeCode: Color(red: 0.95, green: 0.66, blue: 0.08)
-        case .textInsert: Color(red: 0.12, green: 0.36, blue: 0.88)
-        case .passkey: Color(red: 0.12, green: 0.68, blue: 0.36)
+    }
+}
+
+/// The same palette as the app's `VaultMonogram`: system hues, the light ones
+/// deepened so a large white letter still reads.
+private enum AutoFillTilePalette {
+    static let colors: [Color] = [
+        .blue,
+        .indigo,
+        .purple,
+        .pink,
+        .red,
+        Color.orange.mix(with: .black, by: 0.28),
+        Color.green.mix(with: .black, by: 0.3),
+        Color.teal.mix(with: .black, by: 0.3)
+    ]
+
+    static func color(for record: AutoFillCredentialRecord) -> Color {
+        let index = AutoFillLetterTile.paletteIndex(
+            host: AutoFillSearch.websites(for: record).first,
+            name: record.name,
+            paletteCount: colors.count
+        )
+        return colors[index]
+    }
+}
+
+private nonisolated struct AutoFillIconRequest: Hashable, Sendable {
+    let website: String
+    let serverURL: URL
+}
+
+private nonisolated struct AutoFillDecodedIcon: @unchecked Sendable {
+    let cgImage: CGImage
+}
+
+private nonisolated enum AutoFillIconDecoder {
+    /// 40 pt at 3x, so a row icon is never upscaled.
+    static let maxPixelSize = 120
+
+    static func decode(_ request: AutoFillIconRequest) -> AutoFillDecodedIcon? {
+        guard let data = AutoFillSharedVault.cachedWebsiteIconData(
+            website: request.website,
+            serverURL: request.serverURL
+        ),
+              let source = CGImageSourceCreateWithData(
+                data as CFData,
+                [kCGImageSourceShouldCache: false] as CFDictionary
+              ) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
+        ]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            return nil
+        }
+        return AutoFillDecodedIcon(cgImage: image)
+    }
+}
+
+/// Decodes each website icon once, off the main actor, and shares in-flight loads
+/// between rows that show the same site.
+@MainActor
+private final class AutoFillWebsiteIconCache {
+    static let shared = AutoFillWebsiteIconCache()
+
+    private let capacity = 200
+    private var icons: [AutoFillIconRequest: AutoFillDecodedIcon] = [:]
+    private var insertionOrder: [AutoFillIconRequest] = []
+    private var misses: Set<AutoFillIconRequest> = []
+    private var loads: [AutoFillIconRequest: Task<AutoFillDecodedIcon?, Never>] = [:]
+
+    func cachedIcon(for request: AutoFillIconRequest) -> AutoFillDecodedIcon? {
+        icons[request]
+    }
+
+    func icon(for request: AutoFillIconRequest) async -> AutoFillDecodedIcon? {
+        if let icon = icons[request] { return icon }
+        if misses.contains(request) { return nil }
+        if let load = loads[request] { return await load.value }
+        let load = Task.detached(priority: .userInitiated) {
+            AutoFillIconDecoder.decode(request)
+        }
+        loads[request] = load
+        let icon = await load.value
+        loads[request] = nil
+        if let icon {
+            store(icon, for: request)
+        } else {
+            misses.insert(request)
+        }
+        return icon
+    }
+
+    private func store(_ icon: AutoFillDecodedIcon, for request: AutoFillIconRequest) {
+        guard icons[request] == nil else { return }
+        icons[request] = icon
+        insertionOrder.append(request)
+        if insertionOrder.count > capacity {
+            icons[insertionOrder.removeFirst()] = nil
         }
     }
 }
@@ -2378,6 +2850,19 @@ private extension View {
     func autoFillInlineToolbarTitle() -> some View {
         #if os(iOS)
         toolbarTitleDisplayMode(.inline)
+        #else
+        self
+        #endif
+    }
+
+    @ViewBuilder
+    func autoFillNavigationSubtitle(_ subtitle: String) -> some View {
+        #if os(iOS)
+        if subtitle.isEmpty {
+            self
+        } else {
+            navigationSubtitle(subtitle)
+        }
         #else
         self
         #endif

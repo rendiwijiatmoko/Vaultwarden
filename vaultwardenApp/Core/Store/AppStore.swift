@@ -18,24 +18,43 @@ final class AppStore: ObservableObject {
     // Invalidates results started before a lock, even if the vault unlocks again.
     private(set) var vaultGeneration: UInt64 = 0
     private var backgroundedAt: Date?
+    private var settingsSaveTask: Task<Void, Never>?
+    /// Derived item lists, rebuilt lazily after `items` changes. Sidebar counts and
+    /// list filters read these many times per render; recomputing each was O(n) per call.
+    private var derivedItemsStorage: DerivedVaultItems?
+    private var derivedItems: DerivedVaultItems {
+        if let derivedItemsStorage { return derivedItemsStorage }
+        let derived = DerivedVaultItems(items: items)
+        derivedItemsStorage = derived
+        return derived
+    }
 
     /// Sidebar selection. `nil` keeps the split view collapsed on the sidebar,
     /// which is the intended landing screen on iPhone.
     @Published var selectedFilter: VaultFilter?
     /// Detail-column selection.
     @Published var selectedItemID: UUID?
-    @Published var items: [VaultItem] = []
+    @Published var items: [VaultItem] = [] {
+        didSet { derivedItemsStorage = nil }
+    }
     @Published var folders: [VaultFolder] = []
     @Published var collections: [VaultCollection] = []
     @Published var sends: [SendItem] = []
     @Published var settings: AppSettings {
         didSet {
-            guard let data = try? JSONEncoder().encode(settings) else { return }
-            settingsDefaults.set(data, forKey: Self.settingsStorageKey)
-            AutoFillSharedVault.setDefaultURIMatchType(
-                settings.defaultURIMatchDetection ?? .baseDomain
-            )
-            AutoFillSharedVault.setShowsWebsiteIcons(settings.showFavicons)
+            persistSettings(after: oldValue)
+            let matchType = settings.defaultURIMatchDetection ?? .baseDomain
+            if matchType != (oldValue.defaultURIMatchDetection ?? .baseDomain) {
+                AutoFillSharedVault.setDefaultURIMatchType(matchType)
+            }
+            if settings.showFavicons != oldValue.showFavicons {
+                AutoFillSharedVault.setShowsWebsiteIcons(settings.showFavicons)
+            }
+            if settings.haptics != oldValue.haptics {
+                AutoFillSharedVault.setHapticsEnabled(settings.haptics)
+            }
+            Clipboard.clearsAutomatically = settings.clearClipboard
+            Clipboard.playsHaptics = settings.haptics
             if settings.biometricUnlock != oldValue.biometricUnlock
                 || settings.devicePasscodeFallback != oldValue.devicePasscodeFallback {
                 configureDeviceUnlock()
@@ -55,6 +74,8 @@ final class AppStore: ObservableObject {
     @Published var isLocked = false
     @Published var isSyncing = false
     @Published var lastSync = Date()
+    /// When this device last finished a sync with the server, as opposed to `lastSync`, the vault's revision date.
+    @Published private(set) var lastSuccessfulSync: Date?
     @Published private(set) var authenticatedSession: AuthenticatedSession?
     @Published private(set) var lastSyncError: String?
     @Published private(set) var sessionNeedsSignIn = false
@@ -77,16 +98,14 @@ final class AppStore: ObservableObject {
         self.loginApprovalAuthenticator = loginApprovalAuthenticator
         self.vaultwardenService = vaultwardenService
         syncEngine = VaultSyncEngine(service: vaultwardenService)
-        if let data = settingsDefaults.data(forKey: Self.settingsStorageKey),
-           let savedSettings = try? JSONDecoder().decode(AppSettings.self, from: data) {
-            settings = savedSettings
-        } else {
-            settings = AppSettings()
-        }
+        settings = Self.loadSettings(from: settingsDefaults)
         AutoFillSharedVault.setDefaultURIMatchType(
             settings.defaultURIMatchDetection ?? .baseDomain
         )
         AutoFillSharedVault.setShowsWebsiteIcons(settings.showFavicons)
+        AutoFillSharedVault.setHapticsEnabled(settings.haptics)
+        Clipboard.clearsAutomatically = settings.clearClipboard
+        Clipboard.playsHaptics = settings.haptics
         if let reference = settings.sessionReference,
            let serverURL = URL(string: settings.serverURL) {
             authenticatedSession = AuthenticatedSession(
@@ -99,6 +118,71 @@ final class AppStore: ObservableObject {
         }
         configureDeviceUnlock()
         startAutomaticRetry()
+        // Nothing can be mid-transfer at launch; sweep files a crash left behind.
+        Task.detached(priority: .utility) { TemporaryVaultFiles.removeAll() }
+    }
+
+    /// Saved settings decode all-or-nothing. If one field can't be read (for
+    /// example after a downgrade), keep the account and security choices instead
+    /// of signing the person out and resetting everything.
+    static func loadSettings(from defaults: UserDefaults) -> AppSettings {
+        guard let data = defaults.data(forKey: settingsStorageKey) else { return AppSettings() }
+        if let saved = try? JSONDecoder().decode(AppSettings.self, from: data) { return saved }
+        var recovered = AppSettings()
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return recovered
+        }
+        if let value = object["serverURL"] as? String { recovered.serverURL = value }
+        if let value = object["email"] as? String { recovered.email = value }
+        if let value = object["sessionReference"] as? String { recovered.sessionReference = value }
+        let flags: [(String, WritableKeyPath<AppSettings, Bool>)] = [
+            ("biometricUnlock", \.biometricUnlock),
+            ("requireBiometricForSensitiveActions", \.requireBiometricForSensitiveActions),
+            ("devicePasscodeFallback", \.devicePasscodeFallback),
+            ("clearClipboard", \.clearClipboard),
+            ("showFavicons", \.showFavicons),
+            ("haptics", \.haptics),
+            ("autoSync", \.autoSync),
+            ("syncOnOpen", \.syncOnOpen),
+            ("backgroundRefresh", \.backgroundRefresh)
+        ]
+        for (key, keyPath) in flags {
+            if let value = object[key] as? Bool { recovered[keyPath: keyPath] = value }
+        }
+        if let raw = object["vaultTimeout"] as? String, let value = VaultTimeout(rawValue: raw) {
+            recovered.vaultTimeout = value
+        }
+        if let raw = object["theme"] as? String, let value = AppTheme(rawValue: raw) {
+            recovered.theme = value
+        }
+        SecureLog.event("Saved settings partially recovered", logger: SecureLog.security)
+        return recovered
+    }
+
+    /// Text fields bind straight to settings, so typing an email or server URL would
+    /// otherwise JSON-encode and write UserDefaults on every keystroke. Those two
+    /// fields are written shortly after typing pauses; everything else immediately.
+    private func persistSettings(after oldValue: AppSettings) {
+        let isTypingChange = settings.sessionReference == oldValue.sessionReference
+            && (settings.email != oldValue.email || settings.serverURL != oldValue.serverURL)
+        guard isTypingChange else {
+            persistSettingsNow()
+            return
+        }
+        settingsSaveTask?.cancel()
+        settingsSaveTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            self?.persistSettingsNow()
+        }
+    }
+
+    /// Writes settings synchronously. Call before the process may be suspended or quit.
+    func persistSettingsNow() {
+        settingsSaveTask?.cancel()
+        settingsSaveTask = nil
+        guard let data = try? JSONEncoder().encode(settings) else { return }
+        settingsDefaults.set(data, forKey: Self.settingsStorageKey)
     }
 
     private func configureDeviceUnlock() {
@@ -115,37 +199,23 @@ final class AppStore: ObservableObject {
 
     var sortedFolders: [VaultFolder] { settings.vaultSortOrder.sortedFolders(folders) }
 
-    var activeItems: [VaultItem] { items.filter { !$0.isDeleted && !$0.isArchived } }
-    var unfolderedItems: [VaultItem] {
-        activeItems.filter { item in
-            item.folder?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
-        }
-    }
-    var organizations: [String] {
-        Array(Set(activeItems.compactMap(\.organization))).sorted()
-    }
+    var activeItems: [VaultItem] { derivedItems.active }
+    var unfolderedItems: [VaultItem] { derivedItems.unfoldered }
+    var organizations: [String] { derivedItems.organizations }
     var isAuthenticated: Bool { authenticatedSession != nil }
+
+    /// Server edit permission; items not yet synced are the user's own.
+    func canEdit(_ item: VaultItem) -> Bool { remoteCiphers[item.id]?.canEdit ?? true }
 
     func temporaryPassword(for sendID: UUID) -> String? {
         temporarySendPasswords[sendID]
     }
 
     func items(in category: VaultCategory) -> [VaultItem] {
-        switch category {
-        case .logins: activeItems.filter { $0.type == .login }
-        case .passkeys: activeItems.filter { $0.passkeyCount > 0 }
-        case .codes: activeItems.filter { $0.totpSecret?.isEmpty == false }
-        case .cards: activeItems.filter { $0.type == .card }
-        case .identities: activeItems.filter { $0.type == .identity }
-        case .sshKeys: activeItems.filter { $0.type == .sshKey }
-        case .secureNotes: activeItems.filter { $0.type == .secureNote }
-        case .security: activeItems.filter { !$0.risks.isEmpty }
-        case .archived: items.filter { $0.isArchived && !$0.isDeleted }
-        case .deleted: items.filter(\.isDeleted)
-        }
+        derivedItems.items(in: category)
     }
 
-    var favoriteItems: [VaultItem] { activeItems.filter(\.isFavorite) }
+    var favoriteItems: [VaultItem] { derivedItems.favorites }
 
     /// Resolves a navigation selection into live items. Everything is derived
     /// from `items` on demand, so a list stays correct after an edit or sync
@@ -157,7 +227,7 @@ final class AppStore: ObservableObject {
         case .favorites: favoriteItems
         case .unfoldered: unfolderedItems
         case let .folder(name): items(inFolder: name)
-        case let .collection(identifier): activeItems.filter { $0.collectionIDs.contains(identifier) }
+        case let .collection(identifier): derivedItems.items(inCollection: identifier)
         case let .organization(name): items(inOrganization: name)
         }
     }
@@ -187,11 +257,11 @@ final class AppStore: ObservableObject {
     }
 
     func items(inFolder folder: String) -> [VaultItem] {
-        activeItems.filter { $0.folder == folder }
+        derivedItems.items(inFolder: folder)
     }
 
     func items(inOrganization organization: String) -> [VaultItem] {
-        activeItems.filter { $0.organization == organization }
+        derivedItems.items(inOrganization: organization)
     }
 
     func collection(withID identifier: String) -> VaultCollection? {
@@ -341,6 +411,8 @@ final class AppStore: ObservableObject {
     }
 
     func downloadAttachment(_ attachment: VaultAttachment, from itemID: UUID) async -> URL? {
+        let generation = vaultGeneration
+        guard !isLocked else { return nil }
         guard let session = authenticatedSession,
               let cipher = remoteCiphers[itemID] else {
             userFacingNotice = "Sync this item before downloading its attachment."
@@ -349,10 +421,13 @@ final class AppStore: ObservableObject {
         isSyncing = true
         defer { isSyncing = false }
         do {
-            return try await vaultwardenService.downloadAttachment(
+            let url = try await vaultwardenService.downloadAttachment(
                 attachment: attachment, cipher: cipher,
                 organizationKeys: organizationKeys, session: session
             )
+            return keepDecryptedFile(url, generation: generation)
+        } catch is CancellationError {
+            return nil
         } catch {
             userFacingNotice = "Attachment download failed: \(error.localizedDescription)"
             SecureLog.failure("Attachment download", error: error, logger: SecureLog.sync)
@@ -629,6 +704,8 @@ final class AppStore: ObservableObject {
     }
 
     func downloadSendFile(_ send: SendItem, password: String?) async -> URL? {
+        let generation = vaultGeneration
+        guard !isLocked else { return nil }
         guard let session = authenticatedSession,
               let remote = remoteSends[send.id] else {
             userFacingNotice = "Sync this Send before downloading its file."
@@ -643,7 +720,9 @@ final class AppStore: ObservableObject {
                 password: password,
                 session: session
             )
-            return url
+            return keepDecryptedFile(url, generation: generation)
+        } catch is CancellationError {
+            return nil
         } catch {
             userFacingNotice = "Download failed: \(error.localizedDescription)"
             SecureLog.failure("File Send download", error: error, logger: SecureLog.send)
@@ -758,10 +837,14 @@ final class AppStore: ObservableObject {
             guard apply(snapshot, generation: generation) else { return }
             await applyPendingProjectionsAndPublish(generation: generation)
             await updatePendingMutationCount()
+            guard acceptsVaultResult(generation) else { return }
             userFacingNotice = flush.problemNotice
             lastSyncError = nil
             sessionNeedsSignIn = false
             SecureLog.event("Vault sync completed", logger: SecureLog.sync)
+            if !Task.isCancelled {
+                Task { await ICloudBackupManager.shared.backUpIfNeeded(from: self) }
+            }
         } catch is CancellationError {
             // A caller can intentionally cancel a sync (for example when its view disappears).
             // Cancellation is not a server failure and must not replace a successful last-sync state.
@@ -807,10 +890,10 @@ final class AppStore: ObservableObject {
         let archive = try await Task.detached(priority: .userInitiated) {
             try EncryptedVaultArchive.seal(payload, password: password)
         }.value
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd-HHmmss"
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("Vaultwarden-\(formatter.string(from: Date())).vwvault")
+            .appendingPathComponent(TemporaryVaultFiles.exportFileName(at: Date()))
+        // Only the newest export is kept; older ones were already handed off or abandoned.
+        TemporaryVaultFiles.removeExports()
         try archive.write(to: url, options: ClientPlatform.protectedFileWritingOptions)
         return url
     }
@@ -859,6 +942,15 @@ final class AppStore: ObservableObject {
         !isLocked && generation == vaultGeneration
     }
 
+    /// A download that finishes after a lock must not leave plaintext behind.
+    private func keepDecryptedFile(_ url: URL, generation: UInt64) -> URL? {
+        guard acceptsVaultResult(generation) else {
+            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+            return nil
+        }
+        return url
+    }
+
     @discardableResult
     private func apply(_ snapshot: EncryptedVaultSnapshot, generation: UInt64) -> Bool {
         guard acceptsVaultResult(generation) else { return false }
@@ -873,6 +965,7 @@ final class AppStore: ObservableObject {
         lastSync = snapshot.revision
         lastSyncError = nil
         lastSyncUsedOfflineCache = snapshot.isFromOfflineCache
+        if !snapshot.isFromOfflineCache { lastSuccessfulSync = Date() }
         discardSelectionForMissingItem()
         return true
     }
@@ -1003,11 +1096,15 @@ final class AppStore: ObservableObject {
     }
 
     private func updatePendingMutationCount() async {
-        guard let reference = authenticatedSession?.tokenReference else {
-            pendingMutationCount = 0
-            return
+        let count: Int
+        if let reference = authenticatedSession?.tokenReference {
+            count = (try? await syncEngine.pendingCount(reference: reference)) ?? 0
+        } else {
+            count = 0
         }
-        pendingMutationCount = (try? await syncEngine.pendingCount(reference: reference)) ?? 0
+        // The retry loop calls this every 15 seconds. An unchanged assignment
+        // would still publish and redraw every view observing the store.
+        if pendingMutationCount != count { pendingMutationCount = count }
     }
 
     private func startAutomaticRetry() {
@@ -1015,7 +1112,8 @@ final class AppStore: ObservableObject {
         retryTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(15))
-                guard let self, self.authenticatedSession != nil else { continue }
+                guard let self else { return }
+                guard self.authenticatedSession != nil else { continue }
                 await self.flushPendingMutations(refreshVault: !self.isLocked, showDeferredNotice: false)
             }
         }
@@ -1037,10 +1135,10 @@ final class AppStore: ObservableObject {
     func clearEncryptedLocalCache() async throws {
         guard let session = authenticatedSession else { throw VaultArchiveError.signedOut }
         try await vaultwardenService.clearEncryptedCache(session: session)
-        userFacingNotice = "The encrypted offline cache was cleared. Server data and queued changes were not deleted."
     }
 
     func appDidEnterBackground(at date: Date = Date()) {
+        persistSettingsNow()
         guard authenticatedSession != nil else { return }
         backgroundedAt = date
         // A manual Lock Now intentionally waits for the Unlock button. Do not
@@ -1070,6 +1168,8 @@ final class AppStore: ObservableObject {
         clearVisibleVault()
         selectedItemID = nil
         selectedFilter = nil
+        // Decrypted downloads must not outlive the unlocked session on disk.
+        Task.detached(priority: .utility) { TemporaryVaultFiles.removePlaintext() }
         let session = authenticatedSession
         let previousLockTask = lockTask
         lockTask = Task { [vaultwardenService] in
@@ -1083,6 +1183,7 @@ final class AppStore: ObservableObject {
         lock(requestAutomaticUnlock: false)
         if let lockTask { await lockTask.value }
         lockTask = nil
+        ICloudBackupManager.shared.resetForSignOut()
         var cleanupFailure: Error?
         do {
             try await vaultwardenService.logout(session: session)
@@ -1103,7 +1204,9 @@ final class AppStore: ObservableObject {
         removeLocalAccountArtifacts()
         BackgroundSyncManager.cancelPendingRefresh()
         settings = AppSettings()
-        UserDefaults.standard.removeObject(forKey: Self.settingsStorageKey)
+        settingsSaveTask?.cancel()
+        settingsSaveTask = nil
+        settingsDefaults.removeObject(forKey: Self.settingsStorageKey)
         UserDefaults.standard.removeObject(forKey: "vaultwardenApp.deviceIdentifier")
 
         authenticatedSession = nil
@@ -1112,6 +1215,7 @@ final class AppStore: ObservableObject {
         isLocked = false
         isSyncing = false
         lastSync = Date()
+        lastSuccessfulSync = nil
         lastSyncError = nil
         sessionNeedsSignIn = false
         lastUnlockError = nil
@@ -1150,19 +1254,7 @@ final class AppStore: ObservableObject {
         }
         try? fileManager.removeItem(at: AutoFillSharedVault.websiteIconCacheDirectory)
 
-        let temporaryRoot = fileManager.temporaryDirectory
-        for directory in ["EncryptedSendUploads", "DecryptedSends"] {
-            try? fileManager.removeItem(at: temporaryRoot.appendingPathComponent(directory, isDirectory: true))
-        }
-        if let temporaryFiles = try? fileManager.contentsOfDirectory(
-            at: temporaryRoot,
-            includingPropertiesForKeys: nil
-        ) {
-            for url in temporaryFiles where url.lastPathComponent.hasPrefix("Vaultwarden-")
-                && url.pathExtension == "vwvault" {
-                try? fileManager.removeItem(at: url)
-            }
-        }
+        TemporaryVaultFiles.removeAll(in: fileManager.temporaryDirectory)
     }
 
     func unlockWithBiometrics() async -> Bool {
@@ -1207,7 +1299,7 @@ final class AppStore: ObservableObject {
             }
             return true
         } catch {
-            lastUnlockError = error.localizedDescription
+            lastUnlockError = Self.unlockErrorMessage(error)
             return false
         }
     }
@@ -1243,9 +1335,16 @@ final class AppStore: ObservableObject {
             }
             return true
         } catch {
-            lastUnlockError = error.localizedDescription
+            lastUnlockError = Self.unlockErrorMessage(error)
             return false
         }
+    }
+
+    /// Nil lets the lock screen show its own wording; a dismissed prompt is not an error.
+    private static func unlockErrorMessage(_ error: Error) -> String? {
+        if error is CancellationError { return nil }
+        if let keychainError = error as? SessionStoreError, keychainError.isUserCancellation { return nil }
+        return error.localizedDescription
     }
 
     private func restoreCachedVaultIfAvailable() async {

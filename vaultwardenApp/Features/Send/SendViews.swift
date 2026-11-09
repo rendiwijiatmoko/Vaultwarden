@@ -6,157 +6,156 @@ import UIKit
 #endif
 import UniformTypeIdentifiers
 
+/// Where a Send stands, in the order the list shows them.
+private enum SendStatus: CaseIterable, Identifiable {
+    case active, deactivated, expired
+
+    var id: Self { self }
+
+    init(_ send: SendItem) {
+        if send.isDisabled {
+            self = .deactivated
+        } else if send.isExpired {
+            self = .expired
+        } else {
+            self = .active
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .active: L10n.string("Active")
+        case .deactivated: L10n.string("Deactivated")
+        case .expired: L10n.string("Expired")
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .active: .vaultGreen
+        case .deactivated: .secondary
+        case .expired: .vaultRed
+        }
+    }
+}
+
+private extension SendItem {
+    /// Activating an expired Send would not bring its link back.
+    var canChangeActivation: Bool { isDisabled || !isExpired }
+
+    var activationTitle: String { L10n.string(isDisabled ? "Activate" : "Deactivate") }
+    var activationSymbol: String { isDisabled ? "play.fill" : "pause.fill" }
+}
+
 struct SendView: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.dismiss) private var dismiss
     @State private var showingCreate = false
-    @State private var selection = 0
-    @State private var pendingSwipeAction: SendSwipeAction?
-    @State private var showingSwipeAlert = false
-
-    private var displayedSends: [SendItem] {
-        store.sends.filter { selection == 0 ? !$0.isExpired : $0.isExpired }
-    }
+    @State private var sendPendingDeletion: SendItem?
+    @State private var showingDeleteConfirmation = false
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                sendIntro
-                Picker("Send status", selection: $selection) {
-                    Text("Active").tag(0)
-                    Text("Expired").tag(1)
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, 16)
-                .padding(.bottom, 10)
-
-                if displayedSends.isEmpty {
-                    EmptyStateView(icon: "paperplane", title: "No Sends", message: selection == 0 ? "Create a secure text or file link." : "Expired Sends will appear here.")
-                        .frame(maxHeight: .infinity)
+            Group {
+                if store.sends.isEmpty {
+                    ContentUnavailableView {
+                        Label("No Sends", systemImage: "paperplane")
+                    } description: {
+                        Text("Share text or a file through an encrypted link.")
+                    } actions: {
+                        Button("New Send") { showingCreate = true }
+                            .buttonStyle(.borderedProminent)
+                    }
                 } else {
                     List {
-                        ForEach(displayedSends) { send in
-                            SendListRow(send: send, onSwipeAction: requestSwipeAction)
+                        ForEach(SendStatus.allCases) { status in
+                            let group = sends(with: status)
+                            if !group.isEmpty {
+                                Section(status.title) {
+                                    ForEach(group) { send in
+                                        SendListRow(
+                                            send: send,
+                                            onDelete: requestDeletion,
+                                            onToggleActivation: toggleActivation
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                     .vaultInsetGroupedListStyle()
                 }
             }
-            .background(Color.vaultBackground)
             .navigationTitle("Send")
             .vaultNavigationTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }
-                        .tint(nil)
                 }
                 ToolbarItem(placement: .vaultTrailing) {
-                    Button { showingCreate = true } label: { Image(systemName: "plus") }
-                        .tint(nil)
+                    Button("New Send", systemImage: "plus") { showingCreate = true }
+                        .help("New Send")
                 }
             }
-            .sheet(isPresented: $showingCreate) { CreateSendView() }
-            .alert(swipeAlertTitle, isPresented: $showingSwipeAlert) {
-                if case .some(.delete(_)) = pendingSwipeAction {
-                    Button("Delete", role: .destructive) {
-                        guard let send = pendingSwipeSend else { return }
-                        pendingSwipeAction = nil
-                        Task { await store.deleteSend(send) }
-                    }
-                } else if case .some(.changeStatus(_)) = pendingSwipeAction {
-                    Button(pendingSwipeSend?.isDisabled == true ? "Activate" : "Deactivate") {
-                        guard var send = pendingSwipeSend else { return }
-                        pendingSwipeAction = nil
-                        send.isDisabled.toggle()
-                        Task { _ = await store.updateSend(send) }
-                    }
+            .sheet(isPresented: $showingCreate) {
+                CreateSendView()
+                    .environmentObject(store)
+            }
+            .alert(
+                L10n.format("Delete “%@”?", sendPendingDeletion?.name ?? ""),
+                isPresented: $showingDeleteConfirmation,
+                presenting: sendPendingDeletion
+            ) { send in
+                Button("Delete", role: .destructive) {
+                    sendPendingDeletion = nil
+                    Task { await store.deleteSend(send) }
                 }
-                Button("Cancel", role: .cancel) { pendingSwipeAction = nil }
-            } message: {
-                Text(swipeAlertMessage)
+                Button("Cancel", role: .cancel) { sendPendingDeletion = nil }
+            } message: { _ in
+                Text("Its link stops working for everyone.")
             }
         }
-        .vaultSheetSize(width: 640, height: 680)
+        .vaultSheetSize(width: 640, height: 640)
     }
 
-    private var pendingSwipeSend: SendItem? {
-        guard let id = pendingSwipeAction?.sendID else { return nil }
-        return store.sends.first { $0.id == id }
+    private func sends(with status: SendStatus) -> [SendItem] {
+        store.sends
+            .filter { SendStatus($0) == status }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
-    private var swipeAlertTitle: String {
-        let key: String = switch pendingSwipeAction {
-        case .some(.delete(_)): "Delete Send?"
-        case .some(.changeStatus(_)): pendingSwipeSend?.isDisabled == true ? "Activate Send?" : "Deactivate Send?"
-        case nil: "Send"
-        }
-        return L10n.string(key)
+    private func toggleActivation(_ send: SendItem) {
+        guard send.canChangeActivation else { return }
+        var updated = send
+        updated.isDisabled.toggle()
+        Task { _ = await store.updateSend(updated) }
     }
 
-    private var swipeAlertMessage: String {
-        guard let send = pendingSwipeSend else { return "" }
-        switch pendingSwipeAction {
-        case .some(.delete(_)):
-            return L10n.format("This permanently deletes %@ and disables its shared link.", send.name)
-        case .some(.changeStatus(_)):
-            return send.isDisabled
-                ? L10n.format("The shared link for %@ will become available again if it has not expired.", send.name)
-                : L10n.format("The shared link for %@ will stop working until you activate it again.", send.name)
-        case nil:
-            return ""
-        }
-    }
-
-    private func requestSwipeAction(_ action: SendSwipeAction) {
-        pendingSwipeAction = action
+    private func requestDeletion(_ send: SendItem) {
+        sendPendingDeletion = send
         #if os(macOS)
-        showingSwipeAlert = true
+        showingDeleteConfirmation = true
         #else
-        showingSwipeAlert = false
         Task { @MainActor in
             // Let List finish dismissing its swipe host before presenting from
             // the stable navigation container. Presenting during that animation
-            // makes SwiftUI dismiss/re-present the alert and can crash.
+            // makes SwiftUI dismiss and re-present the alert, and can crash.
             try? await Task.sleep(for: .milliseconds(400))
-            guard pendingSwipeAction == action, pendingSwipeSend != nil else {
-                pendingSwipeAction = nil
+            guard sendPendingDeletion?.id == send.id,
+                  store.sends.contains(where: { $0.id == send.id }) else {
+                sendPendingDeletion = nil
                 return
             }
-            showingSwipeAlert = true
+            showingDeleteConfirmation = true
         }
         #endif
-    }
-
-    private var sendIntro: some View {
-        HStack(spacing: 14) {
-            VaultIcon(systemName: "paperplane.fill", color: .vaultBlue, size: 46)
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Share securely")
-                    .font(.headline)
-                Text("Send encrypted text and files with an expiring link.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-        }
-        .padding(16)
-    }
-}
-
-private enum SendSwipeAction: Equatable {
-    case delete(UUID)
-    case changeStatus(UUID)
-
-    var sendID: UUID {
-        switch self {
-        case let .delete(id), let .changeStatus(id): id
-        }
     }
 }
 
 private struct SendListRow: View {
     let send: SendItem
-    let onSwipeAction: (SendSwipeAction) -> Void
+    let onDelete: (SendItem) -> Void
+    let onToggleActivation: (SendItem) -> Void
 
     var body: some View {
         NavigationLink {
@@ -165,38 +164,31 @@ private struct SendListRow: View {
             SendRow(send: send)
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            Button(role: .destructive) {
-                onSwipeAction(.delete(send.id))
-            } label: {
-                Label("Delete", systemImage: "trash")
+            Button("Delete", systemImage: "trash", role: .destructive) { onDelete(send) }
+            if send.canChangeActivation {
+                Button(send.activationTitle, systemImage: send.activationSymbol) { onToggleActivation(send) }
+                    .tint(send.isDisabled ? Color.vaultGreen : .orange)
             }
-            .tint(.red)
-
-            if send.isDisabled || !send.isExpired {
-                Button {
-                    onSwipeAction(.changeStatus(send.id))
-                } label: {
-                    Label(
-                        send.isDisabled ? "Activate" : "Deactivate",
-                        systemImage: send.isDisabled ? "play.fill" : "pause.fill"
-                    )
-                }
-                .tint(send.isDisabled ? Color.vaultGreen : .orange)
+        }
+        .swipeActions(edge: .leading) {
+            if let shareURL = send.shareURL {
+                Button("Copy Link", systemImage: "link") { Clipboard.copy(shareURL.absoluteString) }
+                    .tint(.vaultBlue)
             }
         }
         .contextMenu {
-            if send.isDisabled || !send.isExpired {
-                Button {
-                    onSwipeAction(.changeStatus(send.id))
-                } label: {
-                    Label(send.isDisabled ? "Activate" : "Deactivate", systemImage: send.isDisabled ? "play.fill" : "pause.fill")
+            if let shareURL = send.shareURL {
+                Button("Copy Link", systemImage: "doc.on.doc") { Clipboard.copy(shareURL.absoluteString) }
+                ShareLink(item: shareURL) {
+                    Label("Share Link", systemImage: "square.and.arrow.up")
                 }
+                Divider()
             }
-            Button(role: .destructive) {
-                onSwipeAction(.delete(send.id))
-            } label: {
-                Label("Delete", systemImage: "trash")
+            if send.canChangeActivation {
+                Button(send.activationTitle, systemImage: send.activationSymbol) { onToggleActivation(send) }
             }
+            Divider()
+            Button("Delete", systemImage: "trash", role: .destructive) { onDelete(send) }
         }
     }
 }
@@ -204,185 +196,248 @@ private struct SendListRow: View {
 private struct SendRow: View {
     let send: SendItem
 
-    var body: some View {
-        HStack(spacing: 13) {
-            VaultIcon(systemName: send.kind.icon, color: send.isExpired ? .gray : .vaultBlue, size: 42)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(send.name)
-                    .font(.body.weight(.semibold))
-                HStack(spacing: 5) {
-                    Text(send.kind.localizedTitle)
-                    Text("•")
-                    Text(statusText(for: send))
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
-            Spacer()
-            if send.passwordProtected {
-                Image(systemName: "lock.fill")
-                    .font(.caption)
-                    .foregroundStyle(Color.vaultGreen)
-            }
-        }
-        .padding(.vertical, 7)
+    private var iconSize: CGFloat {
+        #if os(macOS)
+        28
+        #else
+        36
+        #endif
     }
 
-    private func statusText(for send: SendItem) -> String {
-        if send.isExpired { return L10n.string("Expired") }
-        if let expiresAt = send.expiresAt {
-            return L10n.format("Expires %@", expiresAt.formatted(.relative(presentation: .named)))
+    var body: some View {
+        let status = SendStatus(send)
+        HStack(spacing: 12) {
+            VaultIcon(systemName: send.kind.icon, color: status == .active ? .vaultBlue : .gray, size: iconSize)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(send.name)
+                    .font(.body.weight(.medium))
+                    .lineLimit(2)
+                HStack(spacing: 4) {
+                    Text(send.kind.localizedTitle)
+                    Text(verbatim: "·")
+                    Text(statusText(status))
+                }
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            if send.passwordProtected {
+                Image(systemName: "lock.fill")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("Password Protected")
+            }
         }
-        return L10n.format("Deletes %@", send.deletesAt.formatted(.relative(presentation: .named)))
+        .padding(.vertical, 2)
+    }
+
+    private func statusText(_ status: SendStatus) -> String {
+        switch status {
+        case .deactivated:
+            return status.title
+        case .expired:
+            let endedAt = [send.expiresAt, send.deletesAt].compactMap { $0 }.filter { $0 <= Date() }.min()
+            guard let endedAt else { return status.title }
+            return L10n.format("Expired %@", endedAt.formatted(.relative(presentation: .named)))
+        case .active:
+            if let expiresAt = send.expiresAt, expiresAt < send.deletesAt {
+                return L10n.format("Expires %@", expiresAt.formatted(.relative(presentation: .named)))
+            }
+            return L10n.format("Deletes %@", send.deletesAt.formatted(.relative(presentation: .named)))
+        }
     }
 }
 
 struct SendDetailView: View {
     @EnvironmentObject private var store: AppStore
+    @Environment(\.dismiss) private var dismiss
     let sendID: UUID
-    @State private var showDelete = false
+    @State private var showingDelete = false
     @State private var showingEdit = false
     @State private var showingDownloadPassword = false
     @State private var downloadPassword = ""
     @State private var downloadedFileURL: URL?
     @State private var isDownloading = false
+    @State private var isUpdating = false
 
     private var send: SendItem? { store.sends.first { $0.id == sendID } }
 
     var body: some View {
         Group {
             if let send {
-                List {
-                    Section {
-                        HStack(spacing: 15) {
-                            VaultIcon(systemName: send.kind.icon, color: send.isExpired ? .gray : .vaultBlue, size: 52)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(send.name).font(.title3.bold())
-                                Text(send.isExpired ? "Expired or disabled" : "Active secure link")
-                                    .foregroundStyle(send.isExpired ? Color.vaultRed : Color.vaultGreen)
-                            }
-                        }
-                        .padding(.vertical, 7)
-                    }
+                details(for: send)
+            } else {
+                ContentUnavailableView("Send Unavailable", systemImage: "paperplane")
+            }
+        }
+        .vaultNavigationTitleDisplayMode(.inline)
+        .onDisappear {
+            if let downloadedFileURL {
+                removeTemporaryDownload(downloadedFileURL)
+                self.downloadedFileURL = nil
+            }
+        }
+    }
 
-                    Section("Link") {
-                        if let shareURL = send.shareURL {
-                            Text(shareURL.absoluteString)
-                                .font(.footnote.monospaced())
-                                .textSelection(.enabled)
-                            Link(destination: shareURL) {
-                                Label("Open Link", systemImage: "safari")
-                            }
-                            AnimatedCopyButton(value: shareURL.absoluteString, title: "Copy Link", accessibilityName: "send link")
-                            ShareLink(item: shareURL) { Label("Share Link", systemImage: "square.and.arrow.up") }
-                            if let temporaryPassword = store.temporaryPassword(for: send.id) {
-                                AnimatedCopyButton(
-                                    value: temporaryPassword,
-                                    title: "Copy Password",
-                                    accessibilityName: "send password"
-                                )
-                                Text("The generated password is kept only in memory and is removed when the vault locks.")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+    private func details(for send: SendItem) -> some View {
+        let status = SendStatus(send)
+        let temporaryPassword = store.temporaryPassword(for: send.id)
+        return List {
+            Section {
+                HStack(spacing: 14) {
+                    VaultIcon(systemName: send.kind.icon, color: status == .active ? .vaultBlue : .gray, size: 48)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(send.name)
+                            .font(.title3.bold())
+                        Text(status.title)
+                            .font(.subheadline)
+                            .foregroundStyle(status.color)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+
+            Section {
+                if let shareURL = send.shareURL {
+                    Text(shareURL.absoluteString)
+                        .font(.callout.monospaced())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                        .textSelection(.enabled)
+                    AnimatedCopyButton(value: shareURL.absoluteString, title: "Copy Link", accessibilityName: "Send link")
+                    ShareLink(item: shareURL) {
+                        Label("Share Link", systemImage: "square.and.arrow.up")
+                    }
+                    Link(destination: shareURL) {
+                        Label("Open in Browser", systemImage: "safari")
+                    }
+                    if let temporaryPassword {
+                        AnimatedCopyButton(value: temporaryPassword, title: "Copy Password", accessibilityName: "Send password")
+                    }
+                } else {
+                    Label("Waiting for Server", systemImage: "clock")
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("Link")
+            } footer: {
+                if temporaryPassword != nil {
+                    Text("The password stays in memory until the vault locks.")
+                }
+            }
+
+            Section("Details") {
+                LabeledContent("Type", value: send.kind.localizedTitle)
+                LabeledContent("Access Count", value: accessSummary(send))
+                if let expiresAt = send.expiresAt {
+                    LabeledContent("Expires", value: expiresAt.formatted(date: .abbreviated, time: .shortened))
+                }
+                LabeledContent("Deletes", value: send.deletesAt.formatted(date: .abbreviated, time: .shortened))
+                LabeledContent("Password", value: L10n.string(send.passwordProtected ? "On" : "Off"))
+            }
+
+            if send.kind == .text, !send.text.isEmpty {
+                Section("Text") {
+                    Text(send.text)
+                        .textSelection(.enabled)
+                    AnimatedCopyButton(value: send.text, title: "Copy Text", accessibilityName: "Send text")
+                }
+            }
+
+            if let fileName = send.fileName {
+                Section("File") {
+                    Label(fileName, systemImage: "doc.fill")
+                    if let fileSize = send.fileSize {
+                        LabeledContent("Size", value: fileSize)
+                    }
+                    Button {
+                        if send.passwordProtected {
+                            showingDownloadPassword = true
+                        } else {
+                            Task { await download(send, password: nil) }
+                        }
+                    } label: {
+                        if isDownloading {
+                            HStack(spacing: 8) {
+                                ProgressView()
+                                Text("Downloading…")
                             }
                         } else {
-                            Label("The server link will appear after upload completes.", systemImage: "clock")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                            Label("Download", systemImage: "arrow.down.circle")
                         }
                     }
-
-                    Section("Details") {
-                        LabeledContent("Type", value: send.kind.localizedTitle)
-                        LabeledContent("Access count", value: "\(send.accessCount)")
-                        if let maximum = send.maximumAccessCount {
-                            LabeledContent("Maximum accesses", value: "\(maximum)")
-                        }
-                        if let expiresAt = send.expiresAt {
-                            LabeledContent("Expires", value: expiresAt.formatted(date: .abbreviated, time: .shortened))
-                        }
-                        LabeledContent("Deletes", value: send.deletesAt.formatted(date: .abbreviated, time: .shortened))
-                        LabeledContent("Password", value: send.passwordProtected ? "Protected" : "Not set")
-                    }
-
-                    if send.kind == .text, !send.text.isEmpty {
-                        Section("Protected Text") { Text(send.text) }
-                    }
-                    if let fileName = send.fileName {
-                        Section("File") {
-                            Label(fileName, systemImage: "doc.fill")
-                            if let fileSize = send.fileSize {
-                                LabeledContent("Encrypted size", value: fileSize)
-                            }
-                            Button {
-                                if send.passwordProtected {
-                                    showingDownloadPassword = true
-                                } else {
-                                    Task { await download(send, password: nil) }
-                                }
-                            } label: {
-                                if isDownloading {
-                                    HStack { ProgressView(); Text("Downloading & decrypting…") }
-                                } else {
-                                    Label("Download & Decrypt", systemImage: "arrow.down.doc.fill")
-                                }
-                            }
-                            .disabled(isDownloading)
-                        }
-                    }
-
-                    Section {
-                        Button("Delete Send", role: .destructive) { showDelete = true }
-                            .confirmationDialog(
-                                "Delete this Send?",
-                                isPresented: $showDelete,
-                                titleVisibility: .visible
-                            ) {
-                                Button("Delete", role: .destructive) {
-                                    Task { await store.deleteSend(send) }
-                                }
-                                Button("Cancel", role: .cancel) { }
-                            }
-                    }
+                    .disabled(isDownloading)
                 }
-                .navigationTitle("Send Details")
-                .vaultNavigationTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .vaultTrailing) {
-                        Button("Edit") { showingEdit = true }
-                            .tint(nil)
-                    }
-                }
-                .sheet(isPresented: $showingEdit) {
-                    CreateSendView(editing: send)
-                }
-                .alert("Unlock File Send", isPresented: $showingDownloadPassword) {
-                    SecureField("Send password", text: $downloadPassword)
-                    Button("Cancel", role: .cancel) { downloadPassword = "" }
-                    Button("Download") {
-                        let password = downloadPassword
-                        downloadPassword = ""
-                        Task { await download(send, password: password) }
-                    }
-                    .disabled(downloadPassword.isEmpty)
-                } message: {
-                    Text("Vaultwarden requires this Send's password before issuing a one-time download URL.")
-                }
-                .quickLookPreview($downloadedFileURL)
-                .onChange(of: downloadedFileURL) { oldURL, newURL in
-                    if let oldURL, newURL == nil {
-                        removeTemporaryDownload(oldURL)
-                    }
-                }
-                .onDisappear {
-                    if let downloadedFileURL {
-                        removeTemporaryDownload(downloadedFileURL)
-                        self.downloadedFileURL = nil
-                    }
-                }
-            } else {
-                EmptyStateView(icon: "paperplane", title: "Send unavailable", message: "This Send may have been deleted.")
             }
+
+            Section {
+                if send.canChangeActivation {
+                    Button(send.activationTitle) { toggleActivation(send) }
+                        .disabled(isUpdating)
+                }
+                Button("Delete Send", role: .destructive) { showingDelete = true }
+            }
+        }
+        .toolbar {
+            ToolbarItem(placement: .vaultTrailing) {
+                Button("Edit") { showingEdit = true }
+            }
+        }
+        .sheet(isPresented: $showingEdit) {
+            CreateSendView(editing: send)
+                .environmentObject(store)
+        }
+        .confirmationDialog(
+            L10n.format("Delete “%@”?", send.name),
+            isPresented: $showingDelete,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Send", role: .destructive) {
+                Task {
+                    await store.deleteSend(send)
+                    dismiss()
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Its link stops working for everyone.")
+        }
+        .alert("Enter Send Password", isPresented: $showingDownloadPassword) {
+            SecureField("Password", text: $downloadPassword)
+            Button("Cancel", role: .cancel) { downloadPassword = "" }
+            Button("Download") {
+                let password = downloadPassword
+                downloadPassword = ""
+                Task { await download(send, password: password) }
+            }
+            .disabled(downloadPassword.isEmpty)
+        } message: {
+            Text("This file is protected with a password.")
+        }
+        .quickLookPreview($downloadedFileURL)
+        .onChange(of: downloadedFileURL) { oldURL, newURL in
+            if let oldURL, newURL == nil {
+                removeTemporaryDownload(oldURL)
+            }
+        }
+    }
+
+    private func accessSummary(_ send: SendItem) -> String {
+        if let maximum = send.maximumAccessCount {
+            return L10n.format("%lld of %lld", send.accessCount, maximum)
+        }
+        return send.accessCount.formatted()
+    }
+
+    private func toggleActivation(_ send: SendItem) {
+        guard !isUpdating else { return }
+        var updated = send
+        updated.isDisabled.toggle()
+        isUpdating = true
+        Task {
+            _ = await store.updateSend(updated)
+            isUpdating = false
         }
     }
 
@@ -406,20 +461,13 @@ struct CreateSendView: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.dismiss) private var dismiss
     private let editingSend: SendItem?
-    @State private var kind: SendKind
-    @State private var name: String
-    @State private var text: String
+    private let original: SendDraft
+    private let openedAt: Date
+    @State private var draft: SendDraft
     @State private var fileName: String?
     @State private var selectedFileURL: URL?
     @State private var selectedFileSize: String?
-    @State private var expirationDays: Int
-    @State private var deletionPeriod: SendDeletionPeriod
-    @State private var maximumAccesses: Int
-    @State private var limitAccesses: Bool
-    @State private var passwordProtected: Bool
-    @State private var password = ""
     @State private var passwordIsVisible = false
-    @State private var disabled: Bool
     @State private var showingFileImporter = false
     #if os(iOS)
     @State private var showingCamera = false
@@ -427,208 +475,103 @@ struct CreateSendView: View {
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var isImportingFile = false
     @State private var fileSelectionError: String?
-    @State private var isCreating = false
+    @State private var isSaving = false
+    @State private var showingDiscardConfirmation = false
 
     init(editing: SendItem? = nil) {
-        editingSend = editing
-        let calendar = Calendar.current
         let now = Date()
-        let expiration = editing?.expiresAt.map {
-            max(1, calendar.dateComponents([.day], from: now, to: $0).day ?? 1)
-        } ?? 7
-        let deletionPeriod = editing.map {
-            SendDeletionPeriod.nearest(to: $0.deletesAt.timeIntervalSince(now))
-        } ?? .thirtyDays
-        _kind = State(initialValue: editing?.kind ?? .text)
-        _name = State(initialValue: editing?.name ?? "")
-        _text = State(initialValue: editing?.text ?? "")
+        let draft = SendDraft(editing: editing, now: now)
+        editingSend = editing
+        original = draft
+        openedAt = now
+        _draft = State(initialValue: draft)
         _fileName = State(initialValue: editing?.fileName)
-        _expirationDays = State(initialValue: min(expiration, deletionPeriod.maximumExpirationDays ?? 1))
-        _deletionPeriod = State(initialValue: deletionPeriod)
-        _maximumAccesses = State(initialValue: editing?.maximumAccessCount ?? 10)
-        _limitAccesses = State(initialValue: editing?.maximumAccessCount != nil)
-        _passwordProtected = State(initialValue: editing?.passwordProtected ?? false)
-        _disabled = State(initialValue: editing?.isDisabled ?? false)
+    }
+
+    private var hasChanges: Bool { draft != original || selectedFileURL != nil }
+
+    private var canSave: Bool {
+        !isImportingFile && !isSaving && draft.isValid(
+            existing: editingSend,
+            hasNewFile: selectedFileURL != nil,
+            hasFileName: fileName != nil
+        )
     }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    Picker("Type", selection: $kind) {
-                        Label(SendKind.text.localizedTitle, systemImage: SendKind.text.icon).tag(SendKind.text)
-                        Label(SendKind.file.localizedTitle, systemImage: SendKind.file.icon).tag(SendKind.file)
+                    if editingSend == nil {
+                        Picker("Type", selection: $draft.kind) {
+                            Label(SendKind.text.localizedTitle, systemImage: SendKind.text.icon).tag(SendKind.text)
+                            Label(SendKind.file.localizedTitle, systemImage: SendKind.file.icon).tag(SendKind.file)
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
                     }
-                    .pickerStyle(.segmented)
-                    .disabled(editingSend != nil)
-                    TextField("Name", text: $name)
+                    TextField("Name", text: $draft.name)
                 }
 
-                if kind == .text {
-                    Section("Protected Text") {
-                        TextEditor(text: $text)
-                            .frame(minHeight: 130)
+                if draft.kind == .text {
+                    Section("Text") {
+                        TextEditor(text: $draft.text)
+                            .frame(minHeight: 120)
                     }
                 } else {
-                    Section("File") {
-                        if let fileName {
-                            Label(fileName, systemImage: "doc.fill")
-                            if let selectedFileSize { Text(selectedFileSize).font(.caption).foregroundStyle(.secondary) }
-                        }
-                        if editingSend == nil {
-                            if isImportingFile {
-                                HStack(spacing: 10) {
-                                    ProgressView()
-                                    Text("Preparing file…")
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-
-                            HStack(spacing: 8) {
-                                #if os(iOS)
-                                Button {
-                                    guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
-                                        fileSelectionError = "Camera is not available on this device."
-                                        return
-                                    }
-                                    showingCamera = true
-                                } label: {
-                                    SendFileSourceLabel(title: "Camera", systemImage: "camera.fill")
-                                }
-                                .disabled(isImportingFile)
-                                #endif
-
-                                PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
-                                    SendFileSourceLabel(title: "Photos", systemImage: "photo.on.rectangle")
-                                }
-                                .disabled(isImportingFile)
-
-                                Button {
-                                    showingFileImporter = true
-                                } label: {
-                                    SendFileSourceLabel(title: "Files", systemImage: "folder.fill")
-                                }
-                                .disabled(isImportingFile)
-                            }
-                            .buttonStyle(.bordered)
-
-                            Text("Maximum file size: 100 MB.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-
-                            if let fileSelectionError {
-                                Label(fileSelectionError, systemImage: "exclamationmark.triangle.fill")
-                                    .font(.caption)
-                                    .foregroundStyle(.red)
-                            }
-                        } else {
-                            Text("Replacing the encrypted file is not available from metadata editing.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
+                    fileSection
                 }
 
-                Section("Lifetime") {
-                    Picker("Delete after", selection: $deletionPeriod) {
-                        ForEach(SendDeletionPeriod.allCases) { period in
-                            Text(period.title).tag(period)
-                        }
-                    }
-                    if let maximumExpirationDays = deletionPeriod.maximumExpirationDays {
-                        Stepper(
-                            L10n.format("Expires in %lld days", expirationDays),
-                            value: $expirationDays,
-                            in: 1...maximumExpirationDays
+                Section("Availability") {
+                    DatePicker(
+                        "Deletion Date",
+                        selection: $draft.deletionDate,
+                        in: SendDraft.deletionRange(now: openedAt, current: original.deletionDate)
+                    )
+                    Toggle("Expiration", isOn: $draft.expires)
+                    if draft.expires {
+                        DatePicker(
+                            "Expires",
+                            selection: $draft.expirationDate,
+                            in: draft.expirationRange(now: openedAt, current: editingSend?.expiresAt)
                         )
-                    } else {
-                        LabeledContent("Expires", value: "At deletion")
                     }
-                    Toggle("Limit access count", isOn: $limitAccesses)
-                    if limitAccesses {
-                        Stepper(L10n.format("Maximum: %lld", maximumAccesses), value: $maximumAccesses, in: 1...100)
-                    }
-                }
-
-                Section("Protection") {
-                    Toggle("Require password", isOn: $passwordProtected)
-                    if passwordProtected {
-                        HStack {
-                            Group {
-                                if passwordIsVisible {
-                                    TextField(passwordPrompt, text: $password)
-                                } else {
-                                    SecureField(passwordPrompt, text: $password)
-                                }
+                    Toggle("Limit Access", isOn: $draft.limitsAccess)
+                    if draft.limitsAccess {
+                        Stepper(value: $draft.maximumAccessCount, in: SendDraft.accessCountRange) {
+                            LabeledContent("Maximum Accesses") {
+                                Text(draft.maximumAccessCount, format: .number)
+                                    .monospacedDigit()
                             }
-                            .vaultTextContentType(.newPassword)
-                            .autocorrectionDisabled()
-                            .vaultTextInputAutocapitalization(.never)
-
-                            Button {
-                                passwordIsVisible.toggle()
-                            } label: {
-                                Image(systemName: passwordIsVisible ? "eye.slash" : "eye")
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(passwordIsVisible ? "Hide password" : "Show password")
-
-                            AnimatedCopyButton(
-                                value: password,
-                                accessibilityName: "Send password"
-                            )
-                            .id(password)
-                            .buttonStyle(.plain)
-                            .disabled(password.isEmpty)
                         }
-                        .listRowSeparator(.hidden, edges: .bottom)
-
-                        Button {
-                            password = PasswordGenerator.password(
-                                length: 24,
-                                uppercase: true,
-                                numbers: true,
-                                symbols: false
-                            )
-                        } label: {
-                            Text("Generate Password")
-                        }
-                        .listRowSeparator(.hidden)
-                        if editingSend?.passwordProtected == true {
-                            Text("Leave blank to keep the current password.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    } else if editingSend?.passwordProtected == true {
-                        Text("Saving will remove the current Send password.")
-                            .font(.caption)
-                            .foregroundStyle(.orange)
                     }
-                    Toggle("Create disabled", isOn: $disabled)
+                    Toggle("Active", isOn: $draft.isActive)
                 }
 
-                Section {
-                    Label(sendIntegrationMessage, systemImage: "info.circle")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                passwordSection
             }
+            .formStyle(.grouped)
             .navigationTitle(editingSend == nil ? "New Send" : "Edit Send")
             .vaultNavigationTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { cancel() }
-                        .tint(nil)
+                    Button("Cancel") {
+                        if hasChanges { showingDiscardConfirmation = true } else { cancel() }
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
                         Task { await save() }
                     } label: {
-                        if isCreating { ProgressView() } else { Text(editingSend == nil ? "Create" : "Save") }
+                        if isSaving { ProgressView() } else { Text(editingSend == nil ? "Create" : "Save") }
                     }
-                    .tint(nil)
-                    .disabled(!canSave || isCreating)
+                    .disabled(!canSave)
                 }
+            }
+            .interactiveDismissDisabled(hasChanges)
+            .confirmationDialog("Discard Changes?", isPresented: $showingDiscardConfirmation, titleVisibility: .visible) {
+                Button("Discard Changes", role: .destructive) { cancel() }
+                Button("Keep Editing", role: .cancel) {}
             }
             .fileImporter(isPresented: $showingFileImporter, allowedContentTypes: [.item]) { result in
                 switch result {
@@ -650,61 +593,138 @@ struct CreateSendView: View {
                 guard let item else { return }
                 importPhoto(item)
             }
-            .onChange(of: deletionPeriod) { _, period in
-                expirationDays = min(expirationDays, period.maximumExpirationDays ?? 1)
+            .onChange(of: draft.deletionDate) { _, deletionDate in
+                if draft.expirationDate > deletionDate { draft.expirationDate = deletionDate }
             }
         }
-        .formStyle(.grouped)
-        .vaultSheetSize(width: 620, height: 680)
+        .vaultSheetSize(width: 620, height: 640)
     }
 
-    private var canSave: Bool {
-        !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && (kind == .text ? !text.isEmpty : fileName != nil)
-            && (editingSend != nil || kind == .text || selectedFileURL != nil)
-            && (!passwordProtected || editingSend?.passwordProtected == true || !password.isEmpty)
-            && !isImportingFile
-    }
+    private var fileSection: some View {
+        Section {
+            if let fileName {
+                LabeledContent {
+                    if let selectedFileSize { Text(selectedFileSize) }
+                } label: {
+                    Label(fileName, systemImage: "doc.fill")
+                }
+            }
+            if editingSend == nil {
+                if isImportingFile {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text("Preparing File…")
+                            .foregroundStyle(.secondary)
+                    }
+                }
 
-    private var sendIntegrationMessage: String {
-        if editingSend != nil {
-            return L10n.string("Changes are encrypted on this device, saved to Vaultwarden, then synced back.")
+                HStack(spacing: 8) {
+                    #if os(iOS)
+                    Button {
+                        guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
+                            fileSelectionError = L10n.string("Camera is not available on this device.")
+                            return
+                        }
+                        showingCamera = true
+                    } label: {
+                        SendFileSourceLabel(title: "Camera", systemImage: "camera.fill")
+                    }
+                    #endif
+
+                    PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
+                        SendFileSourceLabel(title: "Photos", systemImage: "photo.on.rectangle")
+                    }
+
+                    Button {
+                        showingFileImporter = true
+                    } label: {
+                        SendFileSourceLabel(title: "Files", systemImage: "folder.fill")
+                    }
+                }
+                .buttonStyle(.bordered)
+                .disabled(isImportingFile)
+
+                if let fileSelectionError {
+                    Label(fileSelectionError, systemImage: "exclamationmark.triangle.fill")
+                        .font(.callout)
+                        .foregroundStyle(.red)
+                }
+            }
+        } header: {
+            Text("File")
+        } footer: {
+            if editingSend == nil {
+                Text("Encrypted on this device before upload. Up to 100 MB.")
+            }
         }
-        return kind == .file
-            ? L10n.string("The file is encrypted on this device before any bytes are uploaded. File creation requires a live server connection.")
-            : L10n.string("Text Sends are encrypted locally and can be queued securely when offline.")
+    }
+
+    private var passwordSection: some View {
+        Section {
+            Toggle("Require Password", isOn: $draft.requiresPassword)
+            if draft.requiresPassword {
+                HStack(spacing: 8) {
+                    Group {
+                        if passwordIsVisible {
+                            TextField(passwordPrompt, text: $draft.password)
+                        } else {
+                            SecureField(passwordPrompt, text: $draft.password)
+                        }
+                    }
+                    .vaultTextContentType(.newPassword)
+                    .autocorrectionDisabled()
+                    .vaultTextInputAutocapitalization(.never)
+
+                    Button {
+                        passwordIsVisible.toggle()
+                    } label: {
+                        Image(systemName: passwordIsVisible ? "eye.slash" : "eye")
+                            .contentTransition(.symbolEffect(.replace))
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel(passwordIsVisible ? "Hide Password" : "Show Password")
+
+                    AnimatedCopyButton(value: draft.password, accessibilityName: "Send password")
+                        .id(draft.password)
+                        .buttonStyle(.borderless)
+                        .disabled(draft.password.isEmpty)
+                }
+
+                Button("Generate Password") {
+                    draft.password = SecretGenerator.password(
+                        SecretGenerator.PasswordOptions(length: 24, includesSymbols: false)
+                    )
+                    passwordIsVisible = true
+                }
+            }
+        } footer: {
+            if editingSend?.passwordProtected == true && !draft.requiresPassword {
+                Text("Saving removes the password from this Send.")
+            }
+        }
+    }
+
+    private var passwordPrompt: String {
+        L10n.string(editingSend?.passwordProtected == true ? "New Password (Optional)" : "Password")
     }
 
     private func save() async {
-        let id = editingSend?.id ?? UUID()
-        let now = Date()
-        let send = SendItem(
-            id: id,
-            name: name.trimmingCharacters(in: .whitespacesAndNewlines),
-            kind: kind,
-            text: text,
+        guard canSave else { return }
+        let send = draft.makeSend(
+            id: editingSend?.id ?? UUID(),
+            existing: editingSend,
             fileName: fileName,
-            fileID: editingSend?.fileID,
-            fileSize: editingSend?.fileSize ?? selectedFileSize,
-            accessCount: editingSend?.accessCount ?? 0,
-            maximumAccessCount: limitAccesses ? maximumAccesses : nil,
-            expiresAt: deletionPeriod == .oneHour
-                ? nil
-                : Calendar.current.date(byAdding: .day, value: expirationDays, to: now),
-            deletesAt: now.addingTimeInterval(deletionPeriod.timeInterval),
-            passwordProtected: passwordProtected,
-            isDisabled: disabled,
-            shareURL: editingSend?.shareURL
+            fileSize: selectedFileSize
         )
-        isCreating = true
-        defer { isCreating = false }
+        isSaving = true
+        defer { isSaving = false }
         let didSave: Bool
         if editingSend != nil {
-            didSave = await store.updateSend(send, passwordUpdate: passwordAction)
+            didSave = await store.updateSend(send, passwordUpdate: draft.passwordUpdate(existing: editingSend))
         } else {
             didSave = await store.addSend(
                 send,
-                password: passwordProtected ? password : nil,
+                password: draft.requiresPassword ? draft.password : nil,
                 fileURL: selectedFileURL
             )
         }
@@ -714,24 +734,13 @@ struct CreateSendView: View {
         }
     }
 
-    private var passwordAction: SendPasswordUpdate {
-        guard let editingSend else { return passwordProtected ? .set(password) : .preserve }
-        if editingSend.passwordProtected, !passwordProtected { return .remove }
-        if passwordProtected, !password.isEmpty { return .set(password) }
-        return .preserve
-    }
-
-    private var passwordPrompt: String {
-        L10n.string(editingSend?.passwordProtected == true ? "New password (optional)" : "Send password")
-    }
-
     private func cancel() {
         removeSelectedTemporaryFile()
         dismiss()
     }
 
     private func importFile(from url: URL) {
-        prepareSelection {
+        prepareSelection(suggestsName: true) {
             try SendFileStager.stage(fileAt: url)
         }
     }
@@ -778,6 +787,7 @@ struct CreateSendView: View {
     #endif
 
     private func prepareSelection(
+        suggestsName: Bool = false,
         operation: @escaping @Sendable () throws -> StagedSendFile
     ) {
         isImportingFile = true
@@ -788,14 +798,14 @@ struct CreateSendView: View {
                 let staged = try await Task.detached(priority: .userInitiated) {
                     try operation()
                 }.value
-                apply(staged)
+                apply(staged, suggestsName: suggestsName)
             } catch {
                 fileSelectionError = error.localizedDescription
             }
         }
     }
 
-    private func apply(_ staged: StagedSendFile) {
+    private func apply(_ staged: StagedSendFile, suggestsName: Bool = false) {
         removeSelectedTemporaryFile()
         selectedFileURL = staged.url
         fileName = staged.fileName
@@ -803,51 +813,16 @@ struct CreateSendView: View {
             fromByteCount: staged.byteCount,
             countStyle: .file
         )
+        // A file chosen from Files has a meaningful name; photos don't.
+        if suggestsName, draft.trimmedName.isEmpty {
+            draft.name = (staged.fileName as NSString).deletingPathExtension
+        }
     }
 
     private func removeSelectedTemporaryFile() {
         guard let selectedFileURL else { return }
         SendFileStager.removeStagedFile(at: selectedFileURL)
         self.selectedFileURL = nil
-    }
-}
-
-private enum SendDeletionPeriod: Int, CaseIterable, Identifiable {
-    case oneHour = 3_600
-    case oneDay = 86_400
-    case twoDays = 172_800
-    case threeDays = 259_200
-    case sevenDays = 604_800
-    case thirtyDays = 2_592_000
-
-    var id: Int { rawValue }
-    var timeInterval: TimeInterval { TimeInterval(rawValue) }
-
-    var title: String {
-        let key: String = switch self {
-        case .oneHour: "1 hour"
-        case .oneDay: "1 day"
-        case .twoDays: "2 days"
-        case .threeDays: "3 days"
-        case .sevenDays: "7 days"
-        case .thirtyDays: "30 days"
-        }
-        return L10n.string(key)
-    }
-
-    var maximumExpirationDays: Int? {
-        switch self {
-        case .oneHour: nil
-        case .oneDay: 1
-        case .twoDays: 2
-        case .threeDays: 3
-        case .sevenDays: 7
-        case .thirtyDays: 30
-        }
-    }
-
-    static func nearest(to interval: TimeInterval) -> SendDeletionPeriod {
-        allCases.min(by: { abs($0.timeInterval - interval) < abs($1.timeInterval - interval) }) ?? .thirtyDays
     }
 }
 

@@ -80,7 +80,10 @@ nonisolated struct BitwardenSDKCryptoProvider: VaultCryptoProvider {
     }
 
     private func sdkKDF(_ configuration: KDFConfiguration) throws -> Kdf {
-        guard configuration.iterations > 0,
+        // The prelogin response is untrusted: reject downgrades that make the
+        // authentication hash cheap to attack and values that exhaust memory.
+        guard configuration.isWithinSupportedBounds,
+              configuration.iterations > 0,
               let iterations = UInt32(exactly: configuration.iterations) else {
             throw VaultCryptoError.invalidKDFParameters
         }

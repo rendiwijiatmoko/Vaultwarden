@@ -1,552 +1,698 @@
 import AuthenticationServices
 import SwiftUI
-#if canImport(UIKit)
-import UIKit
+#if os(macOS)
+import AppKit
 #endif
 
 private enum OnboardingStep: Int, CaseIterable {
     case welcome
-    case account
+    case server
+    case signIn
+    case twoFactor
     case security
     case autofill
+    case done
+
+    /// Steps before signing in can go back; after it, the account exists and the way is forward.
+    var previous: OnboardingStep? {
+        switch self {
+        case .server: .welcome
+        case .signIn: .server
+        case .twoFactor: .signIn
+        case .welcome, .security, .autofill, .done: nil
+        }
+    }
 }
 
+/// First run, as a setup assistant: one question per screen, a big title, a short
+/// sentence, the primary action at the bottom and the alternative under it.
 struct OnboardingView: View {
     @EnvironmentObject private var store: AppStore
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let onComplete: () -> Void
 
     @State private var step: OnboardingStep = .welcome
-    @State private var serverURL = ""
+    @State private var isMovingForward = true
+    @State private var serverAddress = ""
     @State private var email = ""
     @State private var masterPassword = ""
     @State private var verificationCode = ""
-    @State private var requiresTwoFactor = false
     @State private var biometricUnlock = false
     @State private var requireBiometricForFill = true
     @State private var allowPasscodeFallback = false
-    @State private var isConnecting = false
-    @State private var connectionError: String?
-    @State private var autofillStatus: String?
-    @FocusState private var focusedField: AccountField?
+    @State private var isWorking = false
+    @State private var errorMessage: String?
+    @State private var isAutoFillEnabled = false
+    @State private var openedAutoFillSettings = false
+    @State private var biometry = BiometryKind.current
+    @State private var completedSteps = 0
+    @FocusState private var focusedField: Field?
 
-    private enum AccountField: Hashable {
+    private enum Field: Hashable {
         case server, email, password, verificationCode
     }
 
+    private var serverHost: String { SettingsWords.serverHost(serverAddress) }
+
+    private var sensorName: String { biometry.name ?? L10n.string("Biometrics") }
+
     var body: some View {
         VStack(spacing: 0) {
-            header
-                .padding(.horizontal, 22)
-                .padding(.top, 14)
-                .padding(.bottom, 16)
-                .background(Color.vaultBackground)
-
+            topBar
             ScrollView {
-                Group {
-                    switch step {
-                    case .welcome: welcomePage
-                    case .account: accountPage
-                    case .security: securityPage
-                    case .autofill: autofillPage
-                    }
-                }
-                .id(step)
-                .transition(.asymmetric(
-                    insertion: .move(edge: .trailing).combined(with: .opacity),
-                    removal: .move(edge: .leading).combined(with: .opacity)
-                ))
-                .padding(.horizontal, 22)
-                .padding(.top, 28)
-                .padding(.bottom, 28)
+                page
+                    .id(step)
+                    .transition(pageTransition)
+                    .frame(maxWidth: 460)
+                    .padding(.horizontal, SettingsSpacing.section)
+                    .padding(.top, SettingsSpacing.standard)
+                    .padding(.bottom, SettingsSpacing.section)
+                    .frame(maxWidth: .infinity)
             }
             .scrollDismissesKeyboard(.interactively)
+            .scrollBounceBehavior(.basedOnSize)
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) { actions }
         .background(Color.vaultBackground)
-        .safeAreaInset(edge: .bottom) { footer }
+        .sensoryFeedback(.success, trigger: completedSteps) { _, _ in store.settings.haptics }
         .vaultSheetSize(width: 640, height: 680)
         #if os(macOS)
         .frame(maxWidth: 680, maxHeight: 760)
         .padding(.vertical, 16)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.vaultBackground)
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await refreshAutoFillState() }
+        }
         #endif
         .onAppear {
-            serverURL = store.settings.serverURL
+            serverAddress = store.settings.serverURL
             email = store.settings.email
             biometricUnlock = store.settings.biometricUnlock
             requireBiometricForFill = store.settings.requireBiometricForSensitiveActions
             allowPasscodeFallback = store.settings.devicePasscodeFallback
         }
+        .onDisappear {
+            masterPassword = ""
+            verificationCode = ""
+        }
+        .task(id: step) {
+            if step == .autofill { await refreshAutoFillState() }
+            guard let field = firstField(of: step) else { return }
+            // Wait for the page to arrive; focus set during the insertion is dropped.
+            try? await Task.sleep(for: .milliseconds(450))
+            guard Task.isCancelled == false else { return }
+            focusedField = field
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active, step == .autofill else { return }
+            Task { await refreshAutoFillState() }
+        }
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack {
-                Label {
-                    Text("Vaultwarden")
-                        .font(.headline)
-                } icon: {
-                    Image(systemName: "lock.shield.fill")
-                        .foregroundStyle(Color.vaultBlue)
-                }
-                Spacer()
-                Text(L10n.format("%lld of %lld", step.rawValue + 1, OnboardingStep.allCases.count))
-                    .font(.caption.monospacedDigit().weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
+    // MARK: - Chrome
 
-            HStack(spacing: 7) {
-                ForEach(OnboardingStep.allCases, id: \.rawValue) { item in
-                    Capsule()
-                        .fill(item.rawValue <= step.rawValue ? Color.vaultBlue : Color.secondary.opacity(0.18))
-                        .frame(height: 5)
+    private var topBar: some View {
+        HStack {
+            if let previous = step.previous {
+                Button {
+                    move(to: previous)
+                } label: {
+                    Label("Back", systemImage: "chevron.backward")
                 }
+                .buttonStyle(.borderless)
+                .disabled(isWorking)
+                .keyboardShortcut(.cancelAction)
             }
+            Spacer()
+        }
+        .frame(minHeight: 44)
+        .padding(.horizontal, 16)
+    }
+
+    private var pageTransition: AnyTransition {
+        guard reduceMotion == false else { return .opacity }
+        return .asymmetric(
+            insertion: .move(edge: isMovingForward ? .trailing : .leading).combined(with: .opacity),
+            removal: .move(edge: isMovingForward ? .leading : .trailing).combined(with: .opacity)
+        )
+    }
+
+    private var actions: some View {
+        VStack(spacing: SettingsSpacing.row) {
+            Button(action: advance) {
+                HStack(spacing: SettingsSpacing.standard) {
+                    if isWorking {
+                        ProgressView().controlSize(.small)
+                    }
+                    Text(primaryTitle)
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .keyboardShortcut(.defaultAction)
+            .disabled(canAdvance == false || isWorking)
+
+            if let secondaryTitle {
+                Button(secondaryTitle, action: secondaryAction)
+                    .buttonStyle(.borderless)
+                    .disabled(isWorking)
+            }
+        }
+        .frame(maxWidth: 460)
+        .padding(.horizontal, SettingsSpacing.section)
+        .padding(.top, SettingsSpacing.standard)
+        .padding(.bottom, SettingsSpacing.row)
+        .frame(maxWidth: .infinity)
+        .background(Color.vaultBackground)
+    }
+
+    // MARK: - Pages
+
+    @ViewBuilder
+    private var page: some View {
+        switch step {
+        case .welcome: welcomePage
+        case .server: serverPage
+        case .signIn: signInPage
+        case .twoFactor: twoFactorPage
+        case .security: securityPage
+        case .autofill: autofillPage
+        case .done: donePage
         }
     }
 
     private var welcomePage: some View {
-        VStack(alignment: .leading, spacing: 28) {
-            OnboardingHero(
-                icon: "lock.rectangle.stack.fill",
-                color: .vaultBlue,
-                title: "Your vault, everywhere.",
-                message: "Keep passwords, passkeys, verification codes, cards, and identities together in your own Vaultwarden server."
+        VStack(spacing: SettingsSpacing.section) {
+            OnboardingHeader(
+                systemImage: "lock.shield.fill",
+                tint: .vaultBlue,
+                title: Text("Welcome to Vaultwarden"),
+                message: Text("Your passwords, passkeys and codes, from the Vaultwarden server you run.")
             )
+            VStack(alignment: .leading, spacing: SettingsSpacing.section) {
+                OnboardingFeatureRow(
+                    systemImage: "key.fill",
+                    tint: .vaultBlue,
+                    title: Text("Passwords and Passkeys"),
+                    message: Text("Sign in to websites and apps without typing a password.")
+                )
+                OnboardingFeatureRow(
+                    systemImage: "lock.rotation",
+                    tint: .vaultYellow,
+                    title: Text("Verification Codes"),
+                    message: Text("Keep two-factor codes beside the logins they protect.")
+                )
+                OnboardingFeatureRow(
+                    systemImage: biometry.systemImage,
+                    tint: .vaultGreen,
+                    title: Text("Locked on This Device"),
+                    message: Text("Everything stays encrypted until you unlock it.")
+                )
+            }
+            .padding(.top, SettingsSpacing.standard)
+        }
+    }
 
-            VStack(spacing: 12) {
-                OnboardingFeatureRow(icon: "key.fill", color: .vaultBlue, title: "Passwords & passkeys", message: "Sign in quickly without exposing your credentials.")
-                OnboardingFeatureRow(icon: "lock.rotation", color: .vaultYellow, title: "Verification codes", message: "Generate and copy time-based codes from the same vault.")
-                OnboardingFeatureRow(icon: BiometricAuthenticator.systemImage, color: .vaultGreen, title: "Protected locally", message: "Require biometrics before unlock, reveal, copy, or fill.")
+    private var serverPage: some View {
+        VStack(spacing: SettingsSpacing.section) {
+            OnboardingHeader(
+                systemImage: "server.rack",
+                tint: .vaultCyan,
+                title: Text("Your Server"),
+                message: Text("Enter the address of your Vaultwarden server.")
+            )
+            OnboardingFieldGroup {
+                TextField("Server Address", text: $serverAddress, prompt: Text(verbatim: "vault.example.com"))
+                    .vaultKeyboardType(.URL)
+                    .vaultTextContentType(.URL)
+                    .vaultTextInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .focused($focusedField, equals: .server)
+                    .submitLabel(.continue)
+                    .onSubmit(advance)
+                    .onChange(of: serverAddress) { _, _ in errorMessage = nil }
+                    .onboardingFieldStyle()
+            }
+            OnboardingFootnote(error: errorMessage) {
+                Text("Vaultwarden connects only over HTTPS.")
             }
         }
     }
 
-    private var accountPage: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            OnboardingHero(
-                icon: "server.rack",
-                color: .vaultCyan,
-                title: "Connect your server",
-                message: "Use the URL of your Vaultwarden server and the account you already created there."
+    private var signInPage: some View {
+        VStack(spacing: SettingsSpacing.section) {
+            OnboardingHeader(
+                systemImage: "person.crop.circle.fill",
+                tint: .vaultBlue,
+                title: Text("Sign In"),
+                message: Text("Use the account you created on \(serverHost).")
             )
-
-            VStack(spacing: 0) {
-                OnboardingInputField(
-                    title: "Server URL",
-                    placeholder: "https://vault.example.com",
-                    text: $serverURL,
-                    keyboardType: .URL,
-                    textContentType: .URL,
-                    isSecure: false
-                )
-                .focused($focusedField, equals: .server)
-
+            OnboardingFieldGroup {
+                TextField("Email", text: $email, prompt: Text("Email"))
+                    .vaultKeyboardType(.emailAddress)
+                    .vaultTextContentType(.username)
+                    .vaultTextInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .focused($focusedField, equals: .email)
+                    .submitLabel(.next)
+                    .onSubmit { focusedField = .password }
+                    .onboardingFieldStyle()
                 Divider()
+                SecureField("Master Password", text: $masterPassword, prompt: Text("Master Password"))
+                    .vaultTextContentType(.password)
+                    .focused($focusedField, equals: .password)
+                    .submitLabel(.go)
+                    .onSubmit(advance)
+                    .onboardingFieldStyle()
+            }
+            .onChange(of: email) { _, _ in errorMessage = nil }
+            .onChange(of: masterPassword) { _, _ in errorMessage = nil }
+            OnboardingFootnote(error: errorMessage) {
+                Text("Your master password is never stored, and never sent to your server as plain text.")
+            }
+        }
+    }
 
-                OnboardingInputField(
-                    title: "Email",
-                    placeholder: "you@example.com",
-                    text: $email,
-                    keyboardType: .emailAddress,
-                    textContentType: .emailAddress,
-                    isSecure: false
-                )
-                .focused($focusedField, equals: .email)
-
-                Divider()
-
-                OnboardingInputField(
-                    title: "Master Password",
-                    placeholder: "Enter your master password",
-                    text: $masterPassword,
-                    keyboardType: .default,
-                    textContentType: .password,
-                    isSecure: true
-                )
-                .focused($focusedField, equals: .password)
-
-                if requiresTwoFactor {
-                    Divider()
-
-                    OnboardingInputField(
-                        title: "Verification Code",
-                        placeholder: "6-digit code",
-                        text: $verificationCode,
-                        keyboardType: .numberPad,
-                        textContentType: .oneTimeCode,
-                        isSecure: false
-                    )
+    private var twoFactorPage: some View {
+        VStack(spacing: SettingsSpacing.section) {
+            OnboardingHeader(
+                systemImage: "lock.rotation",
+                tint: .vaultYellow,
+                title: Text("Two-Step Verification"),
+                message: Text("Enter the 6-digit code from your authenticator app.")
+            )
+            OnboardingFieldGroup {
+                TextField("Verification Code", text: $verificationCode, prompt: Text(verbatim: "000000"))
+                    .vaultKeyboardType(.numberPad)
+                    .vaultTextContentType(.oneTimeCode)
+                    .font(.title2.monospacedDigit())
+                    .multilineTextAlignment(.center)
                     .focused($focusedField, equals: .verificationCode)
+                    .onSubmit(advance)
                     .onChange(of: verificationCode) { _, newValue in
-                        verificationCode = String(newValue.filter(\.isNumber).prefix(6))
+                        let digits = String(newValue.filter(\.isNumber).prefix(6))
+                        if digits != newValue { verificationCode = digits }
+                        errorMessage = nil
+                        // A full code needs no extra tap, as the system code field behaves.
+                        if digits.count == 6 && isWorking == false { advance() }
                     }
-                }
+                    .onboardingFieldStyle()
             }
-            .padding(.horizontal, 16)
-            .background(Color.vaultCard, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-
-            Label("Your master password is used to unlock the encrypted vault and is never saved as plain text.", systemImage: "hand.raised.fill")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-
-            if let connectionError {
-                Label(connectionError, systemImage: "exclamationmark.triangle.fill")
-                    .font(.footnote)
-                    .foregroundStyle(.red)
-                    .padding(14)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            OnboardingFootnote(error: errorMessage) {
+                EmptyView()
             }
-
         }
     }
 
     private var securityPage: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            OnboardingHero(
-                icon: BiometricAuthenticator.systemImage,
-                color: .vaultGreen,
-                title: "Protect this device",
-                message: "Choose when this device should verify that it is really you. These options can be changed later."
+        VStack(spacing: SettingsSpacing.section) {
+            OnboardingHeader(
+                systemImage: biometry.systemImage,
+                tint: .vaultGreen,
+                title: biometry.name.map { Text("Unlock with \($0)") } ?? Text("Protect Your Vault"),
+                message: Text("Open your vault with \(sensorName) instead of typing your master password. You can change this later in Settings.")
             )
-
-            VStack(spacing: 0) {
-                OnboardingToggleRow(
-                    icon: BiometricAuthenticator.systemImage,
-                    title: "Unlock with biometrics",
-                    message: L10n.format(
-                        "Use %@ instead of typing the master password every time.",
-                        BiometricAuthenticator.displayName
-                    ),
-                    isOn: $biometricUnlock
-                )
-
-                Divider().padding(.leading, 54)
-
-                OnboardingToggleRow(
-                    icon: "rectangle.and.pencil.and.ellipsis",
-                    title: "Authenticate before filling",
-                    message: "Verify before passwords, passkeys, or codes leave the vault.",
-                    isOn: $requireBiometricForFill
-                )
-
-                Divider().padding(.leading, 54)
-
-                OnboardingToggleRow(
-                    icon: "ellipsis.rectangle.fill",
-                    title: deviceAuthenticationTitle,
-                    message: deviceAuthenticationMessage,
-                    isOn: $allowPasscodeFallback
-                )
+            OnboardingFieldGroup {
+                Toggle(isOn: $biometricUnlock) {
+                    Text("Unlock with \(sensorName)")
+                }
+                .onboardingFieldStyle()
+                if biometricUnlock {
+                    Divider()
+                    Toggle(isOn: $allowPasscodeFallback) {
+                        #if os(macOS)
+                        Text("Allow Mac Login Password")
+                        #else
+                        Text("Allow Device Passcode")
+                        #endif
+                    }
+                    .onboardingFieldStyle()
+                }
+                Divider()
+                Toggle(isOn: $requireBiometricForFill) {
+                    Text("Verify to Reveal or Copy")
+                }
+                .onboardingFieldStyle()
             }
-            .padding(.horizontal, 16)
-            .background(Color.vaultCard, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-
-            Label("The master password remains your recovery path even when biometric unlock is enabled.", systemImage: "key.horizontal.fill")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+            .animation(SettingsMotion.row(reduceMotion: reduceMotion), value: biometricUnlock)
+            OnboardingFootnote(error: nil) {
+                Text("Your master password always unlocks your vault. AutoFill needs \(sensorName) to be on.")
+            }
+        }
+        .onChange(of: biometricUnlock) { _, isOn in
+            if isOn == false { allowPasscodeFallback = false }
         }
     }
 
     private var autofillPage: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            OnboardingHero(
-                icon: "rectangle.and.pencil.and.ellipsis",
-                color: .vaultOrange,
-                title: "Fill in apps and Safari",
-                message: "Enable this app as a credential provider so passwords and verification codes appear outside the vault."
+        VStack(spacing: SettingsSpacing.section) {
+            OnboardingHeader(
+                systemImage: "key.fill",
+                tint: .vaultGreen,
+                title: Text("Turn On AutoFill"),
+                message: Text("Fill passwords, passkeys and codes from your vault in Safari and other apps.")
             )
-
-            VStack(alignment: .leading, spacing: 18) {
-                #if os(macOS)
-                OnboardingInstruction(number: 1, text: "Open AutoFill settings in System Settings.")
-                OnboardingInstruction(number: 2, text: "Turn on AutoFill Passwords and Passkeys.")
-                #else
-                OnboardingInstruction(number: 1, text: "Open Passwords & Codes in iOS Settings.")
-                OnboardingInstruction(number: 2, text: "Choose AutoFill Passwords and Passkeys.")
-                #endif
-                OnboardingInstruction(number: 3, text: "Select Vaultwarden as your provider.")
-            }
-            .padding(18)
-            .background(Color.vaultCard, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-
-            Button {
-                ASSettingsHelper.openCredentialProviderAppSettings { error in
-                    Task { @MainActor in
-                        autofillStatus = error == nil
-                            ? "AutoFill settings opened."
-                            : error?.localizedDescription
-                    }
-                }
-            } label: {
-                Label("Open AutoFill Settings", systemImage: "arrow.up.forward.app")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-
-            if let autofillStatus {
-                Text(autofillStatus)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-            }
-
-            Text("You can finish setup now and enable AutoFill later from the app's Settings.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity)
-        }
-    }
-
-    private var footer: some View {
-        VStack(spacing: 12) {
-            Divider()
-            HStack(spacing: 12) {
-                if step != .welcome {
-                    Button("Back") { moveBack() }
+            VStack(alignment: .leading, spacing: SettingsSpacing.row) {
+                SetupStepRow(
+                    1,
+                    title: Text("Open AutoFill settings"),
+                    detail: autoFillSettingsPath,
+                    progress: .step(done: openedAutoFillSettings || isAutoFillEnabled, after: true)
+                ) {
+                    if isAutoFillEnabled == false {
+                        Button(action: openAutoFillSettings) {
+                            HStack(spacing: 6) {
+                                Text("Open Settings")
+                                Image(systemName: "arrow.up.forward")
+                                    .font(.caption.weight(.semibold))
+                                    .accessibilityHidden(true)
+                            }
+                        }
                         .buttonStyle(.bordered)
-                        .controlSize(.large)
-                }
-
-                Button(action: advance) {
-                    HStack(spacing: 8) {
-                        if isConnecting {
-                            ProgressView()
-                                .controlSize(.small)
-                        }
-                        Text(primaryButtonTitle)
-                        if !isConnecting {
-                            Image(systemName: step == .autofill ? "checkmark" : "arrow.right")
-                        }
+                        .buttonBorderShape(.capsule)
                     }
-                    .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .keyboardShortcut(.defaultAction)
-                .disabled((step == .account && !accountIsValid) || isConnecting)
+                Divider()
+                SetupStepRow(
+                    2,
+                    title: Text("Turn on Vaultwarden"),
+                    detail: Text("Under AutoFill From, turn on Vaultwarden. This checks off on its own."),
+                    progress: .step(done: isAutoFillEnabled, after: openedAutoFillSettings || isAutoFillEnabled)
+                )
             }
-            .padding(.horizontal, 22)
-            .padding(.bottom, 8)
+            .padding(16)
+            .background(Color.vaultCard, in: .rect(cornerRadius: 12, style: .continuous))
+            .animation(SettingsMotion.flip, value: isAutoFillEnabled)
+            .animation(SettingsMotion.flip, value: openedAutoFillSettings)
         }
-        .background(.ultraThinMaterial)
     }
 
-    private var primaryButtonTitle: String {
+    private var donePage: some View {
+        OnboardingHeader(
+            systemImage: "checkmark.circle.fill",
+            tint: .vaultGreen,
+            title: Text("You’re All Set"),
+            message: Text("Your vault is ready on this device.")
+        )
+        .padding(.top, SettingsSpacing.section)
+    }
+
+    private var autoFillSettingsPath: Text {
+        #if os(macOS)
+        Text("System Settings ▸ General ▸ AutoFill & Passwords")
+        #else
+        Text("Settings ▸ General ▸ AutoFill & Passwords")
+        #endif
+    }
+
+    // MARK: - Actions
+
+    private var primaryTitle: String {
         let key: String = switch step {
-        case .welcome: "Get Started"
-        case .account: isConnecting ? "Connecting…" : "Connect & Continue"
+        case .welcome: "Continue"
+        case .server: isWorking ? "Connecting…" : "Continue"
+        case .signIn: isWorking ? "Signing In…" : "Sign In"
+        case .twoFactor: isWorking ? "Verifying…" : "Verify"
         case .security: "Continue"
-        case .autofill: "Open My Vault"
+        case .autofill: isAutoFillEnabled ? "Continue" : "Turn On AutoFill"
+        case .done: "Open Vault"
         }
         return L10n.string(key)
     }
 
-    private var deviceAuthenticationTitle: String {
-        #if os(macOS)
-        "Allow Mac login password"
-        #else
-        "Allow device passcode"
-        #endif
+    private var secondaryTitle: String? {
+        step == .autofill && isAutoFillEnabled == false ? L10n.string("Set Up Later") : nil
     }
 
-    private var deviceAuthenticationMessage: String {
-        #if os(macOS)
-        "Use your Mac login password when biometrics are unavailable."
-        #else
-        "Use the device passcode when biometrics are unavailable."
-        #endif
+    private var canAdvance: Bool {
+        switch step {
+        case .server:
+            return serverAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        case .signIn:
+            return email.trimmingCharacters(in: .whitespacesAndNewlines).contains("@") && masterPassword.isEmpty == false
+        case .twoFactor:
+            return verificationCode.count == 6
+        case .welcome, .security, .autofill, .done:
+            return true
+        }
     }
 
-    private var accountIsValid: Bool {
-        guard let components = URLComponents(string: serverURL.trimmingCharacters(in: .whitespacesAndNewlines)) else { return false }
-        return components.scheme?.lowercased() == "https"
-            && components.host?.isEmpty == false
-            && email.contains("@")
-            && !masterPassword.isEmpty
-            && (!requiresTwoFactor || verificationCode.count == 6)
+    private func firstField(of step: OnboardingStep) -> Field? {
+        switch step {
+        case .server: .server
+        case .signIn: email.isEmpty ? .email : .password
+        case .twoFactor: .verificationCode
+        case .welcome, .security, .autofill, .done: nil
+        }
     }
 
     private func advance() {
-        focusedField = nil
+        guard canAdvance, isWorking == false else { return }
         switch step {
         case .welcome:
-            move(to: .account)
-        case .account:
-            guard accountIsValid else { return }
-            isConnecting = true
-            connectionError = nil
-            Task {
-                do {
-                    try await store.connect(
-                        serverURL: serverURL,
-                        email: email,
-                        masterPassword: masterPassword,
-                        twoFactorCode: requiresTwoFactor ? verificationCode : nil
-                    )
-                    masterPassword = ""
-                    isConnecting = false
-                    move(to: .security)
-                } catch {
-                    isConnecting = false
-                    if case VaultwardenServiceError.twoFactorRequired = error {
-                        requiresTwoFactor = true
-                        verificationCode = ""
-                        connectionError = nil
-                        focusedField = .verificationCode
-                    } else {
-                        connectionError = error.localizedDescription
-                    }
-                }
-            }
+            move(to: .server)
+        case .server:
+            checkServer()
+        case .signIn, .twoFactor:
+            signIn()
         case .security:
             applySecuritySettings()
             move(to: .autofill)
         case .autofill:
+            if isAutoFillEnabled {
+                leaveAutoFillStep()
+            } else {
+                Task { await requestAutoFill() }
+            }
+        case .done:
             applySecuritySettings()
             onComplete()
         }
     }
 
-    private func moveBack() {
-        guard let previous = OnboardingStep(rawValue: step.rawValue - 1) else { return }
-        move(to: previous)
+    private func secondaryAction() {
+        if step == .autofill { leaveAutoFillStep() }
     }
 
     private func move(to newStep: OnboardingStep) {
-        withAnimation(.smooth) { step = newStep }
+        focusedField = nil
+        errorMessage = nil
+        isMovingForward = newStep.rawValue > step.rawValue
+        withAnimation(reduceMotion ? SettingsMotion.contentFade : .smooth(duration: 0.35)) {
+            step = newStep
+        }
+    }
+
+    private func checkServer() {
+        switch ServerAddress.normalized(serverAddress) {
+        case .failure(let problem):
+            errorMessage = problem.message
+        case .success(let url):
+            serverAddress = url.absoluteString
+            isWorking = true
+            Task {
+                defer { isWorking = false }
+                do {
+                    _ = try await store.testConnection(serverURL: url.absoluteString)
+                    move(to: .signIn)
+                } catch {
+                    SecureLog.failure("Onboarding server check", error: error, logger: SecureLog.sync)
+                    errorMessage = L10n.format("Couldn’t reach %@. Check the address and your internet connection.", serverHost)
+                }
+            }
+        }
+    }
+
+    private func signIn() {
+        let usesCode = step == .twoFactor
+        isWorking = true
+        errorMessage = nil
+        Task {
+            defer { isWorking = false }
+            do {
+                try await store.connect(
+                    serverURL: serverAddress,
+                    email: email,
+                    masterPassword: masterPassword,
+                    twoFactorCode: usesCode ? verificationCode : nil
+                )
+                masterPassword = ""
+                verificationCode = ""
+                completedSteps += 1
+                move(to: .security)
+            } catch VaultwardenServiceError.twoFactorRequired {
+                if usesCode {
+                    verificationCode = ""
+                    errorMessage = L10n.string("That code didn’t work. Enter the newest one from your authenticator app.")
+                    focusedField = .verificationCode
+                } else {
+                    verificationCode = ""
+                    move(to: .twoFactor)
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                errorMessage = error.localizedDescription
+                if usesCode {
+                    verificationCode = ""
+                    focusedField = .verificationCode
+                } else {
+                    focusedField = .password
+                }
+            }
+        }
     }
 
     private func applySecuritySettings() {
-        store.settings.biometricUnlock = biometricUnlock
-        store.settings.requireBiometricForSensitiveActions = requireBiometricForFill
-        store.settings.devicePasscodeFallback = allowPasscodeFallback
+        var settings = store.settings
+        settings.biometricUnlock = biometricUnlock
+        settings.requireBiometricForSensitiveActions = requireBiometricForFill
+        settings.devicePasscodeFallback = biometricUnlock && allowPasscodeFallback
+        store.settings = settings
+    }
+
+    // MARK: - AutoFill
+
+    private func refreshAutoFillState() async {
+        let enabled = await ASCredentialIdentityStore.shared.state().isEnabled
+        if enabled && isAutoFillEnabled == false && step == .autofill { completedSteps += 1 }
+        isAutoFillEnabled = enabled
+    }
+
+    private func requestAutoFill() async {
+        isWorking = true
+        markAutoFillOffered()
+        _ = await ASSettingsHelper.requestToTurnOnCredentialProviderExtension()
+        isWorking = false
+        await refreshAutoFillState()
+    }
+
+    private func openAutoFillSettings() {
+        openedAutoFillSettings = true
+        markAutoFillOffered()
+        ASSettingsHelper.openCredentialProviderAppSettings { error in
+            guard error != nil else { return }
+            Task { @MainActor in
+                errorMessage = L10n.string("Settings couldn’t be opened. Open it yourself and go to General ▸ AutoFill & Passwords.")
+            }
+        }
+    }
+
+    private func leaveAutoFillStep() {
+        markAutoFillOffered()
+        move(to: .done)
+    }
+
+    /// The Mac also offers AutoFill once after setup. Offering it here counts, so it
+    /// isn't asked twice in a row.
+    private func markAutoFillOffered() {
+        #if os(macOS)
+        UserDefaults.standard.set(true, forKey: "hasRequestedAutoFillSetup")
+        #endif
     }
 }
 
-private struct OnboardingHero: View {
-    let icon: String
-    let color: Color
-    let title: String
-    let message: String
+// MARK: - Pieces
+
+private struct OnboardingHeader: View {
+    let systemImage: String
+    let tint: Color
+    let title: Text
+    let message: Text
+
+    @ScaledMetric(relativeTo: .largeTitle) private var symbolSize: CGFloat = 60
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Image(systemName: icon)
-                .font(.system(size: 34, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 66, height: 66)
-                .background(color.gradient, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-
-            Text(L10n.string(title))
+        VStack(spacing: SettingsSpacing.row) {
+            Image(systemName: systemImage)
+                .font(.system(size: symbolSize, weight: .regular))
+                .foregroundStyle(tint.gradient)
+                .symbolRenderingMode(.hierarchical)
+                .frame(minHeight: symbolSize * 1.1)
+                .accessibilityHidden(true)
+            title
                 .font(.largeTitle.bold())
-
-            Text(L10n.string(message))
-                .font(.title3)
+                .multilineTextAlignment(.center)
+                .accessibilityAddTraits(.isHeader)
+            message
+                .font(.body)
                 .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
         }
+        .frame(maxWidth: .infinity)
     }
 }
 
 private struct OnboardingFeatureRow: View {
-    let icon: String
-    let color: Color
-    let title: String
-    let message: String
+    let systemImage: String
+    let tint: Color
+    let title: Text
+    let message: Text
+
+    @ScaledMetric(relativeTo: .title2) private var iconWidth: CGFloat = 40
 
     var body: some View {
-        HStack(alignment: .top, spacing: 14) {
-            Image(systemName: icon)
-                .font(.headline)
-                .foregroundStyle(.white)
-                .frame(width: 40, height: 40)
-                .background(color.gradient, in: Circle())
-            VStack(alignment: .leading, spacing: 3) {
-                Text(L10n.string(title)).font(.headline)
-                Text(L10n.string(message))
+        HStack(alignment: .top, spacing: SettingsSpacing.row + 4) {
+            Image(systemName: systemImage)
+                .font(.title2)
+                .foregroundStyle(tint)
+                .frame(width: iconWidth)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                title.font(.headline)
+                message
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
         }
-        .padding(16)
-        .background(Color.vaultCard, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .accessibilityElement(children: .combine)
     }
 }
 
-private struct OnboardingInputField: View {
-    let title: String
-    let placeholder: String
-    @Binding var text: String
-    let keyboardType: VaultKeyboardType
-    let textContentType: VaultTextContentType?
-    let isSecure: Bool
+/// Fields in one rounded group, divided like a grouped form's rows.
+private struct OnboardingFieldGroup<Content: View>: View {
+    @ViewBuilder let content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(L10n.string(title))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Group {
-                if isSecure {
-                    SecureField(L10n.string(placeholder), text: $text)
-                } else {
-                    TextField(L10n.string(placeholder), text: $text)
-                }
-            }
-            .vaultKeyboardType(keyboardType)
-            .vaultTextContentType(textContentType)
-            .vaultTextInputAutocapitalization(.never)
-            .autocorrectionDisabled()
+        VStack(spacing: 0) {
+            content
         }
-        .padding(.vertical, 13)
+        .padding(.horizontal, 16)
+        .background(Color.vaultCard, in: .rect(cornerRadius: 12, style: .continuous))
     }
 }
 
-private struct OnboardingToggleRow: View {
-    let icon: String
-    let title: String
-    let message: String
-    @Binding var isOn: Bool
+/// The line under a group: an error when there is one, otherwise the quiet note.
+private struct OnboardingFootnote<Note: View>: View {
+    let error: String?
+    @ViewBuilder let note: Note
 
     var body: some View {
-        Toggle(isOn: $isOn) {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: icon)
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(Color.vaultBlue)
-                    .frame(width: 30)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(L10n.string(title)).font(.body.weight(.semibold))
-                    Text(L10n.string(message))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+        Group {
+            if let error {
+                StatusTone.failure.apply(to: Text(verbatim: error))
+            } else {
+                note.foregroundStyle(.secondary)
             }
         }
-        .padding(.vertical, 14)
+        .font(.footnote)
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: .infinity)
+        .fixedSize(horizontal: false, vertical: true)
+        .contentTransition(.opacity)
     }
 }
 
-private struct OnboardingInstruction: View {
-    let number: Int
-    let text: String
-
-    var body: some View {
-        HStack(spacing: 13) {
-            Text(number, format: .number)
-                .font(.subheadline.bold())
-                .foregroundStyle(.white)
-                .frame(width: 30, height: 30)
-                .background(Color.vaultBlue.gradient, in: Circle())
-            Text(L10n.string(text))
-                .font(.body.weight(.medium))
-            Spacer(minLength: 0)
-        }
+private extension View {
+    func onboardingFieldStyle() -> some View {
+        textFieldStyle(.plain)
+            .padding(.vertical, 14)
+            .frame(minHeight: 50)
     }
 }

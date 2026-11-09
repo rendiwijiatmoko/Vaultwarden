@@ -2,10 +2,9 @@ import SwiftUI
 
 /// The adaptive shell for the whole authenticated app.
 ///
-/// Both idioms show the same card dashboard. Compact width makes it the root of
-/// a plain `NavigationStack`; regular width makes it the sidebar of a
-/// `NavigationSplitView` with a list column and a detail column, opening on
-/// "Login". Only the container and the way a card is activated differ.
+/// Compact width shows the home screen as the root of a plain `NavigationStack`.
+/// Regular width (iPad and the Mac) uses a `NavigationSplitView` with a native
+/// sidebar, a list column and a detail column, opening on All as Passwords does.
 struct RootSplitView: View {
     @EnvironmentObject private var store: AppStore
     @EnvironmentObject private var quickActions: HomeQuickActionRouter
@@ -30,6 +29,7 @@ struct RootSplitView: View {
     @State private var regularBulkSelection = Set<UUID>()
     @State private var isRegularBulkSelecting = false
     @State private var showingQuickActionPassword = false
+    @State private var showingQuickActionGenerator = false
     @FocusState private var compactSearchFocused: Bool
     @FocusState private var regularSearchFocused: Bool
 
@@ -43,7 +43,13 @@ struct RootSplitView: View {
         }
         .task { selectDefaultSectionIfNeeded() }
         .task(id: quickActions.pendingAction) { handlePendingQuickActionIfPossible() }
-        .onChange(of: store.isLocked) { _, _ in handlePendingQuickActionIfPossible() }
+        .onChange(of: store.isLocked) { _, isLocked in
+            if isLocked {
+                showingQuickActionPassword = false
+                showingQuickActionGenerator = false
+            }
+            handlePendingQuickActionIfPossible()
+        }
         .onChange(of: isCompact) { _, newValue in
             // A window resize or rotation swaps containers entirely. Carry the
             // user's place across instead of dumping them back at the root.
@@ -72,6 +78,10 @@ struct RootSplitView: View {
         #endif
         .sheet(isPresented: $showingQuickActionPassword) {
             AddEditVaultItemView(prefilledType: .login)
+                .environmentObject(store)
+        }
+        .sheet(isPresented: $showingQuickActionGenerator) {
+            GeneratorView()
                 .environmentObject(store)
         }
     }
@@ -104,9 +114,9 @@ struct RootSplitView: View {
         NavigationSplitView(columnVisibility: $columnVisibility, preferredCompactColumn: $preferredCompactColumn) {
             VaultHomeView(style: .sidebar, searchText: $regularSearchText)
                 #if os(macOS)
-                .navigationSplitViewColumnWidth(min: 290, ideal: 320, max: 380)
+                .navigationSplitViewColumnWidth(min: 200, ideal: 230, max: 320)
                 #else
-                .navigationSplitViewColumnWidth(min: 280, ideal: 300, max: 360)
+                .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 360)
                 #endif
         } content: {
             if let filter = store.selectedFilter {
@@ -120,16 +130,12 @@ struct RootSplitView: View {
                 )
                     .id(filter)
                     #if os(macOS)
-                    .navigationSplitViewColumnWidth(min: 300, ideal: 320, max: 460)
+                    .navigationSplitViewColumnWidth(min: 280, ideal: 320, max: 460)
                     #else
                     .navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 460)
                     #endif
             } else {
-                VaultColumnPlaceholder(
-                    icon: "lock.rectangle.stack.fill",
-                    title: "Your Vault",
-                    message: "Pick a section in the sidebar to see the items it holds."
-                )
+                VaultColumnPlaceholder(icon: "lock.rectangle.stack.fill", title: L10n.string("No Section Selected"))
             }
         } detail: {
             regularDetail
@@ -139,7 +145,7 @@ struct RootSplitView: View {
                 .searchable(
                     text: $regularSearchText,
                     placement: .toolbar,
-                    prompt: regularSearchPrompt
+                    prompt: Text("Search")
                 )
                 .searchFocused($regularSearchFocused)
                 #if os(macOS)
@@ -155,9 +161,6 @@ struct RootSplitView: View {
                 #endif
         }
         .navigationSplitViewStyle(.balanced)
-        #if os(macOS)
-        .tint(.blue)
-        #endif
         .onChange(of: store.selectedFilter) { _, _ in
             store.selectedItemID = nil
             regularSearchText = ""
@@ -169,83 +172,21 @@ struct RootSplitView: View {
     private var regularDetail: some View {
         if isRegularBulkSelecting {
             let count = regularBulkSelection.count
-
             VaultColumnPlaceholder(
-                icon: "checkmark.rectangle.stack.fill",
-                title: L10n.format("%lld items selected", count),
-                message: count == 0
-                    ? L10n.string("Select one or more items from the list to use bulk actions.")
-                    : L10n.string("Use the bottom toolbar to apply an action to every selected item.")
+                icon: "checkmark.circle",
+                title: count == 1 ? L10n.string("1 Item Selected") : L10n.format("%lld Items Selected", count)
             )
         } else if let itemID = store.selectedItemID {
-            // Without an explicit identity the reveal-password toggles stay
-            // flipped when the selection moves to another item.
+            // Without an explicit identity the reveal toggles stay flipped when
+            // the selection moves to another item.
             VaultItemDetailView(itemID: itemID)
                 .id(itemID)
         } else {
-            let placeholder = regularEmptyDetail
-
             VaultColumnPlaceholder(
-                icon: placeholder.icon,
-                title: placeholder.title,
-                message: placeholder.message
+                icon: store.selectedFilter?.icon ?? "key.fill",
+                title: L10n.string("No Item Selected")
             )
         }
-    }
-
-    private var regularEmptyDetail: VaultDetailPlaceholder {
-        guard let filter = store.selectedFilter else {
-            return .init(
-                icon: "lock.rectangle.stack.fill",
-                title: "Your Vault",
-                message: "Choose a section in the sidebar to browse its items."
-            )
-        }
-
-        switch filter {
-        case .all:
-            return .init(icon: "key.fill", title: "No Item Selected", message: "Choose an item to view its saved details.")
-        case let .category(category):
-            switch category {
-            case .logins:
-                return .init(icon: category.icon, title: "No Item Selected", message: "Choose an item to view its saved details.")
-            case .passkeys:
-                return .init(icon: category.icon, title: "No Passkey Selected", message: "Choose a passkey to view the account and sign-in details it protects.")
-            case .codes:
-                return .init(icon: category.icon, title: "No Code Selected", message: "Choose a verification code to view its account and one-time password.")
-            case .cards:
-                return .init(icon: category.icon, title: "No Card Selected", message: "Choose a card to view its saved payment details.")
-            case .identities:
-                return .init(icon: category.icon, title: "No Identity Selected", message: "Choose an identity to view its saved personal information.")
-            case .sshKeys:
-                return .init(icon: category.icon, title: "No SSH Key Selected", message: "Choose an SSH key to view its connection and key details.")
-            case .secureNotes:
-                return .init(icon: category.icon, title: "No Secure Note Selected", message: "Choose a secure note to view its protected contents.")
-            case .security:
-                return .init(icon: category.icon, title: "No Recommendation Selected", message: "Choose a security recommendation to review the affected item and suggested action.")
-            case .archived:
-                return .init(icon: category.icon, title: "No Archived Item Selected", message: "Choose an archived item to view or restore it.")
-            case .deleted:
-                return .init(icon: category.icon, title: "No Deleted Item Selected", message: "Choose a deleted item to restore it or remove it permanently.")
-            }
-        case .favorites:
-            return .init(icon: filter.icon, title: "No Favorite Selected", message: "Choose a favorite item to view its saved details.")
-        case .unfoldered:
-            return .init(icon: filter.icon, title: "No Item Selected", message: "Choose an unfoldered item to view its saved details.")
-        case let .folder(name):
-            return .init(icon: filter.icon, title: "No Item Selected", message: L10n.format("Choose an item from %@ to view its saved details.", name))
-        case .collection, .organization:
-            return .init(icon: filter.icon, title: "No Shared Item Selected", message: L10n.format("Choose an item from %@ to view its shared details.", store.title(for: filter)))
-        }
-    }
-
-    private var regularSearchPrompt: String {
-        #if os(macOS)
-        return L10n.string("Search")
-        #else
-        guard let filter = store.selectedFilter else { return L10n.string("Search") }
-        return L10n.format("Search %@", store.title(for: filter).lowercased())
-        #endif
     }
 
     private func updateRegularSelection(_ selection: Set<UUID>, _ isEditing: Bool) {
@@ -256,11 +197,11 @@ struct RootSplitView: View {
         store.selectedItemID = selection.count == 1 ? selection.first : nil
     }
 
-    /// iPad (and any regular-width window) opens straight onto "Login". Compact
-    /// width deliberately stays `nil` so the dashboard is the landing screen.
+    /// iPad and the Mac open on All. Compact width deliberately stays `nil` so
+    /// the home screen is the landing screen.
     private func selectDefaultSectionIfNeeded() {
         guard !isCompact, store.selectedFilter == nil else { return }
-        store.selectedFilter = .login
+        store.selectedFilter = .defaultSelection
     }
 
     private func handlePendingQuickActionIfPossible() {
@@ -269,16 +210,16 @@ struct RootSplitView: View {
         switch action {
         case .newPassword:
             showingQuickActionPassword = true
-        case .search:
+        case let .search(query):
             store.selectedItemID = nil
             if isCompact {
                 store.selectedFilter = nil
                 path = NavigationPath()
-                compactSearchText = ""
+                compactSearchText = query
                 focusSearchAfterNavigationChange(compact: true)
             } else {
                 selectDefaultSectionIfNeeded()
-                regularSearchText = ""
+                regularSearchText = query
                 focusSearchAfterNavigationChange(compact: false)
             }
         case .verificationCodes:
@@ -290,6 +231,8 @@ struct RootSplitView: View {
                 destination.append(filter)
                 path = destination
             }
+        case .generator:
+            showingQuickActionGenerator = true
         }
 
         quickActions.consume(action)
@@ -310,38 +253,16 @@ struct RootSplitView: View {
 private struct VaultColumnPlaceholder: View {
     let icon: String
     let title: String
-    let message: String
 
     var body: some View {
-        #if os(macOS)
-        VStack(spacing: 12) {
-            Image(systemName: "key.2.on.ring.fill")
-                .font(.system(size: 58, weight: .regular))
-                .foregroundStyle(.tertiary)
-                .padding(.bottom, 18)
-            Text(L10n.string(title))
-                .font(.system(size: 20, weight: .semibold))
-            Text(L10n.string(message))
-                .font(.system(size: 18))
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 340)
-        }
-        .foregroundStyle(.secondary)
-        .padding(32)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .textBackgroundColor))
-        #else
-        EmptyStateView(icon: icon, title: title, message: message)
+        ContentUnavailableView(title, systemImage: icon)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            #if os(macOS)
+            .background(Color(nsColor: .textBackgroundColor))
+            #else
             .background(Color.vaultBackground)
-        #endif
+            #endif
     }
-}
-
-private struct VaultDetailPlaceholder {
-    let icon: String
-    let title: String
-    let message: String
 }
 
 // MARK: - Vault home
@@ -350,14 +271,13 @@ enum VaultHomeStyle {
     /// iPhone: root of a navigation stack. Taps push; the bottom bar carries
     /// new folder, search and add.
     case dashboard
-    /// iPad: the split view's sidebar column. Taps set the selection that
-    /// drives the list column; search lives over the detail, while sort and add
-    /// remain at opposite ends of the list column's bottom toolbar.
+    /// iPad and the Mac: the split view's sidebar column, a native source list
+    /// whose selection drives the list column.
     case sidebar
 }
 
-/// The vault dashboard: a category grid followed by folders, shared groups and
-/// hidden items. Identical content in both idioms.
+/// The vault's home: smart sections, item types, folders and shared groups.
+/// A grid of tiles on iPhone, as in Passwords and Reminders; a source list in a sidebar.
 struct VaultHomeView: View {
     /// Passed in rather than derived from `horizontalSizeClass`: content hosted
     /// in a split view column does not reliably report the window's size class,
@@ -366,7 +286,6 @@ struct VaultHomeView: View {
     @Binding var searchText: String
 
     @EnvironmentObject private var store: AppStore
-    @Environment(\.colorScheme) private var colorScheme
 
     @State private var showingSettings = false
     @State private var showingGenerator = false
@@ -378,9 +297,8 @@ struct VaultHomeView: View {
     @State private var renameFolderName = ""
     @State private var folderPendingDeletion: VaultFolder?
 
-    @State private var personalFoldersExpanded = true
-    @State private var sharedVaultsExpanded = true
-    @State private var hiddenItemsExpanded = false
+    @AppStorage("vault.home.foldersExpanded") private var foldersExpanded = true
+    @AppStorage("vault.home.sharedExpanded") private var sharedExpanded = true
 
     @Namespace private var transitions
 
@@ -390,33 +308,29 @@ struct VaultHomeView: View {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Search only exists on the dashboard; the iPad list column has its own.
+    /// Search only lives on the iPhone home screen; the split view's list column has its own.
     private var isSearching: Bool { style == .dashboard && !trimmedQuery.isEmpty }
 
-    private var visibleDashboardCategories: [VaultCategory] {
-        VaultFilter.dashboardCategories.filter { category in
-            category != .sshKeys || store.count(for: .category(category)) > 0
+    /// SSH keys and the archive appear once there is something in them.
+    private var visibleTypeSections: [VaultFilter] {
+        VaultFilter.typeSections.filter { filter in
+            filter != .category(.sshKeys) || store.count(for: filter) > 0
         }
     }
+
+    private var showsArchive: Bool { store.count(for: .category(.archived)) > 0 }
 
     var body: some View {
         Group {
             if isSearching {
-                searchResultsList
+                VaultSearchResults(query: trimmedQuery)
+            } else if style == .sidebar {
+                sidebar
             } else {
-                #if os(macOS)
-                desktopSidebar
-                #else
                 dashboard
-                #endif
             }
         }
-        #if os(macOS)
-        .background(Color(white: colorScheme == .dark ? 0.155 : 0.96))
-        #else
-        .background(Color.vaultBackground)
-        #endif
-        .navigationTitle(style == .sidebar ? "" : "Vault")
+        .navigationTitle(style == .sidebar ? "" : L10n.string("Vault"))
         .vaultNavigationTitleDisplayMode(style == .sidebar ? .inline : .large)
         #if os(iOS)
         .toolbar { toolbarContent }
@@ -466,20 +380,19 @@ struct VaultHomeView: View {
                 #endif
         }
         .alert("New Folder", isPresented: $showingAddFolder) {
-            TextField("Folder name", text: $newFolderName)
+            TextField("Name", text: $newFolderName)
             Button("Cancel", role: .cancel) { newFolderName = "" }
             Button("Create") {
                 let name = newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
                 newFolderName = ""
+                guard !name.isEmpty else { return }
                 Task { _ = await store.addFolder(named: name) }
             }
-        } message: {
-            Text("Folders organize your personal vault. They are not shared with organization members.")
         }
         .alert("Rename Folder", isPresented: renameFolderBinding) {
-            TextField("Folder name", text: $renameFolderName)
+            TextField("Name", text: $renameFolderName)
             Button("Cancel", role: .cancel) { folderPendingRename = nil }
-            Button("Save") {
+            Button("Rename") {
                 guard let folder = folderPendingRename else { return }
                 let name = renameFolderName
                 folderPendingRename = nil
@@ -491,11 +404,9 @@ struct VaultHomeView: View {
                 }
                 Task { _ = await store.renameFolder(folder, to: name) }
             }
-        } message: {
-            Text("Items in this folder will keep their assignment.")
         }
         .confirmationDialog(
-            folderPendingDeletion.map { L10n.format("Delete %@?", $0.name) } ?? L10n.string("Delete Folder?"),
+            folderPendingDeletion.map { L10n.format("Delete “%@”?", $0.name) } ?? L10n.string("Delete Folder?"),
             isPresented: deleteFolderBinding,
             titleVisibility: .visible
         ) {
@@ -507,363 +418,175 @@ struct VaultHomeView: View {
             }
             Button("Cancel", role: .cancel) { folderPendingDeletion = nil }
         } message: {
-            Text("Vault items are kept and moved to Unfoldered.")
+            Text("Its items move to No Folder.")
         }
     }
 
-    #if os(macOS)
-    private let desktopCategories: [VaultFilter] = [
-        .category(.logins), .category(.passkeys),
-        .category(.codes), .category(.cards),
-        .category(.identities), .category(.secureNotes),
-        .category(.security), .favorites,
-        .category(.archived), .category(.sshKeys)
-    ]
+    // MARK: Sidebar (iPad and Mac)
 
-    private var desktopSidebar: some View {
+    private var sidebar: some View {
+        List(selection: $store.selectedFilter) {
+            Section {
+                ForEach(VaultFilter.smartSections) { filter in
+                    sidebarRow(filter)
+                }
+            }
+
+            Section("Categories") {
+                ForEach(visibleTypeSections) { filter in
+                    sidebarRow(filter)
+                }
+                if showsArchive {
+                    sidebarRow(.category(.archived))
+                }
+            }
+
+            Section {
+                sidebarRow(.unfoldered)
+                ForEach(store.sortedFolders) { folder in
+                    sidebarRow(.folder(folder.name), icon: folder.icon)
+                        .contextMenu { folderActions(for: folder) }
+                }
+            } header: {
+                HStack {
+                    Text("Folders")
+                    Spacer()
+                    newFolderButton
+                        .buttonStyle(.borderless)
+                        .controlSize(.small)
+                }
+            }
+
+            ForEach(store.sharedCollectionGroups) { group in
+                Section(group.name) {
+                    ForEach(group.filters) { filter in
+                        sidebarRow(filter, icon: icon(for: filter))
+                    }
+                }
+            }
+        }
+        .listStyle(.sidebar)
+        #if os(iOS)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(spacing: 0) {
+                Divider()
+                sidebarProfileFooter
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+            }
+            .background(.bar)
+        }
+        #endif
+    }
+
+    private func sidebarRow(_ filter: VaultFilter, icon: String? = nil) -> some View {
+        VaultSidebarLabel(
+            title: filter.builtInTitle ?? store.title(for: filter),
+            icon: icon ?? filter.icon,
+            color: filter.color
+        )
+        // Only open security issues earn a badge; other counts are a click away.
+        .badge(filter == .category(.security) ? store.count(for: filter) : 0)
+        .tag(Optional(filter))
+    }
+
+    // MARK: Dashboard (iPhone)
+
+    private var dashboard: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
-                LazyVGrid(columns: columns, spacing: 12) {
-                    ForEach(desktopCategories) { filter in
-                        Button { selectDesktopFilter(filter) } label: {
-                            MacVaultCategoryTile(
-                                title: desktopCategoryTitle(for: filter),
-                                icon: filter.icon,
-                                color: desktopColor(for: filter),
-                                count: store.count(for: filter),
-                                isSelected: store.selectedFilter == filter
-                            )
+            VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 10) {
+                    VaultSyncStatusText()
+                        .padding(.horizontal, 4)
+
+                    LazyVGrid(columns: columns, spacing: 12) {
+                        ForEach(VaultFilter.smartSections) { filter in
+                            NavigationLink(value: filter) {
+                                VaultCategoryTile(
+                                    title: filter.builtInTitle ?? store.title(for: filter),
+                                    icon: filter.icon,
+                                    color: filter.color,
+                                    count: store.count(for: filter)
+                                )
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(desktopCategoryTitle(for: filter))
-                        .accessibilityValue(L10n.format("%lld items", store.count(for: filter)))
-                        .accessibilityAddTraits(store.selectedFilter == filter ? .isSelected : [])
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Categories")
+                        .font(.title3.bold())
+                        .padding(.horizontal, 4)
+                        .accessibilityAddTraits(.isHeader)
+                    HomeRowCard {
+                        ForEach(visibleTypeSections) { filter in
+                            homeRow(filter)
+                        }
+                        if showsArchive {
+                            homeRow(.category(.archived))
+                        }
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    collapsibleHeader(L10n.string("Folders"), isExpanded: $foldersExpanded)
+                    if foldersExpanded {
+                        HomeRowCard {
+                            homeRow(.unfoldered)
+                            ForEach(store.sortedFolders) { folder in
+                                homeRow(.folder(folder.name), icon: folder.icon)
+                                    .contextMenu { folderActions(for: folder) }
+                            }
+                        }
+                        .transition(.opacity)
                     }
                 }
 
                 if !store.sharedFilters.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        desktopSectionTitle("Shared Groups")
-                        ForEach(store.sharedCollectionGroups) { group in
-                            Text(group.name)
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                                .padding(.top, 8)
-                            ForEach(group.filters) { filter in desktopSidebarRow(filter) }
-                        }
-                    }
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        desktopSectionTitle("Personal Folders")
-                        Spacer()
-                        newFolderButton.buttonStyle(.plain)
-                    }
-                    desktopSidebarRow(.unfoldered)
-                    ForEach(store.sortedFolders) { folder in
-                        desktopSidebarRow(.folder(folder.name))
-                            .contextMenu { folderActions(for: folder) }
-                    }
-                }
-
-                desktopSidebarRow(.category(.deleted))
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 16)
-            .padding(.bottom, 24)
-        }
-    }
-
-    private func desktopSectionTitle(_ title: String) -> some View {
-        Text(L10n.string(title))
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 10)
-    }
-
-    private func selectDesktopFilter(_ filter: VaultFilter) {
-        if store.selectedFilter != filter { store.selectedItemID = nil }
-        store.selectedFilter = filter
-    }
-
-    private func desktopCategoryTitle(for filter: VaultFilter) -> String {
-        filter == .category(.sshKeys) ? "SSH" : store.title(for: filter)
-    }
-
-    private func desktopColor(for filter: VaultFilter) -> Color {
-        switch filter {
-        case .all, .category(.logins): .blue
-        case .category(.passkeys): .green
-        case .category(.codes): .yellow
-        case .category(.cards): .cyan
-        case .category(.security): .red
-        case .category(.deleted): .orange
-        default: filter.color
-        }
-    }
-
-    private func desktopSidebarIcon(for filter: VaultFilter) -> String {
-        switch filter {
-        case .collection, .organization, .folder: "folder"
-        default: icon(for: filter)
-        }
-    }
-
-    private func desktopSidebarRow(_ filter: VaultFilter) -> some View {
-        Button { selectDesktopFilter(filter) } label: {
-            HStack(spacing: 12) {
-                Image(systemName: desktopSidebarIcon(for: filter))
-                    .font(.system(size: 20))
-                    .foregroundStyle(.blue)
-                    .frame(width: 24)
-                Text(store.title(for: filter))
-                    .font(.system(size: 15))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                Spacer(minLength: 4)
-                Text(store.count(for: filter), format: .number)
-                    .foregroundStyle(.secondary)
-                    .font(.system(size: 12, weight: .semibold))
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(store.selectedFilter == filter ? Color.primary.opacity(0.08) : .clear,
-                        in: RoundedRectangle(cornerRadius: 8))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(store.selectedFilter == filter ? .isSelected : [])
-    }
-    #endif
-
-    // MARK: Dashboard
-
-    private var dashboard: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 24) {
-                VStack(alignment: .leading, spacing: 8) {
-                    VaultSyncStatusText()
-
-                    LazyVGrid(columns: columns, spacing: 12) {
-                        ForEach(visibleDashboardCategories) { category in
-                            let filter = VaultFilter.category(category)
-                            sectionLink(filter) {
-                                CategoryCard(
-                                    category: category,
-                                    count: store.count(for: filter),
-                                    isSelected: isSelected(filter)
-                                )
+                    VStack(alignment: .leading, spacing: 10) {
+                        collapsibleHeader(L10n.string("Shared Groups"), isExpanded: $sharedExpanded)
+                        if sharedExpanded {
+                            ForEach(store.sharedCollectionGroups) { group in
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text(group.name)
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(.secondary)
+                                        .padding(.horizontal, 4)
+                                    HomeRowCard {
+                                        ForEach(group.filters) { filter in
+                                            homeRow(filter, icon: icon(for: filter))
+                                        }
+                                    }
+                                }
                             }
-                        }
-
-                        sectionLink(.favorites) {
-                            DashboardCard(
-                                icon: VaultFilter.favorites.icon,
-                                title: "Favorites",
-                                count: store.count(for: .favorites),
-                                color: VaultFilter.favorites.color,
-                                isSelected: isSelected(.favorites)
-                            )
+                            .transition(.opacity)
                         }
                     }
                 }
-
-                personalFoldersSection
-                sharedGroupsSection
-                hiddenItemsSection
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 28)
         }
+        .background(Color.vaultBackground)
         .refreshable { await store.syncFromPullToRefresh() }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if style == .sidebar {
-                VStack(spacing: 0) {
-                    Divider()
-                    sidebarProfileFooter
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                }
-                .background(.bar)
-            }
-        }
     }
 
-    private var personalFoldersSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 12) {
-                Button {
-                    withAnimation(.smooth(duration: 0.3)) { personalFoldersExpanded.toggle() }
-                } label: {
-                    HStack {
-                        Text(L10n.format("Personal Folders (%lld)", store.folders.count + 1))
-                            .font(.title3.bold())
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.85)
-                            .foregroundStyle(.primary)
-                        Spacer()
-                        Image(systemName: "chevron.down")
-                            .font(.subheadline.bold())
-                            .foregroundStyle(.secondary)
-                            .rotationEffect(.degrees(personalFoldersExpanded ? 0 : -90))
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(L10n.format(
-                    "Personal Folders, %lld, %@",
-                    store.folders.count + 1,
-                    L10n.string(personalFoldersExpanded ? "expanded" : "collapsed")
-                ))
-                .accessibilityHint(L10n.format(
-                    "Double tap to %@",
-                    L10n.string(personalFoldersExpanded ? "collapse" : "expand")
-                ))
-            }
-
-            if personalFoldersExpanded {
-                VStack(spacing: 0) {
-                    sectionLink(.unfoldered) {
-                        FolderRow(
-                            icon: VaultFilter.unfoldered.icon,
-                            name: "Unfoldered",
-                            count: store.count(for: .unfoldered),
-                            color: VaultFilter.unfoldered.color,
-                            isSelected: isSelected(.unfoldered)
-                        )
-                    }
-
-                    if !store.folders.isEmpty {
-                        Divider().padding(.leading, 52)
-                    }
-
-                    ForEach(Array(store.sortedFolders.enumerated()), id: \.element.id) { index, folder in
-                        let filter = VaultFilter.folder(folder.name)
-                        sectionLink(filter) {
-                            FolderRow(
-                                icon: folder.icon,
-                                name: folder.name,
-                                count: store.count(for: filter),
-                                isSelected: isSelected(filter)
-                            )
-                        }
-                        .contextMenu { folderActions(for: folder) }
-
-                        if index < store.folders.count - 1 {
-                            Divider().padding(.leading, 52)
-                        }
-                    }
-                }
-                .background(Color.vaultCard, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-                .transition(.opacity)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var sharedGroupsSection: some View {
-        let shared = store.sharedFilters
-
-        if !shared.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
-                collapsibleHeader("Shared Groups", isExpanded: $sharedVaultsExpanded)
-
-                if sharedVaultsExpanded {
-                    VStack(spacing: 0) {
-                        ForEach(store.sharedCollectionGroups) { group in
-                            Text(group.name)
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 20)
-                                .padding(.vertical, 12)
-                            ForEach(group.filters) { filter in
-                                sectionLink(filter) {
-                                    FolderRow(
-                                        icon: icon(for: filter),
-                                        name: store.title(for: filter),
-                                        count: store.count(for: filter),
-                                        color: filter.color,
-                                        isSelected: isSelected(filter)
-                                    )
-                                }
-                                Divider().padding(.leading, 52)
-                            }
-                        }
-                    }
-                    .background(Color.vaultCard, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-                    .transition(.opacity)
-                }
-            }
-        }
-    }
-
-    private var hiddenItemsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            collapsibleHeader(
-                L10n.format("Hidden Items (%lld)", VaultFilter.hiddenCategories.count),
-                isExpanded: $hiddenItemsExpanded
+    private func homeRow(_ filter: VaultFilter, icon: String? = nil) -> some View {
+        NavigationLink(value: filter) {
+            HomeRow(
+                icon: icon ?? filter.icon,
+                name: filter.builtInTitle ?? store.title(for: filter),
+                count: store.count(for: filter),
+                color: filter.color
             )
-
-            if hiddenItemsExpanded {
-                VStack(spacing: 0) {
-                    ForEach(Array(VaultFilter.hiddenCategories.enumerated()), id: \.element.id) { index, category in
-                        let filter = VaultFilter.category(category)
-                        sectionLink(filter) {
-                            FolderRow(
-                                icon: filter.icon,
-                                name: category.localizedTitle,
-                                count: store.count(for: filter),
-                                color: filter.color,
-                                isSelected: isSelected(filter)
-                            )
-                        }
-
-                        if index < VaultFilter.hiddenCategories.count - 1 {
-                            Divider().padding(.leading, 52)
-                        }
-                    }
-                }
-                .background(Color.vaultCard, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-                .transition(.opacity)
-            }
-        }
-    }
-
-    private var sidebarProfileFooter: some View {
-        Button { showingSettings = true } label: {
-            HStack(spacing: 12) {
-                ProfileAvatarView(email: store.settings.email)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Account")
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(.primary)
-                    Text(store.settings.email)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-
-                Spacer()
-
-                Image(systemName: "chevron.right")
-                    .font(.caption.bold())
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(.horizontal, 14)
-            .frame(maxWidth: .infinity, minHeight: 50, alignment: .leading)
-            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Account and settings")
-        .matchedTransitionSource(id: HomeTransition.settings, in: transitions)
     }
 
     private func collapsibleHeader(_ title: String, isExpanded: Binding<Bool>) -> some View {
         Button {
-            withAnimation(.smooth(duration: 0.3)) { isExpanded.wrappedValue.toggle() }
+            withAnimation(VaultMotion.panel) { isExpanded.wrappedValue.toggle() }
         } label: {
             HStack {
                 Text(title)
@@ -875,74 +598,47 @@ struct VaultHomeView: View {
                     .foregroundStyle(.secondary)
                     .rotationEffect(.degrees(isExpanded.wrappedValue ? 0 : -90))
             }
-            .contentShape(Rectangle())
+            .padding(.horizontal, 4)
+            .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(L10n.format(
-            "%@, %@",
-            L10n.string(title),
-            L10n.string(isExpanded.wrappedValue ? "expanded" : "collapsed")
-        ))
-        .accessibilityHint(L10n.format(
-            "Double tap to %@",
-            L10n.string(isExpanded.wrappedValue ? "collapse" : "expand")
-        ))
+        .accessibilityAddTraits(.isHeader)
+        .accessibilityValue(isExpanded.wrappedValue ? L10n.string("Expanded") : L10n.string("Collapsed"))
     }
 
-    // MARK: Activation
-
-    /// A section opens by pushing on iPhone and by moving the split view's
-    /// selection on iPad.
-    @ViewBuilder
-    private func sectionLink<Content: View>(
-        _ filter: VaultFilter,
-        @ViewBuilder label: () -> Content
-    ) -> some View {
-        switch style {
-        case .dashboard:
-            NavigationLink(value: filter) { label() }
-                .buttonStyle(.plain)
-        case .sidebar:
-            Button {
-                if store.selectedFilter != filter { store.selectedItemID = nil }
-                store.selectedFilter = filter
-            } label: {
-                label().contentShape(Rectangle())
+    private var sidebarProfileFooter: some View {
+        Button { showingSettings = true } label: {
+            HStack(spacing: 12) {
+                ProfileAvatarView(email: store.settings.email)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Account")
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    Text(store.settings.email)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption.bold())
+                    .foregroundStyle(.tertiary)
             }
-            .buttonStyle(.plain)
+            .padding(.horizontal, 14)
+            .frame(maxWidth: .infinity, minHeight: 50, alignment: .leading)
+            .contentShape(.rect)
         }
-    }
-
-    private func isSelected(_ filter: VaultFilter) -> Bool {
-        style == .sidebar && store.selectedFilter == filter
+        .buttonStyle(.plain)
+        .accessibilityLabel("Account and Settings")
+        .matchedTransitionSource(id: HomeTransition.settings, in: transitions)
     }
 
     private func icon(for filter: VaultFilter) -> String {
         if case let .collection(identifier) = filter,
            store.collection(withID: identifier)?.isReadOnly == true {
-            return "folder.badge.minus"
+            return "lock.fill"
         }
         return filter.icon
-    }
-
-    @ViewBuilder
-    private var searchResultsList: some View {
-        let results = store.search(trimmedQuery)
-
-        if results.isEmpty {
-            EmptyStateView(
-                icon: "magnifyingglass",
-                title: "No Results",
-                message: L10n.format("No vault items match “%@”.", trimmedQuery)
-            )
-        } else {
-            List(results) { item in
-                NavigationLink(value: item.id) {
-                    VaultItemRow(item: item)
-                }
-            }
-            .listStyle(.plain)
-        }
     }
 
     @ViewBuilder
@@ -972,7 +668,7 @@ struct VaultHomeView: View {
                 }
                 .buttonStyle(.plain)
                 .tint(nil)
-                .accessibilityLabel("Account and settings")
+                .accessibilityLabel("Account and Settings")
                 .matchedTransitionSource(id: HomeTransition.settings, in: transitions)
             }
             .sharedBackgroundVisibility(.hidden)
@@ -987,17 +683,11 @@ struct VaultHomeView: View {
                     Label("Send", systemImage: "paperplane.fill")
                 }
             } label: {
-                Image(systemName: "ellipsis")
+                Label("Tools", systemImage: "ellipsis")
+                    .labelStyle(.iconOnly)
             }
             .tint(nil)
-            .accessibilityLabel("Tools")
             .matchedTransitionSource(id: HomeTransition.tools, in: transitions)
-        }
-
-        // The sidebar keeps only New Folder up top — search and add belong to
-        // the list column beside it.
-        if style == .sidebar {
-            ToolbarItem(placement: .vaultTrailing) { newFolderButton }
         }
 
         if style == .dashboard {
@@ -1005,31 +695,25 @@ struct VaultHomeView: View {
 
             ToolbarSpacer(.flexible, placement: .vaultBottomBar)
 
-            // No `.searchToolbarBehavior(.minimize)` — the field stays expanded.
-            #if os(iOS)
             DefaultToolbarItem(kind: .search, placement: .vaultBottomBar)
-            #endif
 
             ToolbarSpacer(.flexible, placement: .vaultBottomBar)
 
             ToolbarItem(placement: .vaultBottomBar) {
-                Button { showingAddItem = true } label: {
-                    Image(systemName: "plus")
-                }
-                .tint(nil)
-                .accessibilityLabel("Add vault item")
-                .matchedTransitionSource(id: HomeTransition.addItem, in: transitions)
+                Button("New Item", systemImage: "plus") { showingAddItem = true }
+                    .labelStyle(.iconOnly)
+                    .tint(nil)
+                    .matchedTransitionSource(id: HomeTransition.addItem, in: transitions)
             }
         }
     }
     #endif
 
     private var newFolderButton: some View {
-        Button { showingAddFolder = true } label: {
-            Image(systemName: "folder.badge.plus")
-        }
-        .tint(nil)
-        .accessibilityLabel("Create folder")
+        Button("New Folder", systemImage: "folder.badge.plus") { showingAddFolder = true }
+            .labelStyle(.iconOnly)
+            .tint(nil)
+            .help("New Folder")
     }
 
     private var renameFolderBinding: Binding<Bool> {
@@ -1053,95 +737,57 @@ private enum HomeTransition {
     static let addItem = "home.addItem"
 }
 
-// MARK: - Dashboard building blocks
+// MARK: - Home building blocks
 
-private struct CategoryCard: View {
-    let category: VaultCategory
-    let count: Int
-    var isSelected = false
-
-    var body: some View {
-        DashboardCard(
-            icon: category.icon,
-            title: category.localizedTitle,
-            count: count,
-            color: category.color,
-            isSelected: isSelected
-        )
-    }
-}
-
-private struct DashboardCard: View {
-    let icon: String
-    let title: String
-    let count: Int
-    let color: Color
-    var isSelected = false
+/// A rounded card of rows on the iPhone home screen, with inset separators.
+private struct HomeRowCard<Content: View>: View {
+    @ViewBuilder var content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top) {
-                Image(systemName: icon)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(isSelected ? color : Color.white)
-                    .frame(width: 34, height: 34)
-                    .background(
-                        isSelected ? AnyShapeStyle(Color.white) : AnyShapeStyle(color.gradient),
-                        in: Circle()
-                    )
-                    .accessibilityHidden(true)
-                Spacer()
-                Text(count, format: .number)
-                    .font(.body)
-                    .fixedSize(horizontal: true, vertical: false)
-                    .foregroundStyle(isSelected ? Color.white.opacity(0.8) : Color.secondary)
+        VStack(spacing: 0) {
+            Group(subviews: content) { subviews in
+                ForEach(Array(subviews.enumerated()), id: \.element.id) { index, subview in
+                    subview
+                    if index < subviews.count - 1 {
+                        Divider().padding(.leading, 56)
+                    }
+                }
             }
-            Text(title)
-                .font(.body.weight(.semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.85)
-                .foregroundStyle(isSelected ? Color.white : Color.primary)
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, minHeight: 98, alignment: .leading)
-        .background(
-            isSelected ? color : Color.vaultCard,
-            in: RoundedRectangle(cornerRadius: 20, style: .continuous)
-        )
+        .background(Color.vaultCard, in: .rect(cornerRadius: 20))
     }
 }
 
-private struct FolderRow: View {
+private struct HomeRow: View {
     let icon: String
     let name: String
     let count: Int
-    var color: Color = .vaultBlue
-    var isSelected = false
+    var color: Color = .blue
 
     var body: some View {
         HStack(spacing: 14) {
             Image(systemName: icon)
                 .font(.title3)
-                .foregroundStyle(isSelected ? Color.white : color)
-                .frame(width: 30)
+                .foregroundStyle(color)
+                .frame(width: 28)
+                .accessibilityHidden(true)
             Text(name)
-                .font(.body.weight(.medium))
+                .font(.body)
                 .lineLimit(1)
-                .truncationMode(.tail)
-                .layoutPriority(1)
-                .foregroundStyle(isSelected ? Color.white : Color.primary)
+                .foregroundStyle(.primary)
             Spacer()
             Text(count, format: .number)
-                .fixedSize(horizontal: true, vertical: false)
-                .foregroundStyle(isSelected ? Color.white.opacity(0.8) : Color.secondary)
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
             Image(systemName: "chevron.right")
                 .font(.caption.bold())
-                .foregroundStyle(isSelected ? Color.white.opacity(0.7) : Color.secondary.opacity(0.6))
+                .foregroundStyle(.tertiary)
+                .accessibilityHidden(true)
         }
         .padding(.horizontal, 16)
-        .frame(minHeight: 58)
-        .background(isSelected ? Color.accentColor : Color.clear)
-        .contentShape(Rectangle())
+        .frame(minHeight: 52)
+        .contentShape(.rect)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -1160,18 +806,16 @@ struct ProfileAvatarView: View {
     }
 
     var body: some View {
-        Group {
-            if initials.isEmpty {
-                Image(systemName: "person.crop.circle.fill")
-                    .font(.title2)
-                    .foregroundStyle(Color.vaultBlue)
-            } else {
-                Text(initials)
-                    .font(.headline.weight(.bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 42, height: 42)
-                    .background(Color.vaultBlue.gradient, in: Circle())
-            }
+        if initials.isEmpty {
+            Image(systemName: "person.crop.circle.fill")
+                .font(.title2)
+                .foregroundStyle(Color.accentColor)
+        } else {
+            Text(initials)
+                .font(.headline.bold())
+                .foregroundStyle(.white)
+                .frame(width: 36, height: 36)
+                .background(Color.accentColor.gradient, in: .circle)
         }
     }
 }

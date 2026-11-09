@@ -45,6 +45,11 @@ final class MacVaultLifecycle {
                 MainActor.assumeIsolated { self?.applicationDidResignActive() }
             }
             .store(in: &subscriptions)
+        applicationNotifications.publisher(for: NSApplication.willTerminateNotification)
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated { self?.store.persistSettingsNow() }
+            }
+            .store(in: &subscriptions)
         applicationNotifications.publisher(for: NSApplication.didBecomeActiveNotification)
             .sink { [weak self] _ in
                 MainActor.assumeIsolated { self?.applicationDidBecomeActive() }

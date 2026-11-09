@@ -20,6 +20,10 @@ A native SwiftUI client for connecting to a user-selected, self-hosted Vaultward
 - Biometric or device authentication and configurable automatic locking
 - Encrypted, device-only offline cache and mutation queue
 - Password-protected AES-256-GCM vault exports
+- Optional iCloud Backup: end-to-end encrypted daily or weekly backups with the key kept in iCloud Keychain, restorable on any of your devices
+- Website icons through your server, with letter tiles when a site has none
+- AutoFill picker modeled on Passwords: Suggested logins for the site first, most recently used first, then everything else
+- Siri, Shortcuts and Spotlight actions: Generate Password, Open Vault, Search Vault, Show Verification Codes, New Password, Lock Vault, Sync Vault
 - English and Indonesian localization
 - No analytics, advertising SDKs, or tracking domains
 
@@ -60,18 +64,22 @@ The app and AutoFill extension must use the same App Group and shared Keychain a
 ## Native Mac behavior
 
 - The resizable vault window has a native sidebar, item list, and detail column. Arrow keys navigate items; Command/Shift selection supports bulk actions.
-- **⌘N** creates a password, **⌘F** focuses search, **⌘R** syncs, **⇧⌘L** locks, and **⌘,** opens Settings.
-- The menu bar opens a compact panel with Favorites first, then the remaining vault items, with website and item-type icons. Search both sections and open an item inside the panel to copy an available username, password, current TOTP code, website, card or identity field, SSH key, note, or custom field. Sensitive values stay masked, and copying respects authentication settings and organization permissions. A password generator and SSH agent controls are also available. Incoming SSH requests open this panel for unlock and approval without opening the main vault window. If the menu bar is hidden, requests use the main window instead. Enable or hide the icon in **Settings → Appearance → Show in Menu Bar** (enabled by default). Closing all vault and Settings windows hides the app from the Dock while the menu bar and enabled SSH agent keep running. Opening the vault or Settings from the menu bar restores the Dock icon; the popover and incoming SSH requests do not. Use Quit Vaultwarden (or Command-Q in a regular window) to fully exit and stop the agent.
+- **⌘N** creates a password, **⌘F** focuses search, **⌘2** shows verification codes, **⌥⌘G** opens the generator, **⌘R** syncs, **⇧⌘L** locks, and **⌘,** opens Settings.
+- The menu bar opens a compact panel with Favorites first, then the remaining vault items, with website and item-type icons. Search both sections and open an item inside the panel to copy an available username, password, current TOTP code, website, card or identity field, SSH key, note, or custom field. Sensitive values stay masked, and copying respects authentication settings and organization permissions. A password generator and SSH agent controls are also available. Incoming SSH requests open this panel for unlock and approval without opening the main vault window. If the menu bar is hidden, requests use the main window instead. Enable or hide the icon in **Settings ▸ General ▸ Show in Menu Bar** (enabled by default). Closing all vault and Settings windows hides the app from the Dock while the menu bar and enabled SSH agent keep running. Opening the vault or Settings from the menu bar restores the Dock icon; the popover and incoming SSH requests do not. Use Quit Vaultwarden (or Command-Q in a regular window) to fully exit and stop the agent.
 - Touch ID or the Mac login password protects device authentication. Vault keys and tokens use the macOS data-protection Keychain, with matching sharing groups for AutoFill.
 - Copying a secret clears that clipboard item after 30 seconds without deleting a newer copy. Copied secrets are marked concealed for clipboard managers.
 - QR setup imports an image through a native file picker and decodes it locally. iOS retains camera scanning.
 - Encrypted exports use a Save dialog; Send supports native file selection. The Mac sandbox allows outbound networking and user-selected files.
-- Background refresh runs while the app is running and stops when it quits. Sleep, screen lock, and user-session switching lock the vault. **Settings → Security → Vault timeout** offers Immediately, 1, 5, 10, or 15 minutes, and Never. Timed options measure Mac input inactivity, including while Vaultwarden is focused; switching to Terminal does not itself lock the vault. Immediately locks when leaving the app or dismissing the menu bar panel. New macOS settings default to 5 minutes; existing saved choices are preserved.
+- Background refresh runs while the app is running and stops when it quits. Sleep, screen lock, and user-session switching lock the vault. **Settings ▸ Security ▸ Lock Vault** offers Immediately, 1, 5, 10, or 15 minutes, and Never. Timed options measure Mac input inactivity, including while Vaultwarden is focused; switching to Terminal does not itself lock the vault. Immediately locks when leaving the app or dismissing the menu bar panel. New macOS settings default to 5 minutes; existing saved choices are preserved.
 - macOS AutoFill supports passwords, passkeys, and verification codes. Apple's iOS-only system password-save/generation callbacks are omitted on Mac; manual creation and the in-app generator remain available.
+
+## iCloud Backup
+
+Turn it on in **Settings ▸ iCloud Backup** (iPhone) or **Settings ▸ Backup** (Mac). It's off until you choose it. Each backup holds your personal items and folders, sealed with AES-256-GCM using a random key stored in iCloud Keychain, so Apple can't read it. Organization items, attachments and passkeys aren't included. Backups run after a sync when one is due (daily or weekly), skip when nothing changed, and the 10 newest are kept. Restoring adds the backup's items next to what's already in the vault. Signed builds need the `iCloud.xyz.0xmwehehe.vaultwardenApp` container on the App ID; restoring on another device needs iCloud Keychain on.
 
 ## macOS SSH agent
 
-Open **Settings → SSH Agent**, enable the agent, and select the SSH keys that
+Open **Settings ▸ SSH Agent**, enable the agent, and select the SSH keys that
 may be used. No keys are selected by default. Copy the exact shell configuration
 shown in Settings into `~/.zshrc`, then open a new terminal. This changes only
 that shell's agent selection; the app does not edit your shell configuration.
@@ -85,11 +93,11 @@ ssh -T git@github.com
 
 Use SSH repository URLs such as `git@github.com:OWNER/REPO.git`. Keep the app
 running. Listing keys while locked prompts for vault unlock. For signing, choose
-**Approve Once** or **Always Approve**. Always Approve remembers permission for
+**Allow Once** or **Always Allow**. Always Allow remembers permission for
 that account, vault item, and public-key fingerprint on this Mac, including after
 restarting the app. It allows all local SSH clients to use that key while the
 vault is unlocked; it does not identify a specific client or destination host.
-Use **Require Approval Again** in Settings → SSH Agent to revoke permission.
+Use **Ask Every Time** in Settings ▸ SSH Agent to revoke permission.
 Deselecting a key also revokes its remembered approval. Replacing its public key
 requires fresh approval. Locked vaults must still be unlocked before any use.
 Requests awaiting approval expire after 60 seconds. Denial,
@@ -144,7 +152,7 @@ Automated tests cover native SDK PBKDF2/Argon2 known answers, vault-key unwrap a
 For AutoFill request routing, validate a signed build on a physical iPhone:
 
 - With the vault locked, tap a specific keyboard login suggestion. Authenticate and verify it fills without another login selection. Repeat with multiple accounts on the same website.
-- Open the password picker without selecting a specific suggestion. Verify the list still appears and the selected login fills.
+- Open the password picker without selecting a specific suggestion. Verify Suggested lists the site's logins (most recently used first) above Other Passwords, and the selected login fills.
 - On a website with an active passkey request (such as Facebook), open the keyboard key/password picker. Verify Passwords opens first and fills a saved username/password. Switch to Passkeys and back without another unlock; verify the switch remains available when either list is empty. Only passkeys matching the requested relying party and allowed credential IDs should appear, including when the page uses a subdomain.
 - Select a passkey directly from the keyboard suggestion and verify it still follows the passkey sign-in flow. In the picker, verify New Password is available only under Passwords.
 - Retry an interrupted authentication and verify the original suggestion is retained. Cancel during authentication and verify no credential is filled afterward.

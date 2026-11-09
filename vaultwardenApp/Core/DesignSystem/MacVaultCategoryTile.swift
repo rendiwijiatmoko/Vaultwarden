@@ -1,42 +1,60 @@
-#if os(macOS)
 import SwiftUI
 
-/// The compact category cards used in the Mac vault sidebar.
-struct MacVaultCategoryTile: View {
+/// A sidebar row on the Mac and iPad: the section's glyph in its color, then its name.
+/// (This file once held the Mac's category tiles, which gave way to a native source list.)
+struct VaultSidebarLabel: View {
+    let title: String
+    let icon: String
+    let color: Color
+
+    var body: some View {
+        Label {
+            Text(title)
+                .lineLimit(1)
+        } icon: {
+            Image(systemName: icon)
+                .foregroundStyle(color)
+        }
+    }
+}
+
+/// A smart-section tile on the iPhone home screen, in the manner of Reminders and
+/// Passwords: the glyph in a colored circle, the count, and the name.
+struct VaultCategoryTile: View {
     let title: String
     let icon: String
     let color: Color
     let count: Int
-    let isSelected: Bool
-    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
+            HStack(alignment: .top) {
                 Image(systemName: icon)
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(isSelected ? color : .white)
-                    .frame(width: 32, height: 32)
-                    .background(isSelected ? .white : color, in: Circle())
-                Spacer()
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 34, height: 34)
+                    .background(color.gradient, in: .circle)
+                    .accessibilityHidden(true)
+                Spacer(minLength: 8)
                 Text(count, format: .number)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(isSelected ? Color.white : Color.secondary)
+                    .font(.title2.bold())
+                    .fontDesign(.rounded)
+                    .monospacedDigit()
+                    .foregroundStyle(.primary)
+                    .contentTransition(.numericText(value: Double(count)))
             }
             Text(title)
-                .font(.system(size: 17, weight: .medium))
-                .foregroundStyle(isSelected ? .white : .primary)
+                .font(.headline)
+                .foregroundStyle(.secondary)
                 .lineLimit(1)
-                .minimumScaleFactor(0.85)
+                .minimumScaleFactor(0.8)
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)
-        .background(
-            isSelected ? color : Color.primary.opacity(colorScheme == .dark ? 0.09 : 0.055),
-            in: RoundedRectangle(cornerRadius: 26, style: .continuous)
-        )
-        .contentShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.vaultCard, in: .rect(cornerRadius: 16))
+        .contentShape(.rect(cornerRadius: 16))
         .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
+        .accessibilityValue(Text(count, format: .number))
     }
 }
-#endif
