@@ -170,6 +170,8 @@ struct AnimatedCopyButton: View {
                         copied ? L10n.string("Copied") : L10n.string(title),
                         systemImage: copied ? "checkmark" : "doc.on.doc"
                     )
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
                         .contentTransition(.symbolEffect(.replace))
                 } else {
                     Image(systemName: copied ? "checkmark" : "doc.on.doc")

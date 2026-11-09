@@ -22,7 +22,7 @@ struct UISnapshotTests {
     func renderScreens() async throws {
         let directory = try #require(Self.outputDirectory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let store = SnapshotDemo.makeStore()
+        let store = await SnapshotDemo.makeStore()
 
         for screen in SnapshotDemo.screens(store: store) {
             for dark in [false, true] {
@@ -55,11 +55,18 @@ enum SnapshotDemo {
     static let sheetSize = windowSize
     #endif
 
-    static func makeStore() -> AppStore {
+    /// Signs in with the offline test service so secrets show as they do for a real
+    /// unlocked account. If the keychain refuses (unsigned Mac runs), screens render signed out.
+    static func makeStore() async -> AppStore {
         let defaults = UserDefaults(suiteName: "ui-snapshots-\(UUID().uuidString)")!
-        let store = AppStore(settingsDefaults: defaults)
+        let store = AppStore(vaultwardenService: LockTestService(), settingsDefaults: defaults)
         store.settings.syncOnOpen = false
         store.settings.backgroundRefresh = false
+        try? await store.connect(
+            serverURL: "https://vault.example.com",
+            email: "alex.appleseed@icloud.com",
+            masterPassword: "test"
+        )
         store.settings.email = "alex.appleseed@icloud.com"
         store.settings.serverURL = "https://vault.example.com"
         store.folders = [VaultFolder(name: "Work"), VaultFolder(name: "Family"), VaultFolder(name: "Finance")]

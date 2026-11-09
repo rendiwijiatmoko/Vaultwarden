@@ -335,7 +335,7 @@ struct VaultItemDetailView: View {
     private func websitesGroup(_ item: VaultItem) -> some View {
         let websites = item.websiteURIs
         if item.type == .login, !websites.isEmpty {
-            VaultDetailGroup(L10n.string(websites.count == 1 ? "Website" : "Websites")) {
+            VaultDetailGroup(websites.count == 1 ? nil : L10n.string("Websites")) {
                 ForEach(Array(websites.enumerated()), id: \.offset) { index, uri in
                     VaultWebsiteField(
                         title: websites.count == 1 ? L10n.string("Website") : L10n.format("Website %lld", index + 1),

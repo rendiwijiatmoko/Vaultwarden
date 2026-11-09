@@ -385,7 +385,7 @@ final class VaultLockTests: XCTestCase {
     }
 }
 
-private actor LockTestGate {
+actor LockTestGate {
     private var shouldPause = false
     private var suspended: CheckedContinuation<Void, Never>?
     private var observer: CheckedContinuation<Void, Never>?
@@ -413,7 +413,7 @@ private actor LockTestGate {
     }
 }
 
-private actor LockTestService: VaultwardenService {
+actor LockTestService: VaultwardenService {
     let reference = "vault-lock-test-\(UUID().uuidString)"
     let syncGate = LockTestGate()
     let lockGate = LockTestGate()

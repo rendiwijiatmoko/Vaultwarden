@@ -109,6 +109,9 @@ struct ContentView: View {
                 // Nothing decrypted outlives the unlocked session, search keys included.
                 VaultSensitiveAccess.revoke()
                 VaultSearchKeyCache.removeAll()
+            } else {
+                // Unlocking is itself an authentication; don't ask again right away.
+                VaultSensitiveAccess.markAuthorized()
             }
             presentQueuedCodeSetupIfPossible()
         }

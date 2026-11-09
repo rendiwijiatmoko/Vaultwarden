@@ -40,6 +40,10 @@ enum VaultSensitiveAccess {
         return true
     }
 
+    static func markAuthorized() {
+        authorizedUntil = Date.now.addingTimeInterval(gracePeriod)
+    }
+
     static func revoke() {
         authorizedUntil = nil
     }
