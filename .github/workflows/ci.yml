@@ -58,7 +58,9 @@ jobs:
             CODE_SIGN_IDENTITY=- \
             CODE_SIGNING_ALLOWED=YES \
             DEVELOPMENT_TEAM= > "$RUNNER_TEMP/ios.log" 2>&1 || status=$?
-          grep -E 'error:|✘|failed|\*\* |Test run with' "$RUNNER_TEMP/ios.log" | sort -u | head -300 || true
+          grep -E 'error:|✘|failed|\*\* |Test run with|crash|Restarting|unexpected' "$RUNNER_TEMP/ios.log" | sort -u | head -300 || true
+          echo "----- last lines -----"
+          tail -80 "$RUNNER_TEMP/ios.log"
           exit $status
 
       - name: Publish screenshots
