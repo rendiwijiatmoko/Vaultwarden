@@ -1,0 +1,219 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'feat/**', 'fix/**']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ios:
+    name: iOS build and tests
+    runs-on: macos-26
+    timeout-minutes: 75
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Restore SDK cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .build/bitwarden-sdk
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: bitwarden-sdk-arm64-${{ hashFiles('Scripts/prepare-macos-sdk.sh') }}
+
+      - name: Prepare Bitwarden SDK
+        env:
+          MACOS_ARCHS: arm64
+        run: bash Scripts/prepare-macos-sdk.sh
+
+      - name: Build and test
+        run: |
+          status=0
+          export TEST_RUNNER_SNAPSHOT_DIR="$RUNNER_TEMP/snapshots"
+          xcodebuild test \
+            -project vaultwardenApp.xcodeproj \
+            -scheme vaultwardenApp \
+            -configuration Debug \
+            -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.2' \
+            -destination-timeout 120 \
+            -parallel-testing-enabled NO \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            -resultBundlePath "$RUNNER_TEMP/iOS.xcresult" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY=- \
+            CODE_SIGNING_ALLOWED=YES \
+            DEVELOPMENT_TEAM= > "$RUNNER_TEMP/ios.log" 2>&1 || status=$?
+          grep -E 'error:|✘|failed|\*\* |Test run with|crash|Restarting|unexpected' "$RUNNER_TEMP/ios.log" | sort -u | head -300 || true
+          echo "----- before the crash -----"
+          grep -n -B80 'Restarting after unexpected' "$RUNNER_TEMP/ios.log" | grep -E 'Test Case|◇ Test|◇ Suite' | tail -6 || true
+          echo "----- crash reports -----"
+          for f in ~/Library/Logs/DiagnosticReports/Vaultwarden*.ips; do
+            [ -f "$f" ] || continue
+            echo "== $f"
+            python3 - "$f" <<'PY' || head -c 6000 "$f"
+          import json, sys
+          text = open(sys.argv[1]).read()
+          header, body = text.split("\n", 1)
+          report = json.loads(body)
+          print(report.get("exception"), report.get("termination", {}).get("indicator"))
+          images = report.get("usedImages", [])
+          for thread in report.get("threads", []):
+              if not thread.get("triggered"):
+                  continue
+              for frame in thread.get("frames", [])[:40]:
+                  image = images[frame.get("imageIndex", 0)].get("name", "?") if images else "?"
+                  print(image, frame.get("symbol", "?"), frame.get("sourceFile", ""), frame.get("sourceLine", ""))
+          PY
+          done
+          echo "----- last lines -----"
+          tail -40 "$RUNNER_TEMP/ios.log"
+          exit $status
+
+      - name: Publish screenshots
+        if: ${{ always() }}
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          dir="$RUNNER_TEMP/snapshots"
+          [ -d "$dir" ] && [ -n "$(ls -A "$dir")" ] || { echo "No screenshots"; exit 0; }
+          cd "$dir"
+          git init -q -b ci-screenshots-ios
+          git -c user.name=ci -c user.email=ci@users.noreply.github.com add -A
+          git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -qm "Screenshots for ${GITHUB_SHA::7}"
+          git push -qf "https://x-access-token:$TOKEN@github.com/${GITHUB_REPOSITORY}.git" ci-screenshots-ios
+
+      - name: Upload screenshots
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-screenshots-${{ github.run_id }}
+          path: ${{ runner.temp }}/snapshots
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-results-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/iOS.xcresult
+            ${{ runner.temp }}/ios.log
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 7
+
+  macos:
+    name: macOS build
+    runs-on: macos-26
+    timeout-minutes: 75
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Restore SDK cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .build/bitwarden-sdk
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: bitwarden-sdk-arm64-${{ hashFiles('Scripts/prepare-macos-sdk.sh') }}
+
+      - name: Prepare Bitwarden SDK
+        env:
+          MACOS_ARCHS: arm64
+        run: bash Scripts/prepare-macos-sdk.sh
+
+      - name: Build app and tests
+        run: |
+          status=0
+          xcodebuild build-for-testing \
+            -project vaultwardenApp.xcodeproj \
+            -scheme vaultwardenApp \
+            -configuration Debug \
+            -destination 'platform=macOS,arch=arm64' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY=- \
+            CODE_SIGNING_ALLOWED=YES \
+            DEVELOPMENT_TEAM= > "$RUNNER_TEMP/macos.log" 2>&1 || status=$?
+          grep -E 'error:|\*\* ' "$RUNNER_TEMP/macos.log" | sort -u | head -300 || true
+          exit $status
+
+      # Restricted entitlements need a provisioning profile to launch, so the
+      # screenshot run signs ad hoc without them.
+      - name: Render screenshots
+        continue-on-error: true
+        run: |
+          status=0
+          export TEST_RUNNER_SNAPSHOT_DIR="$RUNNER_TEMP/snapshots"
+          printf 'CODE_SIGN_ENTITLEMENTS =\nCODE_SIGN_ENTITLEMENTS[sdk=macosx*] =\n' > "$RUNNER_TEMP/shots.xcconfig"
+          xcodebuild test \
+            -project vaultwardenApp.xcodeproj \
+            -scheme vaultwardenApp \
+            -configuration Debug \
+            -destination 'platform=macOS,arch=arm64' \
+            -xcconfig "$RUNNER_TEMP/shots.xcconfig" \
+            -derivedDataPath "$RUNNER_TEMP/DerivedDataShots" \
+            -only-testing:vaultwardenAppTests/UISnapshotTests \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY=- \
+            CODE_SIGNING_ALLOWED=YES \
+            DEVELOPMENT_TEAM= > "$RUNNER_TEMP/macos-shots.log" 2>&1 || status=$?
+          grep -E 'error:|✘|\*\* ' "$RUNNER_TEMP/macos-shots.log" | sort -u | head -100 || true
+          exit $status
+
+      - name: Publish screenshots
+        if: ${{ always() }}
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          dir="$RUNNER_TEMP/snapshots"
+          [ -d "$dir" ] && [ -n "$(ls -A "$dir")" ] || { echo "No screenshots"; exit 0; }
+          cd "$dir"
+          git init -q -b ci-screenshots-mac
+          git -c user.name=ci -c user.email=ci@users.noreply.github.com add -A
+          git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -qm "Screenshots for ${GITHUB_SHA::7}"
+          git push -qf "https://x-access-token:$TOKEN@github.com/${GITHUB_REPOSITORY}.git" ci-screenshots-mac
+
+      - name: Upload screenshots
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-screenshots-${{ github.run_id }}
+          path: ${{ runner.temp }}/snapshots
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload log
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-log-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/macos.log
+            ${{ runner.temp }}/macos-shots.log
+          if-no-files-found: warn
+          retention-days: 7

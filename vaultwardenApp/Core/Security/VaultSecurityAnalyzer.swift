@@ -19,6 +19,7 @@ nonisolated enum VaultSecurityAnalyzer {
             // remain stale after an edit, archive, restore, or deletion.
             analyzed.risks.remove(.reused)
             analyzed.risks.remove(.unsecured)
+            analyzed.risks.remove(.weak)
 
             guard item.type == .login, !item.isDeleted, !item.isArchived else {
                 return analyzed
@@ -27,6 +28,10 @@ nonisolated enum VaultSecurityAnalyzer {
             if !item.password.isEmpty,
                activeLoginPasswordCounts[item.password, default: 0] > 1 {
                 analyzed.risks.insert(.reused)
+            }
+
+            if VaultPasswordStrength.isWeak(item.password) {
+                analyzed.risks.insert(.weak)
             }
 
             if item.websiteURIs.contains(where: {

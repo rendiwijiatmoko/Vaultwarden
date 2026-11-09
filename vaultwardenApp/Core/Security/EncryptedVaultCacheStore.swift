@@ -18,10 +18,10 @@ nonisolated enum VaultCacheError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case let .keyGenerationFailed(status):
-            "Unable to generate the offline cache key (Security error \(status))."
-        case let .keychain(status):
-            "Unable to access the offline cache key (Keychain error \(status))."
+        case .keyGenerationFailed:
+            "The offline cache key couldn't be created. Try again."
+        case .keychain:
+            "The offline cache couldn't be accessed. Unlock your device and try again."
         case .invalidKey:
             "The offline cache key is invalid."
         case .invalidPayload:
@@ -46,6 +46,11 @@ nonisolated struct EncryptedVaultCacheStore: VaultCacheStore {
         // Background refresh runs after the user has unlocked the device once.
         // The device-only key still prevents migration or backup extraction.
         try combined.write(to: url, options: ClientPlatform.encryptedFileWritingOptions)
+        // The key is device-only; a backed-up copy could never be decrypted.
+        var resourceURL = url
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? resourceURL.setResourceValues(values)
     }
 
     func load(reference: String) throws -> Data {
@@ -95,11 +100,13 @@ nonisolated struct EncryptedVaultCacheStore: VaultCacheStore {
             guard let data = result as? Data, data.count == 32 else {
                 throw VaultCacheError.invalidKey
             }
-            // Migrate keys created before background refresh support.
-            SecItemUpdate(
-                keyQuery(reference: reference) as CFDictionary,
-                [kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly] as CFDictionary
-            )
+            // Migrate keys created before background refresh support, once per launch.
+            if AccessibilityMigration.shared.claim("offline-cache|" + reference) {
+                SecItemUpdate(
+                    keyQuery(reference: reference) as CFDictionary,
+                    [kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly] as CFDictionary
+                )
+            }
             return SymmetricKey(data: data)
         }
         guard status == errSecItemNotFound, createIfMissing else {

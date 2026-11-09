@@ -74,9 +74,9 @@ final class MacMenuBarController: NSObject, ObservableObject, NSPopoverDelegate 
         image?.isTemplate = true
         statusItem?.button?.imageScaling = .scaleProportionallyDown
         statusItem?.button?.image = image
-        statusItem?.button?.toolTip = "Vaultwarden — " + L10n.string(
+        statusItem?.button?.toolTip = L10n.format("Vaultwarden · %@", L10n.string(
             !authenticated ? "Signed out" : (locked ? "Vault Locked" : "Vault Unlocked")
-        )
+        ))
     }
 
     @objc private func togglePopover() {
@@ -95,6 +95,12 @@ final class MacMenuBarController: NSObject, ObservableObject, NSPopoverDelegate 
         NSApplication.shared.activate(ignoringOtherApps: true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()
+    }
+
+    /// Escape on the panel's empty search field closes it, like Spotlight.
+    func closePopover() {
+        guard agent.prompt == nil else { return }
+        popover.performClose(nil)
     }
 
     func presentSSHRequest() {

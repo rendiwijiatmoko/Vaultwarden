@@ -267,6 +267,17 @@ final class UnlockPresentationTests: XCTestCase {
         serverURL: URL(string: "https://example.com")!,
         tokenReference: "unlock-focus-regression"
     )
+    private var originalPolicy: DeviceUnlockPolicy = .disabled
+
+    // Device unlock is off unless enabled, and these cases are about what happens once it is.
+    override func setUp() async throws {
+        originalPolicy = DeviceUnlockPolicy.current
+        try DeviceUnlockPolicy.configure(.biometrics)
+    }
+
+    override func tearDown() async throws {
+        try? DeviceUnlockPolicy.configure(originalPolicy)
+    }
 
     func testBackgroundUnlockDoesNotReadProtectedKeyOrUnlockVault() async throws {
         let keychain = UnlockSessionStoreSpy()

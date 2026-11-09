@@ -69,4 +69,23 @@ final class AutoFillCredentialSelectionTests: XCTestCase {
         XCTAssertNil(AutoFillCredentialSelection.oneTimeCode(recordIdentifier: "password|selected")
             .resolve(in: [selected]))
     }
+
+    func testStaleOneTimeCodeSelectionDoesNotFallBackToAnotherAccount() {
+        let selection = AutoFillCredentialSelection.oneTimeCode(recordIdentifier: "totp|deleted")
+
+        XCTAssertNil(selection.resolve(in: [login(id: "other", totpSecret: "JBSWY3DPEHPK3PXP")]))
+    }
+
+    func testSelectionIgnoresPickerRankingAndResolvesTheExactRecord() {
+        let records = [login(id: "recent"), login(id: "selected"), login(id: "older")]
+        let sections = AutoFillPicker.sections(
+            records: records,
+            context: .services(["https://example.com"], defaultMatchType: .baseDomain),
+            usage: .empty
+        )
+        let selection = AutoFillCredentialSelection.password(recordIdentifier: "password|selected")
+
+        XCTAssertEqual(sections.suggested.count, 3)
+        XCTAssertEqual(selection.resolve(in: sections.suggested.map(\.record))?.id, "selected")
+    }
 }

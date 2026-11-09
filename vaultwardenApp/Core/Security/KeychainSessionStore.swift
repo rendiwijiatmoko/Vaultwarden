@@ -37,8 +37,33 @@ enum SessionStoreError: LocalizedError {
         case .unexpectedData: "The saved session is damaged. Please sign in again."
         case .masterPasswordRequired: "Unlock with your master password to enable device unlock with the current security settings."
         case .devicePasscodeRequired: "Set a device passcode before saving this vault key."
-        case let .keychain(status): "Keychain returned error \(status)."
+        case let .keychain(status):
+            switch status {
+            case errSecUserCanceled: "Authentication was canceled."
+            case errSecAuthFailed: "Authentication failed. Try again or use your master password."
+            case errSecInteractionNotAllowed: "Unlock your device, then try again."
+            default: "The Keychain couldn't complete the request. Try again or use your master password."
+            }
         }
+    }
+
+    /// The person dismissed the system prompt. Not worth an error message.
+    var isUserCancellation: Bool {
+        if case let .keychain(status) = self { return status == errSecUserCanceled }
+        return false
+    }
+}
+
+nonisolated final class AccessibilityMigration: @unchecked Sendable {
+    static let shared = AccessibilityMigration()
+    private let lock = NSLock()
+    private var migrated: Set<String> = []
+
+    /// True the first time a reference is seen in this process.
+    func claim(_ reference: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return migrated.insert(reference).inserted
     }
 }
 
@@ -80,10 +105,13 @@ struct KeychainSessionStore: SessionStore {
         }
         // Existing installs used WhenUnlocked. AfterFirstUnlock keeps the
         // device-only token available to the registered BG refresh task.
-        SecItemUpdate(
-            baseQuery(reference: reference) as CFDictionary,
-            [kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly] as CFDictionary
-        )
+        // Every authenticated request loads credentials; migrate once per launch.
+        if AccessibilityMigration.shared.claim(reference) {
+            SecItemUpdate(
+                baseQuery(reference: reference) as CFDictionary,
+                [kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly] as CFDictionary
+            )
+        }
         if let update = try? AutoFillSharedVault.takeWriteSessionUpdate(reference: reference) {
             credentials = StoredSessionCredentials(
                 userID: credentials.userID,

@@ -50,8 +50,8 @@ struct ContentView: View {
                     .zIndex(1_000)
             }
         }
-        .animation(.snappy, value: store.isLocked)
-        .animation(.smooth, value: hasCompletedOnboarding)
+        .animation(.snappy(duration: 0.3), value: store.isLocked)
+        .animation(.smooth(duration: 0.3), value: hasCompletedOnboarding)
         .tint(.vaultBlue)
         .preferredColorScheme(preferredColorScheme)
         .onOpenURL(perform: receiveVerificationCodeSetup)
@@ -95,6 +95,7 @@ struct ContentView: View {
             #if os(iOS)
             guard hasCompletedOnboarding else { return }
             if phase == .background {
+                VaultSensitiveAccess.revoke()
                 if store.settings.backgroundRefresh { BackgroundSyncManager.schedule() }
                 store.appDidEnterBackground()
             } else if phase == .active {
@@ -103,10 +104,27 @@ struct ContentView: View {
             #endif
         }
         .onChange(of: store.isLocked) { _, isLocked in
-            if isLocked { presentedCodeSetup = nil }
+            if isLocked {
+                presentedCodeSetup = nil
+                // Nothing decrypted outlives the unlocked session, search keys included.
+                VaultSensitiveAccess.revoke()
+                VaultSearchKeyCache.removeAll()
+            } else {
+                // Unlocking is itself an authentication; don't ask again right away.
+                VaultSensitiveAccess.markAuthorized()
+            }
+            presentQueuedCodeSetupIfPossible()
         }
-        .onChange(of: store.isLocked) { _, _ in presentQueuedCodeSetupIfPossible() }
-        .onChange(of: store.isAuthenticated) { _, _ in presentQueuedCodeSetupIfPossible() }
+        .onChange(of: store.isAuthenticated) { _, isAuthenticated in
+            if !isAuthenticated {
+                VaultSensitiveAccess.revoke()
+                VaultSearchKeyCache.removeAll()
+                WebsiteIconMemoryCache.removeAll()
+                WebsiteIconHostLookup.removeAll()
+                Task { await WebsiteIconRepository.shared.reset() }
+            }
+            presentQueuedCodeSetupIfPossible()
+        }
         #if os(macOS)
         .task(id: isReadyForAutoFillSetup) {
             await requestAutoFillSetupIfNeeded()
@@ -115,6 +133,12 @@ struct ContentView: View {
             Task { await requestAutoFillSetupIfNeeded() }
         }
         #endif
+        // Last, so sheets presented above also see them.
+        .environment(\.vaultHapticsEnabled, store.settings.haptics)
+        .environment(\.vaultIconContext, VaultIconContext(
+            showsWebsiteIcons: store.settings.showFavicons,
+            serverURL: store.authenticatedSession?.serverURL
+        ))
     }
 
     #if os(macOS)

@@ -181,7 +181,8 @@ enum VaultwardenServiceError: LocalizedError {
         case .insecureTransport: "Vaultwarden must be accessed over HTTPS."
         case .invalidResponse: "The server returned an invalid response."
         case let .serverRejected(status, message):
-            message ?? "The server rejected the request (HTTP \(status))."
+            message.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+                ?? Self.statusDescription(status)
         case .twoFactorRequired: "Enter the 6-digit verification code from your authenticator app."
         case .sessionExpired: "The session has expired. Please sign in again."
         case .vaultLocked: "Unlock the vault before syncing."
@@ -194,6 +195,19 @@ enum VaultwardenServiceError: LocalizedError {
         case .archiveNotSupported:
             "This Vaultwarden server does not support archiving items. Update the server, then try again."
         case .missingAttachment: "This attachment is unavailable. Sync the vault and try again."
+        }
+    }
+
+    nonisolated static func statusDescription(_ status: Int) -> String {
+        switch status {
+        case 401: "The session has expired. Please sign in again."
+        case 403: "You don't have permission to make this change."
+        case 404: "This item is no longer on the server. Sync and try again."
+        case 409, 412: "This item changed on the server. Sync and try again."
+        case 413: "This file is too large for the server."
+        case 429: "The server is busy. Try again in a moment."
+        case 500...599: "The server couldn't complete the request. Try again later."
+        default: "The server couldn't complete the request."
         }
     }
 }
@@ -861,7 +875,7 @@ struct DefaultVaultwardenService: VaultwardenService {
                     contentType: "multipart/form-data; boundary=\(multipart.boundary)"
                 )
             case 1:
-                guard let url = URL(string: upload.url), url.scheme?.hasPrefix("http") == true else {
+                guard let url = URL(string: upload.url), url.scheme?.lowercased() == "https" else {
                     throw VaultwardenServiceError.unsupportedFileUpload
                 }
                 var request = URLRequest(url: url)
@@ -995,8 +1009,10 @@ struct DefaultVaultwardenService: VaultwardenService {
         )
         let access = try BitwardenJSONDecoder.make().decode(AttachmentDownloadResponseDTO.self, from: accessData)
         guard let url = URL(string: access.url, relativeTo: session.serverURL)?.absoluteURL,
-              url.scheme == "https" else { throw VaultwardenServiceError.missingAttachment }
+              url.scheme?.lowercased() == "https" else { throw VaultwardenServiceError.missingAttachment }
         let (encryptedURL, response) = try await httpClient.download(for: URLRequest(url: url))
+        // URLSession leaves async downloads in place; remove the ciphertext either way.
+        defer { try? FileManager.default.removeItem(at: encryptedURL) }
         try validate(response: response, data: Data())
         let credentials = try sessionStore.load(reference: session.tokenReference)
         guard let userKey = await keyMemory.load(reference: session.tokenReference) else {
@@ -1046,12 +1062,14 @@ struct DefaultVaultwardenService: VaultwardenService {
             body: passwordBody
         )
         guard let access = try? BitwardenJSONDecoder.make().decode(SendFileDownloadResponseDTO.self, from: accessData),
-              let downloadURL = URL(string: access.url, relativeTo: session.serverURL)?.absoluteURL else {
+              let downloadURL = URL(string: access.url, relativeTo: session.serverURL)?.absoluteURL,
+              downloadURL.scheme?.lowercased() == "https" else {
             throw VaultwardenServiceError.invalidFileSendResponse
         }
         var request = URLRequest(url: downloadURL)
         request.httpMethod = "GET"
         let (temporaryEncryptedURL, response) = try await httpClient.download(for: request)
+        defer { try? FileManager.default.removeItem(at: temporaryEncryptedURL) }
         try validate(response: response, data: Data())
 
         let credentials = try sessionStore.load(reference: session.tokenReference)
@@ -1069,11 +1087,16 @@ struct DefaultVaultwardenService: VaultwardenService {
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
         let outputURL = outputDirectory.appendingPathComponent(Self.safeFileName(item.fileName ?? "Send file"))
-        try client.sends().decryptFile(
-            send: remote.encrypted,
-            encryptedFilePath: temporaryEncryptedURL.path,
-            decryptedFilePath: outputURL.path
-        )
+        do {
+            try client.sends().decryptFile(
+                send: remote.encrypted,
+                encryptedFilePath: temporaryEncryptedURL.path,
+                decryptedFilePath: outputURL.path
+            )
+        } catch {
+            try? FileManager.default.removeItem(at: outputDirectory)
+            throw error
+        }
         return outputURL
     }
 
@@ -1525,7 +1548,8 @@ struct DefaultVaultwardenService: VaultwardenService {
         let invalid = CharacterSet(charactersIn: "/:\\?%*|\"<>")
         let name = value.components(separatedBy: invalid).joined(separator: "_")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        return name.isEmpty ? "Send file" : name
+            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        return name.isEmpty ? "Send file" : String(name.prefix(200))
     }
 
     private func authorizedResponse(
@@ -1598,6 +1622,12 @@ struct DefaultVaultwardenService: VaultwardenService {
         // since this request loaded its credentials.
         let latest = try sessionStore.load(reference: reference)
         if latest.refreshToken != current.refreshToken { return latest }
+        // Servers that keep the refresh token still issue a new access token.
+        // A request that saw 401 just after another refresh finished reuses it.
+        if latest.accessToken != current.accessToken,
+           latest.expiresAt > Date().addingTimeInterval(30) {
+            return latest
+        }
         guard let refreshToken = latest.refreshToken else {
             throw VaultwardenServiceError.sessionExpired
         }
