@@ -177,6 +177,8 @@ private struct WebsiteIconTile: View {
                 .interpolation(.high)
                 .scaledToFill()
                 .frame(width: side, height: side)
+                // Logos with transparent gaps (Microsoft's) must not show the letter tile through them.
+                .background(Color.white)
         } else {
             // A small favicon is drawn at no more than twice its own size, so it stays sharp.
             let natural = CGFloat(image.cgImage.width) / max(displayScale, 1)

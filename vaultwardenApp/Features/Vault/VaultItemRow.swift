@@ -145,7 +145,7 @@ struct TOTPItemRow: View {
             Text(canCopy ? TOTPDisplay.grouped(code) : "••• •••")
                 .font(.title3.monospacedDigit().weight(.semibold))
                 .foregroundStyle(isSelected ? Color.white : Color.primary)
-                .contentTransition(.numericText())
+                .totpCodeTransition(canCopy ? code : nil)
                 .accessibilityLabel(canCopy ? L10n.format("Code %@", code) : L10n.string("Code hidden"))
             TOTPCountdownRing(date: date, period: TOTPGenerator.period(secret: secret))
         }

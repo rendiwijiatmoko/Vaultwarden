@@ -2553,6 +2553,7 @@ private struct AutoFillLiveCode: View {
     let secret: String
     @ScaledMetric(relativeTo: .body) private var ringSize: CGFloat = 16
     @Environment(\.backgroundProminence) private var backgroundProminence
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         TimelineView(.periodic(from: Self.wholeSecond, by: 1)) { context in
@@ -2563,9 +2564,14 @@ private struct AutoFillLiveCode: View {
                 Text(AutoFillTOTP.grouped(code))
                     .font(.title3.monospacedDigit().weight(.semibold))
                     .foregroundStyle(ink)
+                    // Digits roll over to the next code.
+                    .contentTransition(reduceMotion ? .opacity : .numericText())
+                    .animation(reduceMotion ? .easeInOut(duration: 0.2) : .snappy(duration: 0.45), value: code)
                     .accessibilityLabel(Text(verbatim: code.map { String($0) }.joined(separator: " ")))
-                AutoFillCountdownRing(fraction: Double(remaining) / Double(max(period, 1)), ink: ink)
+                AutoFillCountdownRing(fraction: Double(remaining - 1) / Double(max(period, 1)), ink: ink)
                     .frame(width: ringSize, height: ringSize)
+                    // Glide between ticks, spring full when a new code starts.
+                    .animation(remaining == max(period, 1) ? .spring(duration: 0.5, bounce: 0.2) : .linear(duration: 1), value: remaining)
                     .accessibilityHidden(true)
             }
         }

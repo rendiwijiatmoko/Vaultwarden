@@ -27,8 +27,8 @@ struct TOTPCountdownRing: View {
                 .rotationEffect(.degrees(-90))
         }
         .frame(width: diameter, height: diameter)
-        // A new code refills the ring at once instead of sweeping backwards.
-        .animation(remaining == max(period, 1) ? nil : .linear(duration: 1), value: remaining)
+        // A new code springs the ring full again; between codes it glides down.
+        .animation(remaining == max(period, 1) ? .spring(duration: 0.5, bounce: 0.2) : .linear(duration: 1), value: remaining)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(L10n.format("Code changes in %lld seconds", remaining))
     }
@@ -56,7 +56,7 @@ struct VaultCodeField: View {
                         Text(code.map(TOTPDisplay.grouped) ?? L10n.string("Invalid Setup Key"))
                             .font(code == nil ? .body : .title2.monospacedDigit())
                             .foregroundStyle(code == nil ? Color.secondary : Color.primary)
-                            .contentTransition(.numericText())
+                            .totpCodeTransition(code)
                     }
                     Spacer(minLength: 8)
                     if code != nil {
@@ -90,5 +90,23 @@ struct VaultCodeField: View {
             guard current == copyCount else { return }
             withAnimation(VaultMotion.fade) { showsCopied = false }
         }
+    }
+}
+
+extension View {
+    /// Rolls each digit over to the next code when it changes.
+    func totpCodeTransition(_ code: String?) -> some View {
+        modifier(TOTPCodeTransition(code: code))
+    }
+}
+
+private struct TOTPCodeTransition: ViewModifier {
+    let code: String?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content
+            .contentTransition(reduceMotion ? .opacity : .numericText())
+            .animation(reduceMotion ? .easeInOut(duration: 0.2) : .snappy(duration: 0.45), value: code)
     }
 }
