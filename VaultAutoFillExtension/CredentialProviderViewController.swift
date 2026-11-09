@@ -612,6 +612,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
                         selectedPasskey: selected,
                         unlockedVault: unlockedVault
                     )
+                    guard !isRequestCancelled else { return }
                     beginCompletingFill(of: record.id, userInitiated: userInitiated)
                     await extensionContext.completeAssertionRequest(using: credential)
                 } catch {
@@ -658,6 +659,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
                     request: request,
                     unlockedVault: unlocked
                 )
+                guard !isRequestCancelled else { return }
                 if let identity = request.credentialIdentity as? ASPasskeyCredentialIdentity {
                     recordUse(of: identity.credentialID.base64EncodedString())
                 }
@@ -878,6 +880,8 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     }
 
     private func cancelRequest(code: ASExtensionError.Code) {
+        // A request is cancelled once; a second Cancel does nothing.
+        guard !isRequestCancelled else { return }
         isRequestCancelled = true
         pendingCredentialSelection = nil
         pendingRequest = nil

@@ -15,7 +15,11 @@ enum VaultSensitiveAccess {
         guard !store.isLocked, store.isAuthenticated else { return false }
         guard store.settings.requireBiometricForSensitiveActions else { return true }
         if let authorizedUntil, authorizedUntil > .now { return true }
-        if let pending { return await pending.value }
+        if let pending {
+            let generation = store.vaultGeneration
+            let granted = await pending.value
+            return granted && generation == store.vaultGeneration && !store.isLocked
+        }
 
         // With nothing to authenticate with, the setting can't be honored, and
         // refusing every copy would lock the person out of their own vault.

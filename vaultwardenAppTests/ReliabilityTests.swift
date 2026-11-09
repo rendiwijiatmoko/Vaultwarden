@@ -173,6 +173,14 @@ struct RedirectPolicyTests {
         #expect(redirected.value(forHTTPHeaderField: "Authorization") == nil)
     }
 
+    @Test func refusesCrossOriginRedirectThatResendsABody() {
+        var post = request("https://elsewhere.example.net/identity/connect/token")
+        post.httpMethod = "POST"
+        #expect(RedirectPolicy.redirectedRequest(
+            post, from: URL(string: "https://vault.example.com/identity/connect/token")
+        ) == nil)
+    }
+
     @Test func refusesDowngradeToHTTP() {
         #expect(RedirectPolicy.redirectedRequest(
             request("http://vault.example.com/api/sync"), from: URL(string: "https://vault.example.com/api/sync")

@@ -1177,8 +1177,8 @@ private nonisolated final class PasskeyUserInterface: Fido2UserInterface, @unche
     func pickCredentialForAuthentication(
         availableCredentials: [CipherView]
     ) async throws -> CipherViewWrapper {
-        guard let selected = availableCredentials.first(where: { $0.id == selectedCipherID })
-            ?? availableCredentials.first else {
+        // Never sign with a different account's passkey than the one chosen.
+        guard let selected = availableCredentials.first(where: { $0.id == selectedCipherID }) else {
             throw AutoFillPasskeyError.credentialNotFound
         }
         return CipherViewWrapper(cipher: selected)

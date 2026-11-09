@@ -138,6 +138,9 @@ nonisolated final class RedirectPolicy: NSObject, URLSessionTaskDelegate, Sendab
                 && $0.port == url.port
         } ?? false
         if !sameOrigin {
+            // A 307/308 resends the body (a refresh token or password hash) as is.
+            let method = (request.httpMethod ?? "GET").uppercased()
+            guard method == "GET" || method == "HEAD" else { return nil }
             redirected.setValue(nil, forHTTPHeaderField: "Authorization")
         }
         return redirected
