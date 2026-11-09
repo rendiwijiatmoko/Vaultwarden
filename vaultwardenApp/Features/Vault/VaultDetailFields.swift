@@ -275,6 +275,7 @@ struct MacDetailCard<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) { content }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 16)
             .padding(.vertical, 6)
             .background(.background, in: .rect(cornerRadius: 12))
@@ -303,3 +304,14 @@ struct MacDetailRow<Content: View>: View {
     }
 }
 #endif
+
+extension View {
+    /// Gives a free-standing line in a Mac detail card the same height as `MacDetailRow`.
+    func macDetailLine() -> some View {
+        #if os(macOS)
+        padding(.vertical, 8)
+        #else
+        self
+        #endif
+    }
+}

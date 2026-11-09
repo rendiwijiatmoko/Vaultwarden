@@ -371,7 +371,9 @@ struct VaultItemDetailView: View {
                     Image(systemName: issue.symbol)
                         .foregroundStyle(issue.isUrgent ? Color.red : Color.orange)
                 }
+                .macDetailLine()
                 changePasswordButton(item)
+                    .macDetailLine()
             }
         }
         if item.type == .login, !item.password.isEmpty, permissions.canRevealSecrets, !item.isDeleted {
@@ -434,18 +436,50 @@ struct VaultItemDetailView: View {
     private func infoGroup(_ item: VaultItem) -> some View {
         if item.folder != nil || item.organization != nil {
             VaultDetailGroup {
+                #if os(macOS)
+                if let folder = item.folder {
+                    MacDetailRow(title: L10n.string("Folder")) { Text(folder).foregroundStyle(.secondary) }
+                }
+                if let organization = item.organization {
+                    MacDetailRow(title: L10n.string("Organization")) { Text(organization).foregroundStyle(.secondary) }
+                }
+                #else
                 if let folder = item.folder {
                     LabeledContent("Folder", value: folder)
                 }
                 if let organization = item.organization {
                     LabeledContent("Organization", value: organization)
                 }
+                #endif
             }
         }
     }
 
     @ViewBuilder
     private func actionsGroup(_ item: VaultItem, permissions: VaultItemPermissions) -> some View {
+        #if os(macOS)
+        VStack(alignment: .leading, spacing: 8) {
+            if permissions.canEdit {
+                HStack(spacing: 8) {
+                    if item.isDeleted {
+                        Button("Restore") { actions.restore([item], store: store) }
+                        Button("Delete Permanently…", role: .destructive) {
+                            actions.requestPermanentDeletion([item])
+                        }
+                    } else {
+                        Button(item.isArchived ? L10n.string("Unarchive") : L10n.string("Archive")) {
+                            actions.archive([item], store: store)
+                        }
+                        Button("Delete", role: .destructive) { trash(item) }
+                    }
+                }
+            }
+            creationFooter(item)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 4)
+        }
+        #else
         VaultDetailGroup(title: nil) {
             if permissions.canEdit {
                 if item.isDeleted {
@@ -461,16 +495,18 @@ struct VaultItemDetailView: View {
                 }
             }
         } footer: {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(L10n.format("Created %@", (item.createdAt ?? item.updatedAt).formatted(date: .abbreviated, time: .shortened)))
-                if item.type == .login, let passwordUpdatedAt = item.passwordUpdatedAt {
-                    Text(L10n.format("Password changed %@", passwordUpdatedAt.formatted(date: .abbreviated, time: .shortened)))
-                }
+            creationFooter(item)
+        }
+        #endif
+    }
+
+    private func creationFooter(_ item: VaultItem) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(L10n.format("Created %@", (item.createdAt ?? item.updatedAt).formatted(date: .abbreviated, time: .shortened)))
+            if item.type == .login, let passwordUpdatedAt = item.passwordUpdatedAt {
+                Text(L10n.format("Password changed %@", passwordUpdatedAt.formatted(date: .abbreviated, time: .shortened)))
             }
         }
-        #if os(macOS)
-        .buttonStyle(.borderless)
-        #endif
     }
 
     private func attachmentRow(_ attachment: VaultAttachment, itemID: UUID) -> some View {
