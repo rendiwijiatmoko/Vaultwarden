@@ -87,6 +87,10 @@ final class AppStore: ObservableObject {
     @Published private(set) var unlockPromptGeneration = 0
     @Published private(set) var shouldAutomaticallyPromptUnlock = true
 
+    // Releasing the store must not hop to the main actor. The implicit isolated
+    // deinit aborts in the Swift runtime when a task-local scope is active.
+    nonisolated deinit {}
+
     init(
         vaultwardenService: any VaultwardenService = DefaultVaultwardenService(),
         settingsDefaults: UserDefaults = .standard,

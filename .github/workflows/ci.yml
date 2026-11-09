@@ -59,8 +59,29 @@ jobs:
             CODE_SIGNING_ALLOWED=YES \
             DEVELOPMENT_TEAM= > "$RUNNER_TEMP/ios.log" 2>&1 || status=$?
           grep -E 'error:|✘|failed|\*\* |Test run with|crash|Restarting|unexpected' "$RUNNER_TEMP/ios.log" | sort -u | head -300 || true
+          echo "----- before the crash -----"
+          grep -n -B80 'Restarting after unexpected' "$RUNNER_TEMP/ios.log" | grep -E 'Test Case|◇ Test|◇ Suite' | tail -6 || true
+          echo "----- crash reports -----"
+          for f in ~/Library/Logs/DiagnosticReports/Vaultwarden*.ips; do
+            [ -f "$f" ] || continue
+            echo "== $f"
+            python3 - "$f" <<'PY' || head -c 6000 "$f"
+          import json, sys
+          text = open(sys.argv[1]).read()
+          header, body = text.split("\n", 1)
+          report = json.loads(body)
+          print(report.get("exception"), report.get("termination", {}).get("indicator"))
+          images = report.get("usedImages", [])
+          for thread in report.get("threads", []):
+              if not thread.get("triggered"):
+                  continue
+              for frame in thread.get("frames", [])[:40]:
+                  image = images[frame.get("imageIndex", 0)].get("name", "?") if images else "?"
+                  print(image, frame.get("symbol", "?"), frame.get("sourceFile", ""), frame.get("sourceLine", ""))
+          PY
+          done
           echo "----- last lines -----"
-          tail -80 "$RUNNER_TEMP/ios.log"
+          tail -40 "$RUNNER_TEMP/ios.log"
           exit $status
 
       - name: Publish screenshots
