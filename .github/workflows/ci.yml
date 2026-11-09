@@ -146,18 +146,18 @@ jobs:
         run: |
           status=0
           export TEST_RUNNER_SNAPSHOT_DIR="$RUNNER_TEMP/snapshots"
+          printf 'CODE_SIGN_ENTITLEMENTS =\nCODE_SIGN_ENTITLEMENTS[sdk=macosx*] =\n' > "$RUNNER_TEMP/shots.xcconfig"
           xcodebuild test \
             -project vaultwardenApp.xcodeproj \
             -scheme vaultwardenApp \
             -configuration Debug \
             -destination 'platform=macOS,arch=arm64' \
+            -xcconfig "$RUNNER_TEMP/shots.xcconfig" \
             -derivedDataPath "$RUNNER_TEMP/DerivedDataShots" \
             -only-testing:vaultwardenAppTests/UISnapshotTests \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY=- \
             CODE_SIGNING_ALLOWED=YES \
-            CODE_SIGN_ENTITLEMENTS= \
-            'CODE_SIGN_ENTITLEMENTS[sdk=macosx*]=' \
             DEVELOPMENT_TEAM= > "$RUNNER_TEMP/macos-shots.log" 2>&1 || status=$?
           grep -E 'error:|✘|\*\* ' "$RUNNER_TEMP/macos-shots.log" | sort -u | head -100 || true
           exit $status
